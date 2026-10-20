@@ -122,7 +122,10 @@ def pubmed_fetch(pmids: list[str]) -> list[Record]:
             if au.findtext("CollectiveName"):
                 authors.append((au.findtext("CollectiveName").strip(), ""))
             elif au.findtext("LastName"):
-                authors.append((au.findtext("LastName").strip(), (au.findtext("Initials") or "").strip()))
+                initials = (au.findtext("Initials") or "").strip()
+                if au.findtext("Suffix"):
+                    initials = f"{initials} {au.findtext('Suffix').strip()}".strip()  # "Cunningham ET Jr"
+                authors.append((au.findtext("LastName").strip(), initials))
         ji = a.find("Journal/JournalIssue")
         year = (ji.findtext("PubDate/Year") or (ji.findtext("PubDate/MedlineDate") or "")[:4]) if ji is not None else ""
         if not year:

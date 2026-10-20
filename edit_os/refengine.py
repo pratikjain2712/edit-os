@@ -150,7 +150,8 @@ def format_pages(pages: str, style: JournalStyle) -> str:
     if not m:
         return pages.strip()
     last = _compress(m.group(2), m.group(4)) if style.get("references.page_range_compress", True) else m.group(4)
-    return f"{m.group(1)}{m.group(2)}{dash}{m.group(3)}{last}"
+    prefix2 = "" if m.group(3) == m.group(1) else m.group(3)  # e524-e532 -> e524-32
+    return f"{m.group(1)}{m.group(2)}{dash}{prefix2}{last}"
 
 
 def journal_name(r: biblio.Record, style: JournalStyle) -> str:
@@ -183,22 +184,59 @@ def _usable_title(r: biblio.Record, p: Parsed | None) -> str:
     return title
 
 
+def sentence_case(title: str) -> str:
+    """Lower-case Title-Cased words, keeping the first word, the word after a colon, acronyms
+    (ASCO, GLOBOCAN, U.S.) and words with inner capitals or digits (mRNA, COVID-19)."""
+    words = re.split(r"(\s+)", title)
+    out, first = [], True
+    for w in words:
+        if w.isspace() or not w:
+            out.append(w)
+            continue
+        core = re.sub(r"^\W+|\W+$", "", w)
+        plain = re.fullmatch(r"[A-Z][a-z]+(?:-[A-Za-z][a-z]*)*", core) is not None
+        if first:
+            out.append(w)
+        elif plain:
+            out.append(w.replace(core, core.lower(), 1))
+        else:
+            out.append(w)
+        first = w.endswith((":", "?", "!")) or (w.endswith(".") and len(core) > 3)
+    return "".join(out)
+
+
 def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None) -> str:
     max_a = style.get("references.max_authors", 6)
     names = _usable_authors(r, p)
     if max_a and len(names) > max_a:
         names = names[:max_a] + [style.get("references.et_al", "et al.").rstrip(".")]
+    groups = {f"{s} {i}".strip() for s, i in r.authors if not i}
+    # Group authors are separated by semicolons: "GBD 2019 Collaborators; Vision Loss Expert Group".
+    author_text = ""
+    for k, n in enumerate(names):
+        if k:
+            author_text += "; " if n in groups or names[k - 1] in groups else ", "
+        author_text += n
     title = re.sub(r"\s+", " ", _usable_title(r, p)).strip()
     if title.endswith("."):
         title = title[:-1]
+    if style.get("references.title_sentence_case"):
+        title = sentence_case(title)
     if style.get("references.capitalize_after_colon"):
         title = re.sub(r":\s([a-z])", lambda m: ": " + m.group(1).upper(), title)
     end = "" if title.endswith(("?", "!")) else "."
-    issue = "" if style.get("references.drop_issue", True) or not r.issue else f"({r.issue})"
+    suppl = next((x for x in (r.issue, r.volume) if x and re.search(r"suppl", x, re.I)), "")
+    if suppl:  # PubMed puts supplements in Volume ("45 Suppl 1") or Issue
+        issue = "(" + re.sub(r"(?i)^.*?suppl\w*\.?\s*", "Suppl ", suppl).strip() + ")"
+    elif r.issue and not style.get("references.drop_issue", True):
+        issue = f"({r.issue})"
+    else:
+        issue = ""
+    volume = re.sub(r"\s*\(?suppl.*$", "", r.volume, flags=re.I)
     pages = format_pages(r.pages, style)
-    cite = f"{journal_name(r, style)} {r.year};{r.volume}{issue}"
+    cite = f"{journal_name(r, style)} {r.year};{volume}{issue}"
     cite += f":{pages}" if pages else ""
-    return f"{', '.join(names)}. {title}{end} {cite}."
+    return f"{author_text}. {title}{end} {cite}."
 
 
 def resolve(text: str, style: JournalStyle) -> Resolution:

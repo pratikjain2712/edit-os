@@ -31,9 +31,10 @@ references:
   page_range_dash: "-"
   drop_issue: true             # 2017;12(3):101-9 -> 2017;12:101-9
   no_period_before_year: true  # J Med Genet. 1987;24 -> J Med Genet 1987;24
-  capitalize_after_colon: true
+  capitalize_after_colon: true # "dermoid: a case report" -> "dermoid: A case report"
+  title_sentence_case: true    # "Treatment of Metastatic Cancer" -> "Treatment of metastatic cancer"
   journal_abbreviation: nlm    # Index Medicus abbreviation from NLM's journal list
-  journal_drop_qualifier: true # "Spine (Phila Pa 1976)" -> "Spine", as the editors do # "dermoid: a case report" -> "dermoid: A case report"
+  journal_drop_qualifier: true # "Spine (Phila Pa 1976)" -> "Spine", as the editors do
 
 keywords:
   min: 3

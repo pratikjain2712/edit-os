@@ -44,10 +44,10 @@ def test_ijo_rules(manuscript, tmp_path):
     assert t[3] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
     assert t[4] == "Mean age was 45 (12) years and p=0.03."  # statistics, not a citation; spacing off for IJO
     assert t[5] == "<H1>Methods" and t[6] == "<H1>Results" and t[8] == "<H1>References"
-    assert t[9] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295–9."
+    assert t[9] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
     assert t[10] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
-                     "Complex limbal choristomas. Ophthalmology 1998;105:1459–65.")
-    assert t[11] == "3. Lindqvist P, Hale R. Timing of surgery. J Med Genet 1987;24:616–20."
+                     "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")
+    assert t[11] == "3. Lindqvist P, Hale R. Timing of surgery. J Med Genet 1987;24:616-20."
 
 
 def test_base_rules_space_operators_and_tag_all_h1(manuscript, tmp_path):

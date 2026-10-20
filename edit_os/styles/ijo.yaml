@@ -9,6 +9,3 @@ headings:
 
 statistics:
   space_around_operators: false  # the editor does not add these for IJO
-
-references:
-  page_range_dash: "–"           # Surv Ophthalmol 1989;33:339–58

@@ -47,7 +47,7 @@ def test_match_and_format(fake_pubmed):
     res = refengine.resolve(text, style.load("ijo"))
     assert res.status == refengine.FORMAT_FIXED and res.record.pmid == "8694700"
     assert res.formatted == ("Shields CL, Shields JA, De Potter P, Cater J, Tardio D, Barrett J, et al. Diffuse choroidal "
-                             "melanoma. Clinical features predictive of metastasis. Arch Ophthalmol 1996;114:956–63.")
+                             "melanoma. Clinical features predictive of metastasis. Arch Ophthalmol 1996;114:956-63.")
 
 
 def test_wrong_paper_becomes_query(fake_pubmed):
@@ -84,4 +84,4 @@ def test_lookup_rule_writes_word_level_changes(fake_pubmed, tmp_path):
     out = tmp_path / "o.docx"
     tracked.render(docmodel.load(str(path)), cs, tracked=False).save(out)
     assert docmodel.load(str(out)).paragraphs[1].text.endswith("et al. Diffuse choroidal melanoma. Clinical features "
-                                                                "predictive of metastasis. Arch Ophthalmol 1996;114:956–63.")
+                                                                "predictive of metastasis. Arch Ophthalmol 1996;114:956-63.")
