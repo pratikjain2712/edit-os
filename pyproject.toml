@@ -1,0 +1,16 @@
+[project]
+name = "edit-os"
+version = "0.1.0"
+description = "Copy editing and style editing for journal manuscripts"
+requires-python = ">=3.11"
+dependencies = [
+    "python-docx>=1.1",
+    "lxml>=5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
