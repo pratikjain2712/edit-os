@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from itertools import count
 
-from . import references
+from . import journals, references
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -161,6 +161,21 @@ def _compress(first: str, last: str) -> str:
     return last[i:]
 
 
+def _journal_span(text: str, lo: int, hi: int):
+    """Find the journal name ending at `hi` (just before the year): try each sentence boundary
+    from the furthest back, so "J. Orthop. Rehabil." wins over "Rehabil."."""
+    window = max(lo, hi - 150)
+    starts = [window + m.end() for m in re.finditer(r"[.?!]\s+", text[window:hi])]
+    for start in starts:
+        name = text[start:hi].rstrip(" .,")
+        if not name or len(name) > 120:
+            continue
+        journal = journals.directory().lookup(name)
+        if journal:
+            return start, start + len(name), journal
+    return None
+
+
 def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
     for ref in references.extract(ms):
@@ -193,6 +208,16 @@ def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 out.append(_change(p, base + ym.start("sep"), base + ym.end("sep"), " ", Layer.REFERENCES, "ref_year"))
             if style.get("references.drop_issue") and ym.group("issue"):
                 out.append(_change(p, base + ym.end("vol"), base + ym.end("issue"), "", Layer.REFERENCES, "ref_issue"))
+
+        if ym and style.get("references.journal_abbreviation") == "nlm" and journals.directory():
+            j = _journal_span(text, authors_end or 0, ym.start())
+            if j:
+                start, end, journal = j
+                abbr = journal.med_abbr
+                if style.get("references.journal_drop_qualifier", True):
+                    abbr = re.sub(r"\s*\([^)]*\)$", "", abbr)  # "Cancers (Basel)" -> "Cancers"
+                if text[start:end] != abbr:
+                    out.append(_change(p, base + start, base + end, abbr, Layer.REFERENCES, "ref_journal"))
 
         if style.get("references.capitalize_after_colon") and authors_end:
             stop = ym.start() if ym else len(text)

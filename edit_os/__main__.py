@@ -4,6 +4,8 @@
   refs IN.docx                             list the reference entries found
   render IN.docx CHANGES.json OUTDIR       write tracked and clean copies from accepted changes
   style IN.docx JOURNAL OUTDIR             run the journal's rules, write tracked + clean copies and QC
+  journals update                          download NLM's journal list into the local database
+  journals find NAME                       look up a journal by title, abbreviation or ISSN
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import os
 import sys
 
-from . import docmodel, qc, references, rules, style, tracked
+from . import docmodel, journals, qc, references, rules, style, tracked
 from .changes import ChangeSet, Status
 
 
@@ -20,7 +22,12 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     cmd, path = argv[0], argv[1]
-    if cmd == "paragraphs":
+    if cmd == "journals" and path == "update":
+        print(f"{journals.update()} journals saved to {journals.DEFAULT_DB}")
+    elif cmd == "journals" and path == "find" and len(argv) == 3:
+        for j in journals.Directory().find(argv[2]):
+            print(f"{j.med_abbr}\t{j.title}\tISSN {j.issn_print or '-'} / {j.issn_online or '-'}\tNLM {j.nlm_id}")
+    elif cmd == "paragraphs":
         for p in docmodel.load(path).paragraphs:
             if p.text.strip():
                 print(f"{p.id}\t{p.style or '-'}\t{p.text[:100]}")
