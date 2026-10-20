@@ -23,6 +23,7 @@ statistics:
   space_around_operators: true  # p=0.03 -> p = 0.03
 
 references:
+  lookup: true                 # rebuild entries from PubMed / CrossRef when they match strictly
   max_authors: 6               # more than 6 -> first 6, et al.
   et_al: "et al."
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"

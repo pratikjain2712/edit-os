@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 from itertools import count
 
-from . import journals, references
+import difflib
+
+from . import journals, refengine, references
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -236,10 +238,46 @@ def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
     return out
 
 
+def lookup_references(ms: Manuscript, style: JournalStyle) -> list[tuple[references.Reference, refengine.Resolution]]:
+    """Resolve every reference against PubMed / CrossRef once per manuscript."""
+    if not style.get("references.lookup"):
+        return []
+    cached = getattr(ms, "_ref_resolutions", None)
+    if cached is None:
+        cached = [(r, refengine.resolve(r.text, style)) for r in references.extract(ms)]
+        ms._ref_resolutions = cached
+    return cached
+
+
+def word_diff(p: Paragraph, base: int, old: str, new: str, rule: str) -> list[Change]:
+    """Turn a whole-entry rewrite into small word-level changes, so the tracked file stays readable."""
+    tok = re.compile(r"\s+|\w+|[^\w\s]")
+    a, b = tok.findall(old), tok.findall(new)
+    starts, pos = [], 0
+    for t in a:
+        starts.append(pos)
+        pos += len(t)
+    starts.append(pos)
+    out = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op != "equal":
+            out.append(_change(p, base + starts[i1], base + starts[i2], "".join(b[j1:j2]), Layer.REFERENCES, rule))
+    return out
+
+
+def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    out = []
+    for ref, res in lookup_references(ms, style):
+        if res.status == refengine.FORMAT_FIXED:
+            out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup")
+    return out
+
+
 RULES = {
     "heading_tags": rule_heading_tags,
     "citations": rule_citations,
     "statistics": rule_statistics,
+    "ref_lookup": rule_ref_lookup,
     "references": rule_references,
 }
 
@@ -247,10 +285,16 @@ RULES = {
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) -> ChangeSet:
     """Run rules in order; drop any proposal that overlaps one already kept."""
     kept: list[Change] = []
+    resolved = set()  # reference paragraphs already rebuilt from PubMed / CrossRef
     for name, rule in RULES.items():
         if only and name not in only:
             continue
+        if name == "references":
+            resolved = {r.para_id for r, res in lookup_references(ms, style)
+                        if res.status in (refengine.MATCHED, refengine.FORMAT_FIXED)}
         for c in rule(ms, style):
+            if name == "references" and c.para_id in resolved:
+                continue
             clash = any(k.para_id == c.para_id and c.start < k.end and k.start < c.end for k in kept)
             same_point = any(k.para_id == c.para_id and k.start == k.end == c.start == c.end for k in kept)
             if not clash and not same_point:
