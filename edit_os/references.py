@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from .docmodel import Manuscript
 
 _HEADING = re.compile(
-    r"^\s*(references?|reference list|bibliography|literature cited|works cited|cited literature)\s*:?\s*$",
+    r"^\s*(?:<H\d>)?\s*(references?|reference list|bibliography|literature cited|works cited|cited literature)\s*:?\s*$",
     re.I,
 )
 # Sections that commonly follow the reference list.

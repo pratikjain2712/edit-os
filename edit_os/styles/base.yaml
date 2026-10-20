@@ -1,0 +1,43 @@
+# Shared Wolters Kluwer - Medknow style. Journal files override any key.
+name: Base (Medknow)
+
+citations:
+  brackets: square          # (4) -> [4]
+  after_punctuation: true   # "region (4)." -> "region.[4]"
+  multiple_delimiter: ","   # [1,2,4], no space
+  range_dash: "-"           # [6–9] -> [6-9]
+  two_number_range_as_list: true  # [1-2] -> [1,2]
+
+headings:
+  tag: true  # prefix headings with <H1> / <H2> for typesetting
+  h1: [abstract, introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references,
+       case report, case reports, case presentation, review of literature]
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions, data availability statement,
+       ethical approval, ethics approval]
+  strip_trailing_colon: true
+
+statistics:
+  space_around_operators: true  # p=0.03 -> p = 0.03
+
+references:
+  max_authors: 6               # more than 6 -> first 6, et al.
+  et_al: "et al."
+  initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"
+  page_range_compress: true    # 101-109 -> 101-9
+  page_range_dash: "-"
+  drop_issue: true             # 2017;12(3):101-9 -> 2017;12:101-9
+  no_period_before_year: true  # J Med Genet. 1987;24 -> J Med Genet 1987;24
+  capitalize_after_colon: true # "dermoid: a case report" -> "dermoid: A case report"
+
+keywords:
+  min: 3
+  max: 5
+  alphabetical: true
+
+required_sections:
+  - {heading: Conflicts of interest, default: "There are no conflicts of interest."}
+  - {heading: Financial support and sponsorship, default: "Nil."}
+expected_h1: [conclusion]

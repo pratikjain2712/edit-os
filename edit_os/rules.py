@@ -1,0 +1,233 @@
+"""Deterministic style-edit rules. Each rule proposes Change records; nothing is applied here.
+
+Rules work on the paragraph text view, so every proposal carries the exact old text it
+replaces. Overlapping proposals are resolved by `run_all` in rule order.
+"""
+
+from __future__ import annotations
+
+import re
+from itertools import count
+
+from . import references
+from .changes import Change, ChangeSet, Layer, Source
+from .docmodel import Manuscript, Paragraph
+from .style import JournalStyle
+
+_ids = count(1)
+
+
+def _change(p: Paragraph, start: int, end: int, new: str, layer: Layer, rule: str) -> Change:
+    return Change(id=f"r{next(_ids)}", para_id=p.id, start=start, end=end, old=p.text[start:end],
+                  new=new, layer=layer, source=Source.RULE, reason=rule)
+
+
+def body_paragraphs(ms: Manuscript) -> list[Paragraph]:
+    """Paragraphs before the reference list, outside tables."""
+    end = references.find_heading(ms)
+    paras = ms.paragraphs if end is None else ms.paragraphs[:end]
+    return [p for p in paras if not p.in_table and p.text.strip()]
+
+
+# --- citations -----------------------------------------------------------------------
+
+_NUMS = r"\d{1,3}(?:\s*[,–—\-]\s*\d{1,3})*"
+_ROUND = re.compile(r"(\s*)\((" + _NUMS + r")\)([.,;:]?)")
+_SQUARE = re.compile(r"(\s*)\[(" + _NUMS + r")\]([.,;:]?)")
+
+
+def normalise_citation(inner: str, style: JournalStyle) -> str | None:
+    parts = []
+    for item in re.split(r"\s*,\s*", inner.strip()):
+        m = re.fullmatch(r"(\d+)\s*[–—\-]\s*(\d+)", item)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if b <= a:
+                return None  # not a citation range
+            if b == a + 1 and style.get("citations.two_number_range_as_list", True):
+                parts += [str(a), str(b)]
+            else:
+                parts.append(f"{a}{style.get('citations.range_dash', '-')}{b}")
+        elif item.isdigit():
+            parts.append(str(int(item)))
+        else:
+            return None
+    return style.get("citations.multiple_delimiter", ",").join(parts)
+
+
+def _max_number(nums: str) -> int:
+    return max(int(n) for n in re.findall(r"\d+", nums))
+
+
+def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    refs = references.extract(ms)
+    n_refs = max((r.number or 0 for r in refs), default=len(refs)) or len(refs)
+    if not n_refs:
+        return []
+    out = []
+    for p in body_paragraphs(ms):
+        if p.style.lower().startswith("heading"):
+            continue
+        for pattern, is_round in ((_ROUND, True), (_SQUARE, False)):
+            if is_round and style.get("citations.brackets") != "square":
+                continue
+            for m in pattern.finditer(p.text):
+                lead, inner, punct = m.group(1), m.group(2), m.group(3)
+                start = m.start()
+                prev = p.text[:start].rstrip()
+                if not prev:  # list numbering at paragraph start
+                    continue
+                if re.search(r"(\d|%|\b(table|tables|fig|figure|figures|ref|reference|n|no|eq|equation)\.?)$", prev, re.I):
+                    continue  # statistics "45 (12)" or "Table (2)"-style labels, not citations
+                if _max_number(inner) > n_refs:
+                    continue
+                norm = normalise_citation(inner, style)
+                if norm is None:
+                    continue
+                if style.get("citations.after_punctuation", True) and punct:
+                    new = f"{punct}[{norm}]"
+                else:
+                    new = f"[{norm}]{punct}"
+                old = m.group(0)
+                if new == old:
+                    continue
+                out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
+    return out
+
+
+# --- headings ------------------------------------------------------------------------
+
+_NUMBERING = re.compile(r"^\s*(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s+")
+
+
+def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    if not style.get("headings.tag"):
+        return []
+    levels = {name: "H1" for name in style.get("headings.h1", [])}
+    levels.update({name: "H2" for name in style.get("headings.h2", [])})
+    out = []
+    for p in ms.paragraphs:
+        text = p.text
+        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H"):
+            continue
+        core = _NUMBERING.sub("", text).strip()
+        key = core.rstrip(":").strip().lower()
+        level = levels.get(key)
+        if not level:
+            continue
+        lead = len(text) - len(text.lstrip())
+        out.append(_change(p, lead, lead, f"<{level}>", Layer.STRUCTURE, "heading_tags"))
+        if style.get("headings.strip_trailing_colon", True) and text.rstrip().endswith(":"):
+            i = len(text.rstrip()) - 1
+            out.append(_change(p, i, i + 1, "", Layer.STRUCTURE, "heading_tags"))
+    return out
+
+
+# --- statistics ----------------------------------------------------------------------
+
+_OPERATOR = re.compile(r"(?<=[A-Za-z0-9)\]])(\s*)([=<>≤≥])(\s*)(?=[-−–]?\d|\.\d)")
+
+
+def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    if not style.get("statistics.space_around_operators"):
+        return []
+    out = []
+    for p in body_paragraphs(ms):
+        if "http" in p.text or "<" in p.text and ">" in p.text and re.search(r"<\w+>", p.text):
+            continue
+        for m in _OPERATOR.finditer(p.text):
+            new = f" {m.group(2)} "
+            if m.group(0) != new:
+                out.append(_change(p, m.start(), m.end(), new, Layer.NUMBERS, "statistics"))
+    return out
+
+
+# --- reference list ------------------------------------------------------------------
+
+# End of the author list: a period after an initial, followed by the start of the title.
+_AUTHORS_END = re.compile(r"(?<=[A-Z])\.\s+(?=[A-Z0-9\"“‘'(])|\bet al\.?\s+")
+_INITIAL_PERIOD = re.compile(r"(?<=\b[A-Z])\.(?=\s*,|\s*[A-Z]\b)")
+_YEAR_VOL = re.compile(r"(?P<sep>\.?\s*)(?P<year>(?:19|20)\d{2})\s*;\s*(?P<vol>\d+)\s*(?P<issue>\([^)]*\))?\s*(?=:)")
+_ET_AL_DOUBLE = re.compile(r"\bet al\.\.")
+_PAGES = re.compile(r":\s*([A-Za-z]?)(\d+)\s*[–—\-]\s*([A-Za-z]?)(\d+)(?=\.?\s*$)")
+
+
+def _compress(first: str, last: str) -> str:
+    if len(last) != len(first) or int(last) <= int(first):
+        return last
+    i = 0
+    while i < len(first) - 1 and first[i] == last[i]:
+        i += 1
+    return last[i:]
+
+
+def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    out = []
+    for ref in references.extract(ms):
+        p = ms.by_id(ref.para_id)
+        base = ref.offset
+        text = ref.text
+        m_end = _AUTHORS_END.search(text)
+        authors_end = m_end.start() if m_end else None
+
+        if authors_end and style.get("references.initials_without_periods", True):
+            for m in _INITIAL_PERIOD.finditer(text[:authors_end]):
+                out.append(_change(p, base + m.start(), base + m.end(), "", Layer.REFERENCES, "ref_initials"))
+
+        max_authors = style.get("references.max_authors")
+        if authors_end and max_authors and "et al" not in text[:authors_end + 8]:
+            names = [n for n in text[:authors_end].split(",") if n.strip()]
+            if len(names) > max_authors:
+                cut = len(",".join(names[:max_authors]))
+                et_al = style.get("references.et_al", "et al.").rstrip(".")  # the list's own period follows
+                out.append(_change(p, base + cut, base + authors_end, f", {et_al}", Layer.REFERENCES, "ref_et_al"))
+
+        for m in _ET_AL_DOUBLE.finditer(text):
+            out.append(_change(p, base + m.end() - 1, base + m.end(), "", Layer.REFERENCES, "ref_et_al"))
+
+        ym = None
+        for ym in _YEAR_VOL.finditer(text):
+            pass  # the last year;volume is the journal citation
+        if ym:
+            if style.get("references.no_period_before_year") and ym.group("sep") != " " and ym.start() > 0:
+                out.append(_change(p, base + ym.start("sep"), base + ym.end("sep"), " ", Layer.REFERENCES, "ref_year"))
+            if style.get("references.drop_issue") and ym.group("issue"):
+                out.append(_change(p, base + ym.end("vol"), base + ym.end("issue"), "", Layer.REFERENCES, "ref_issue"))
+
+        if style.get("references.capitalize_after_colon") and authors_end:
+            stop = ym.start() if ym else len(text)
+            for m in re.finditer(r":\s([a-z])", text[authors_end:stop]):
+                i = authors_end + m.start(1)
+                out.append(_change(p, base + i, base + i + 1, text[i].upper(), Layer.REFERENCES, "ref_title_case"))
+
+        if style.get("references.page_range_compress", True):
+            m = _PAGES.search(text)
+            if m:
+                first, last = m.group(2), m.group(4)
+                new_last = _compress(first, last)
+                new = f":{m.group(1)}{first}{style.get('references.page_range_dash', '-')}{m.group(3)}{new_last}"
+                if new != m.group(0):
+                    out.append(_change(p, base + m.start(), base + m.end(), new, Layer.REFERENCES, "ref_pages"))
+    return out
+
+
+RULES = {
+    "heading_tags": rule_heading_tags,
+    "citations": rule_citations,
+    "statistics": rule_statistics,
+    "references": rule_references,
+}
+
+
+def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) -> ChangeSet:
+    """Run rules in order; drop any proposal that overlaps one already kept."""
+    kept: list[Change] = []
+    for name, rule in RULES.items():
+        if only and name not in only:
+            continue
+        for c in rule(ms, style):
+            clash = any(k.para_id == c.para_id and c.start < k.end and k.start < c.end for k in kept)
+            same_point = any(k.para_id == c.para_id and k.start == k.end == c.start == c.end for k in kept)
+            if not clash and not same_point:
+                kept.append(c)
+    return ChangeSet(kept)

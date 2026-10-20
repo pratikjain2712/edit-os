@@ -19,6 +19,15 @@ accepts or rejects every suggestion.
 4. **References** (`edit_os/references.py`): finds the reference list heading and splits it
    into entries, one per paragraph, with numbering labels (`1.`, `[1]`, `(1)`, `1)`, Word
    auto-numbering) kept separate.
+5. **Journal styles** (`edit_os/styles/*.yaml`, `edit_os/style.py`): a shared Medknow base plus
+   per-journal overrides, written from each journal's stylesheet and tuned against real edits.
+6. **Rules** (`edit_os/rules.py`): deterministic style edits proposed as change records:
+   heading tags, citation brackets and placement, statistics spacing, and reference cleanup
+   (initials, et al., year/volume, issue, page ranges, capital after colon).
+7. **QC gate** (`edit_os/qc.py`): checks the edited file; errors block it, warnings go to the
+   editor's checklist.
+8. **Evaluation** (`tools/evaluate.py`): runs the rules on original manuscripts and scores them
+   against a style editor's tracked files (`closure` = share of the editor's edits reproduced).
 
 ## Run
 
@@ -27,11 +36,14 @@ accepts or rejects every suggestion.
     .venv/bin/python -m edit_os paragraphs manuscript.docx
     .venv/bin/python -m edit_os refs manuscript.docx
     .venv/bin/python -m edit_os render manuscript.docx changes.json out/
+    .venv/bin/python -m edit_os style manuscript.docx ijo out/     # rules -> tracked + clean + QC
+    .venv/bin/python tools/evaluate.py DATA_DIR ijo --per-rule
 
 ## Roadmap
 
 - [x] 1. Read and write `.docx` with tracked changes and formatting intact; find references
-- [ ] 2. Journal stylesheet as rules; QC gates that block a file until it passes
+- [x] 2. Journal stylesheet as rules; QC gate (IJO first: 5.2% closure on 19 articles, 210 paragraphs
+      improved, 31 worse; remaining gap is 88% references, which step 3 covers)
 - [ ] 3. Reference engine: DOI / PubMed ID lookup first, then strict search, CSL styling,
       statuses Matched / Format fixed / Query / Added by author
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)

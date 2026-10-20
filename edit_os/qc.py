@@ -1,0 +1,125 @@
+"""QC gate: deterministic checks of a manuscript against its journal style.
+
+Errors block the file from moving on; warnings go on the editor's checklist.
+Run it on the rendered (edited) file, not the original.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from . import references
+from .docmodel import Manuscript
+from .rules import _ROUND, _SQUARE, body_paragraphs
+from .style import JournalStyle
+
+ERROR, WARNING = "error", "warning"
+
+
+@dataclass
+class Issue:
+    severity: str
+    check: str
+    message: str
+    para_id: str | None = None
+
+
+@dataclass
+class Report:
+    issues: list[Issue]
+
+    @property
+    def passed(self) -> bool:
+        return not any(i.severity == ERROR for i in self.issues)
+
+
+def _heading_key(text: str) -> str:
+    return re.sub(r"^<H\d>|:$", "", text.strip()).strip().lower()
+
+
+def _citations(ms: Manuscript) -> list[tuple[str, list[int]]]:
+    """(para_id, numbers) for each square-bracket citation in the body, in reading order."""
+    out = []
+    for p in body_paragraphs(ms):
+        for m in re.finditer(r"\[(\d[\d,\-–\s]*)\]", p.text):
+            nums = []
+            for part in re.split(r"\s*,\s*", m.group(1).strip()):
+                r = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", part)
+                if r:
+                    nums += list(range(int(r.group(1)), int(r.group(2)) + 1))
+                elif part.isdigit():
+                    nums.append(int(part))
+            out.append((p.id, nums))
+    return out
+
+
+def check(ms: Manuscript, style: JournalStyle) -> Report:
+    issues: list[Issue] = []
+    refs = references.extract(ms)
+    headings = {_heading_key(p.text) for p in ms.paragraphs if len(p.text) < 80}
+
+    if not refs:
+        issues.append(Issue(ERROR, "references.present", "No reference list found"))
+
+    # Citations: brackets, order, and every reference cited.
+    for p in body_paragraphs(ms):
+        for m in _ROUND.finditer(p.text):
+            prev = p.text[:m.start()].rstrip()
+            if prev and not re.search(r"(\d|%|table|figure|fig\.)$", prev, re.I) and style.get("citations.brackets") == "square":
+                issues.append(Issue(ERROR, "citations.brackets", f"Citation in round brackets: {m.group(0).strip()}", p.id))
+        for m in _SQUARE.finditer(p.text):
+            if re.search(r"\s", m.group(2)):
+                issues.append(Issue(ERROR, "citations.format", f"Space inside citation: [{m.group(2)}]", p.id))
+    cited, seen_max = set(), 0
+    for para_id, nums in _citations(ms):
+        for n in nums:
+            if n not in cited and n > seen_max + 1:
+                issues.append(Issue(ERROR, "citations.order",
+                                    f"Reference {n} is cited before reference {seen_max + 1}", para_id))
+            cited.add(n)
+            seen_max = max(seen_max, n)
+    numbers = [r.number for r in refs if r.number is not None]
+    for n in numbers:
+        if cited and n not in cited:
+            issues.append(Issue(ERROR, "references.cited", f"Reference {n} is not cited (author query needed)"))
+    for n in sorted(cited - set(numbers)) if numbers else []:
+        issues.append(Issue(ERROR, "references.exists", f"Citation [{n}] has no entry in the reference list"))
+
+    # Reference entries.
+    max_authors = style.get("references.max_authors")
+    for r in refs:
+        authors = r.text.split(". ")[0]
+        if max_authors and "et al" not in authors and authors.count(",") + 1 > max_authors:
+            issues.append(Issue(ERROR, "references.authors", f"Reference {r.number}: more than {max_authors} authors", r.para_id))
+        if re.search(r"\b[A-Z]\.,", authors):
+            issues.append(Issue(WARNING, "references.initials", f"Reference {r.number}: periods after initials", r.para_id))
+
+    # Keywords.
+    for p in ms.paragraphs:
+        m = re.match(r"^\s*(?:<H\d>)?\s*key\s*-?words?\s*[:.\-–]?\s*(.*)$", p.text, re.I)
+        if not m:
+            continue
+        words = [w.strip() for w in re.split(r"[;,]", m.group(1)) if w.strip()]
+        lo, hi = style.get("keywords.min", 3), style.get("keywords.max", 5)
+        if not lo <= len(words) <= hi:
+            issues.append(Issue(WARNING, "keywords.count", f"{len(words)} keywords; journal needs {lo}-{hi} (query)", p.id))
+        if style.get("keywords.alphabetical") and [w.lower() for w in words] != sorted(w.lower() for w in words):
+            issues.append(Issue(ERROR, "keywords.order", "Keywords are not in alphabetical order", p.id))
+        break
+
+    # Required back matter and expected sections.
+    for sec in style.get("required_sections", []):
+        if sec["heading"].lower() not in headings:
+            issues.append(Issue(ERROR, "sections.required", f"Missing section: {sec['heading']}"))
+    for h in style.get("expected_h1", []):
+        if h not in headings and f"{h}s" not in headings:
+            issues.append(Issue(WARNING, "sections.expected", f"No '{h.title()}' heading (query the author)"))
+
+    # Statistics spacing.
+    if style.get("statistics.space_around_operators"):
+        for p in body_paragraphs(ms):
+            for m in re.finditer(r"(?<=[A-Za-z0-9)])[=<>≤≥](?=\d|\.\d)|(?<=[A-Za-z0-9)])[=<>≤≥] (?=\d)|(?<=[A-Za-z0-9)]) [=<>≤≥](?=\d)", p.text):
+                if "http" not in p.text and not re.search(r"<\w+>", p.text[max(0, m.start() - 4):m.end() + 4]):
+                    issues.append(Issue(ERROR, "statistics.spacing", f"Operator needs a space each side: '{p.text[max(0, m.start() - 6):m.end() + 6]}'", p.id))
+    return Report(issues)

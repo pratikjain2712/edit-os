@@ -1,0 +1,14 @@
+# Indian Journal of Ophthalmology (StyleSheet_Sample_IJO.docx), tuned against the
+# style editor's completed IJO articles.
+name: Indian Journal of Ophthalmology
+
+headings:
+  h1: [materials and methods, methods, methodology, patients and methods, subjects and methods,
+       results, discussion, conclusion, conclusions, references, case report, case reports,
+       case presentation, review of literature]
+
+statistics:
+  space_around_operators: false  # the editor does not add these for IJO
+
+references:
+  page_range_dash: "–"           # Surv Ophthalmol 1989;33:339–58
