@@ -85,3 +85,25 @@ def test_lookup_rule_writes_word_level_changes(fake_pubmed, tmp_path):
     tracked.render(docmodel.load(str(path)), cs, tracked=False).save(out)
     assert docmodel.load(str(out)).paragraphs[1].text.endswith("et al. Diffuse choroidal melanoma. Clinical features "
                                                                 "predictive of metastasis. Arch Ophthalmol 1996;114:956-63.")
+
+
+def test_claude_fields_drive_the_search(fake_pubmed, monkeypatch):
+    # The regex parser would cut this title at "melanoma."; Claude's split keeps it whole.
+    text = ("Shields CL , Shields JA,De Potter P, Cater J, Tardio D, Barrett J. Diffuse choroidal melanoma. Clinical "
+            "features predictive of metastasis Arch Ophthalmol 1996 114 956")
+    fields = {"kind": "journal_article", "authors": ["Shields CL", "Shields JA", "De Potter P"],
+              "title": "Diffuse choroidal melanoma. Clinical features predictive of metastasis", "journal": "Arch Ophthalmol",
+              "year": "1996", "volume": "114", "issue": "", "pages": "956", "doi": "10.9999/made.up", "pmid": ""}
+    monkeypatch.setattr(refengine.ai_refs, "available", lambda: True)
+    monkeypatch.setattr(refengine.ai_refs, "parse_batch", lambda texts: [fields])
+    [res] = refengine.resolve_all([text], style.load("ijo"))
+    assert res.status == refengine.FORMAT_FIXED and res.record.pmid == "8694700"
+    assert res.parsed.doi == ""  # a DOI that is not in the text is ignored, not looked up
+    assert res.formatted.endswith("Arch Ophthalmol 1996;114:956-63.")
+
+
+def test_claude_kind_marks_books(fake_pubmed, monkeypatch):
+    monkeypatch.setattr(refengine.ai_refs, "available", lambda: True)
+    monkeypatch.setattr(refengine.ai_refs, "parse_batch", lambda texts: [{"kind": "book", "title": "Gerontology"}])
+    [res] = refengine.resolve_all(["Ringsven MK. Gerontology. Delmar; 1996;3:4-5."], style.load("ijo"))
+    assert res.status == refengine.NOT_JOURNAL and not fake_pubmed

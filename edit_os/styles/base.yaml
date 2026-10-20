@@ -24,6 +24,7 @@ statistics:
 
 references:
   lookup: true                 # rebuild entries from PubMed / CrossRef when they match strictly
+  ai_parse: true               # Claude splits entries into fields first (needs ANTHROPIC_API_KEY)
   max_authors: 6               # more than 6 -> first 6, et al.
   et_al: "et al."
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"

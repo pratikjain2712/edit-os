@@ -1,0 +1,123 @@
+"""Clean up and split references into fields with Claude, before the PubMed / CrossRef lookup.
+
+Claude's output is used only to build better searches and to classify the source type. The
+reference text that goes into the manuscript always comes from the matched database record,
+or stays as the author wrote it; it is never taken from the model.
+
+Needs ANTHROPIC_API_KEY. Without it, `available()` is False and the rule-based parser is used.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+
+from .journals import DEFAULT_DB
+
+MODEL = os.environ.get("EDIT_OS_MODEL", "claude-opus-5-5")
+CACHE_DB = os.path.join(os.path.dirname(DEFAULT_DB), "ai_cache.sqlite")
+KINDS = ["journal_article", "book", "book_chapter", "website", "report", "thesis", "conference", "other"]
+
+_FIELD = {"type": "string"}
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "entries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "kind": {"type": "string", "enum": KINDS},
+                    "authors": {"type": "array", "items": _FIELD},
+                    "title": _FIELD, "journal": _FIELD, "year": _FIELD, "volume": _FIELD,
+                    "issue": _FIELD, "pages": _FIELD, "doi": _FIELD, "pmid": _FIELD,
+                },
+                "required": ["index", "kind", "authors", "title", "journal", "year", "volume", "issue",
+                             "pages", "doi", "pmid"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["entries"],
+    "additionalProperties": False,
+}
+
+INSTRUCTIONS = """You split bibliography entries from medical journal manuscripts into fields.
+For each numbered entry, return its fields exactly as written in the entry, with obvious typing
+slips cleaned up (stray spaces, doubled punctuation, broken line wraps). Do not add, guess or
+correct any fact that is not in the entry: if a field is missing, return an empty string.
+- authors: one string per author as "Surname Initials" (e.g. "Shields CL"); keep group authors whole;
+  leave out "et al".
+- title: the full article or chapter title, including any part after an inner full stop.
+- journal: the journal name as written. year: four digits. pages: as written. doi and pmid: only if
+  present in the entry.
+- kind: journal_article, book, book_chapter, website, report, thesis, conference or other."""
+
+
+def available() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+
+class _Cache:
+    def __init__(self, path: str = CACHE_DB):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.con = sqlite3.connect(path)
+        self.con.execute("CREATE TABLE IF NOT EXISTS parsed (key TEXT PRIMARY KEY, body TEXT)")
+
+    @staticmethod
+    def key(text: str) -> str:
+        return hashlib.sha256(f"{MODEL}\n{INSTRUCTIONS}\n{text}".encode()).hexdigest()
+
+    def get(self, text: str) -> dict | None:
+        row = self.con.execute("SELECT body FROM parsed WHERE key = ?", (self.key(text),)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def put(self, text: str, fields: dict) -> None:
+        self.con.execute("INSERT OR REPLACE INTO parsed VALUES (?, ?)", (self.key(text), json.dumps(fields)))
+        self.con.commit()
+
+
+_cache: _Cache | None = None
+
+
+def _call(numbered: str) -> list[dict]:
+    import anthropic
+
+    client = anthropic.Anthropic()
+    response = client.beta.messages.create(
+        model=MODEL,
+        max_tokens=16000,
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",  # a declined request is re-run on Anthropic's recommended fallback model
+        output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
+        system=INSTRUCTIONS,
+        messages=[{"role": "user", "content": numbered}],
+    )
+    if response.stop_reason in ("refusal", "max_tokens"):
+        return []
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        return json.loads(text)["entries"]
+    except (ValueError, KeyError):
+        return []
+
+
+def parse_batch(texts: list[str], batch_size: int = 40) -> list[dict | None]:
+    """Fields for each reference text (None where Claude gave nothing). Cached by text."""
+    global _cache
+    if _cache is None:
+        _cache = _Cache()
+    out: list[dict | None] = [_cache.get(t) for t in texts]
+    todo = [i for i, f in enumerate(out) if f is None]
+    for start in range(0, len(todo), batch_size):
+        chunk = todo[start:start + batch_size]
+        numbered = "\n".join(f"{k + 1}. {texts[i]}" for k, i in enumerate(chunk))
+        for entry in _call(numbered):
+            k = entry.get("index", 0) - 1
+            if 0 <= k < len(chunk):
+                out[chunk[k]] = entry
+                _cache.put(texts[chunk[k]], entry)
+    return out

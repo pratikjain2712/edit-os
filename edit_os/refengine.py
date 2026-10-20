@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz
 
-from . import biblio, journals
+from . import ai_refs, biblio, journals
 from .style import JournalStyle
 
 DOI = re.compile(r"(?:doi:?\s*|https?://(?:dx\.)?doi\.org/)(10\.\d{4,9}/[^\s\]>]+)", re.I)
@@ -32,6 +32,7 @@ class Parsed:
     year: str = ""
     doi: str = ""
     pmid: str = ""
+    kind: str = ""  # from Claude's split: journal_article, book, website, ...
 
     @property
     def first_surname(self) -> str:
@@ -68,6 +69,24 @@ def parse(text: str) -> Parsed:
         p.title = (t.group(1) if t else rest).strip().rstrip(".")
     if m := YEAR_VOL.search(text) or YEAR.search(text):
         p.year = m.group(1) if m.re is YEAR_VOL else m.group(0)
+    return p
+
+
+def from_fields(text: str, f: dict) -> Parsed:
+    """Parsed entry from Claude's fields; identifiers are kept only if they really occur in the text."""
+    p = parse(text)  # regex DOI / PMID / year as a base
+    p.kind = f.get("kind", "")
+    if f.get("title"):
+        p.title = f["title"].strip().rstrip(".")
+    authors = [a.strip() for a in f.get("authors", []) if a.strip()]
+    if authors:
+        p.authors = authors
+    if re.fullmatch(r"(19|20)\d{2}", f.get("year", "").strip()):
+        p.year = f["year"].strip()
+    if f.get("doi") and f["doi"].lower() in text.lower():
+        p.doi = f["doi"].strip().rstrip(".")
+    if f.get("pmid") and f["pmid"] in text:
+        p.pmid = f["pmid"].strip()
     return p
 
 
@@ -239,9 +258,10 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     return f"{author_text}. {title}{end} {cite}."
 
 
-def resolve(text: str, style: JournalStyle) -> Resolution:
-    p = parse(text)
-    if not looks_like_journal_article(text):
+def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resolution:
+    p = from_fields(text, fields) if fields else parse(text)
+    journal_like = p.kind == "journal_article" if p.kind else looks_like_journal_article(text)
+    if not journal_like:
         return Resolution(NOT_JOURNAL, p, message="Book, website or other non-journal source")
     record, why = find(p)
     if not record:
@@ -253,3 +273,10 @@ def resolve(text: str, style: JournalStyle) -> Resolution:
     if fold(formatted) == fold(text) and formatted.rstrip() == text.rstrip():
         return Resolution(MATCHED, p, record, formatted, score=t)
     return Resolution(FORMAT_FIXED, p, record, formatted, score=t)
+
+
+def resolve_all(texts: list[str], style: JournalStyle) -> list[Resolution]:
+    """Resolve a reference list; Claude splits the entries first when enabled and a key is set."""
+    use_ai = style.get("references.ai_parse") and ai_refs.available()
+    fields = ai_refs.parse_batch(texts) if use_ai else [None] * len(texts)
+    return [resolve(t, style, f) for t, f in zip(texts, fields)]

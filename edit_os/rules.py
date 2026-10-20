@@ -244,7 +244,8 @@ def lookup_references(ms: Manuscript, style: JournalStyle) -> list[tuple[referen
         return []
     cached = getattr(ms, "_ref_resolutions", None)
     if cached is None:
-        cached = [(r, refengine.resolve(r.text, style)) for r in references.extract(ms)]
+        refs = references.extract(ms)
+        cached = list(zip(refs, refengine.resolve_all([r.text for r in refs], style)))
         ms._ref_resolutions = cached
     return cached
 
