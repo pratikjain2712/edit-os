@@ -58,7 +58,9 @@ class QuerySet:
     queries: list[Query] = field(default_factory=list)
 
     def add(self, para_id: str, check: str, start: int = 0, end: int = 0, **fmt) -> Query:
-        q = Query(para_id, start, end, TEXT[check].format(**fmt), check)
+        from .rules_sections import TEXT as SECTION_TEXT
+
+        q = Query(para_id, start, end, {**SECTION_TEXT, **TEXT}[check].format(**fmt), check)
         self.queries.append(q)
         return q
 
@@ -151,9 +153,18 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
         words = [w for w in re.split(r"[;,]", re.sub(r"^\s*(?:<H\d>)?\s*key\s*-?words?\s*[:.\-–]?", "", kw.text, flags=re.I))
                  if w.strip()]
         if not words:
+            from .rules_sections import listed_keywords
+
+            words = listed_keywords(ms)  # "Key words" on its own line, the list below it
+        if not words:
             qs.add(kw.id, "keywords.missing")
         elif len(words) < style.get("keywords.min", 3):
             qs.add(kw.id, "keywords.too_few")
+
+    # Abstract, key words and back matter.
+    from . import rules_sections
+
+    rules_sections.add_queries(ms, style, qs)
 
     # Expected sections.
     heads = {re.sub(r"^<H\d>|:$", "", p.text.strip()).strip().lower() for p in ms.paragraphs if len(p.text) < 80}

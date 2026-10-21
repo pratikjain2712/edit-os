@@ -11,7 +11,7 @@ from itertools import count
 
 import difflib
 
-from . import journals, refengine, references, renumber, rules_figures, rules_format
+from . import journals, refengine, references, renumber, rules_figures, rules_format, rules_sections
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -161,9 +161,10 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
     levels = {name: "H1" for name in style.get("headings.h1", [])}
     levels.update({name: "H2" for name in style.get("headings.h2", [])})
     out = []
+    in_abstract = rules_sections.abstract_ids(ms)  # "Results" there is an abstract sub-heading
     for p in ms.paragraphs:
         text = p.text
-        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H"):
+        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H") or p.id in in_abstract:
             continue
         core = _NUMBERING.sub("", text).strip()
         key = core.rstrip(":").strip().lower()
@@ -332,6 +333,10 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
 RULES = {
     "heading_tags": rule_heading_tags,
     "renumber": renumber.rule_renumber,  # before "citations": renumbered citations win the overlap
+    "sections_headings": rules_sections.rule_headings,
+    "sections_abstract": rules_sections.rule_abstract,
+    "sections_keywords": rules_sections.rule_keywords,
+    "sections_back_matter": rules_sections.rule_back_matter,
     "citations": rule_citations,
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,
@@ -340,6 +345,11 @@ RULES = {
     "references": rule_references,
     "formatting": rules_format.rule_formatting,
 }
+
+
+def _opens_paragraph(c: Change) -> bool:
+    from .tracked import PARAGRAPH_BREAK
+    return c.new.startswith(PARAGRAPH_BREAK)
 
 
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) -> ChangeSet:
@@ -356,7 +366,9 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
             if name == "references" and c.para_id in resolved:
                 continue
             clash = any(k.para_id == c.para_id and c.start < k.end and k.start < c.end for k in kept)
-            same_point = any(k.para_id == c.para_id and k.start == k.end == c.start == c.end for k in kept)
+            # Two insertions at one point clash, unless exactly one opens new paragraphs.
+            same_point = any(k.para_id == c.para_id and k.start == k.end == c.start == c.end
+                             and _opens_paragraph(k) == _opens_paragraph(c) for k in kept)
             if not clash and not same_point:
                 kept.append(c)
     return ChangeSet(kept)

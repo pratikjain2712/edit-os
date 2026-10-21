@@ -23,7 +23,9 @@ accepts or rejects every suggestion.
    per-journal overrides, written from each journal's stylesheet and tuned against real edits.
 6. **Rules** (`edit_os/rules.py`): deterministic style edits proposed as change records:
    heading tags, citation brackets and placement, statistics spacing, and reference cleanup
-   (initials, et al., year/volume, issue, page ranges, capital after colon).
+   (initials, et al., year/volume, issue, page ranges, capital after colon). Section rules
+   (`edit_os/rules_sections.py`): heading renames and numbering, the abstract heading and
+   sub-headings, key words (label, order, case), and the standard back-matter sections.
 7. **QC gate** (`edit_os/qc.py`): checks the edited file; errors block it, warnings go to the
    editor's checklist.
 8. **References engine** (`edit_os/refengine.py`, `biblio.py`, `journals.py`, `ai_refs.py`): Claude Haiku
@@ -53,8 +55,10 @@ accepts or rejects every suggestion.
 - [x] A1. Author queries as Word comments + query sheet; superscript citations (IJO overall 11.0%)
 - [ ] A2. Search-and-replace table from the pre-editing guide (units, %, ×, minus, & -> and)
 - [ ] A3. Tracked formatting changes (bold, italic, superscript)
-- [ ] A4-A7. Headings / abstract / keywords / back matter; figure and table citations; books and
-      links in references; front matter (running head, authors, affiliations, correspondence)
+- [x] A4. Headings / abstract / key words / back matter (`edit_os/rules_sections.py`, settings under
+      `sections:`); inserted text can start new paragraphs (`tracked.PARAGRAPH_BREAK`) (IJO 11.6%)
+- [ ] A5-A7. Figure and table citations; books and links in references; front matter (running head,
+      authors, affiliations, correspondence)
 - [ ] B. Copy edit: LanguageTool (self-hosted), VarCon spelling, abbreviation checker, Claude pass
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
 - [ ] 5. QC report output

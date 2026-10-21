@@ -7,6 +7,7 @@ from edit_os.changes import Status
 def _style():
     st = style.load("ijo")
     st.settings["references"]["lookup"] = False
+    st.settings["sections"]["back_matter"]["add_missing"] = False  # keeps paragraph positions fixed
     return st
 
 
@@ -197,3 +198,15 @@ def test_bracketed_labels_renumbered(tmp_path):
     doc.save(path)
     t = _apply(str(path), _style(), tmp_path)
     assert t[3].startswith("[1] Author2") and t[4].startswith("[2] Author1")
+
+
+def test_citation_at_end_survives_added_back_matter(tmp_path):
+    """The missing back-matter block and a citation are both inserted at the end of the last
+    body paragraph: both must apply, the citation first."""
+    path = _doc(tmp_path, ["Alpha (2). Beta (1, 3). Six (6) weeks later (3-5)."], [_ref(n) for n in range(1, 6)])
+    st = style.load("ijo")
+    st.settings["references"]["lookup"] = False
+    t = _apply(path, st, tmp_path)
+    assert t[1] == "Alpha.[1] Beta.[2,3] Six (6) weeks later.[3-5]"
+    assert t[2:6] == ["<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
+                      "There are no conflicts of interest."]

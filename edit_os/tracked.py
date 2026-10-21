@@ -4,6 +4,10 @@ Formatting is kept by splitting the existing runs at change boundaries: deleted
 text stays in its original run (wrapped in <w:del>), and inserted text copies the
 formatting of the run it replaces or follows.
 
+A paragraph break in inserted text (`PARAGRAPH_BREAK`, U+2029) starts a new paragraph there: the
+text after it, and the rest of the original paragraph, move into new <w:p> elements. In tracked
+mode the new paragraph marks are tracked insertions, so rejecting them joins the text back.
+
 Formatting changes (`Change.format`) are applied first, while offsets still match the
 original text: each run in the span gets the new run properties and, in tracked mode, a
 <w:rPrChange> holding its previous properties. Text changes are applied afterwards.
@@ -20,6 +24,9 @@ from docx.oxml.ns import qn
 
 from .changes import Change, ChangeSet
 from .docmodel import Manuscript, explode_runs, paragraph_text, run_text, text_runs
+
+
+PARAGRAPH_BREAK = "\u2029"  # in Change.new: a new paragraph starts here
 
 
 class ChangeConflict(ValueError):
@@ -198,7 +205,9 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
 
     # Work right to left so earlier offsets stay valid; at a shared start, the
     # replacement goes before a pure insertion so the insertion lands in front of it.
-    for c in sorted(changes, key=lambda c: (c.start, c.end), reverse=True):
+    # An insertion that opens new paragraphs goes first at its point, so a plain insertion at
+    # the same point (a citation at the end of the text) still ends the original paragraph.
+    for c in sorted(changes, key=lambda c: (c.start, c.end, c.new.startswith(PARAGRAPH_BREAK)), reverse=True):
         spans = _spans(p_el)
         doomed = [r for r, s, e in spans if s >= c.start and e <= c.end and e > s]
         before = [r for r, s, e in spans if e <= c.start]
@@ -216,7 +225,8 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
 
         if not c.new:
             continue
-        ins = _new_run(template, c.new, c.format)
+        first, *rest = c.new.split(PARAGRAPH_BREAK)
+        ins = _new_run(template, first, c.format)
         if doomed and tracked:
             anchor.addnext(ins)
         elif after:
@@ -227,6 +237,92 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
             p_el.append(ins)
         if tracked:
             _wrap("w:ins", ins, ids, c.author, date)
+        if rest:
+            _break_paragraph(p_el, ins, after, rest, template, c, tracked, ids, date)
+        if not first:  # only there to mark the position of the break
+            top = ins.getparent() if tracked else ins
+            top.getparent().remove(top)
+
+
+_PPR = qn("w:pPr")
+# Child order inside <w:pPr> (CT_PPr); the paragraph mark's <w:rPr> goes before sectPr / pPrChange.
+_PPR_TAIL = (qn("w:rPr"), qn("w:sectPr"), qn("w:pPrChange"))
+
+
+def _top(p_el, el):
+    while el.getparent() is not p_el:
+        el = el.getparent()
+    return el
+
+
+def _mark_inserted(p_el, ids: _Ids, author: str, date: str) -> None:
+    """Record the paragraph mark of `p_el` as a tracked insertion."""
+    ppr = p_el.find(_PPR)
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        p_el.insert(0, ppr)
+    rpr = ppr.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        tail = [c for c in ppr if c.tag in _PPR_TAIL[1:]]
+        if tail:
+            tail[0].addprevious(rpr)
+        else:
+            ppr.append(rpr)
+    if rpr.find(qn("w:ins")) is not None:  # already a new paragraph
+        return
+    mark = OxmlElement("w:ins")
+    mark.set(qn("w:id"), ids.next())
+    mark.set(qn("w:author"), author)
+    mark.set(qn("w:date"), date)
+    rpr.insert(0, mark)
+
+
+def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, ids, date) -> None:
+    """Split `p_el` after the inserted run `ins`: each segment becomes a new paragraph, and
+    whatever followed the insertion point moves into the last one."""
+    tail = []
+    if after:
+        start = _top(p_el, after[0])
+        if start is _top(p_el, ins):
+            raise ChangeConflict(f"{c.id}: cannot start a paragraph inside a hyperlink or field")
+        tail = [start] + [s for s in start.itersiblings()]
+    ppr = p_el.find(_PPR)
+    new_paras = []
+    for i, seg in enumerate(segments):
+        p = OxmlElement("w:p")
+        last = i == len(segments) - 1
+        if ppr is not None:
+            pp = copy.deepcopy(ppr)
+            for tag in ("w:pPrChange",) + (() if last else ("w:sectPr",)):
+                for el in pp.findall(qn(tag)):
+                    pp.remove(el)
+            if not (last and tail):  # new text is not a list item, whatever the paragraph was
+                for el in pp.findall(qn("w:numPr")):
+                    pp.remove(el)
+            p.append(pp)
+        if seg:
+            run = _new_run(template, seg, c.format)
+            p.append(run)
+            if tracked:
+                _wrap("w:ins", run, ids, c.author, date)
+        if last:
+            for el in tail:
+                p.append(el)
+        new_paras.append(p)
+    # The original paragraph mark now ends the last part: the first part's mark, and every
+    # mark but the last, are new.
+    if ppr is not None:
+        for el in ppr.findall(qn("w:sectPr")):
+            ppr.remove(el)
+    if tracked:
+        _mark_inserted(p_el, ids, c.author, date)
+        for p in new_paras[:-1]:
+            _mark_inserted(p, ids, c.author, date)
+    anchor = p_el
+    for p in new_paras:
+        anchor.addnext(p)
+        anchor = p
 
 
 def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=None) -> Manuscript:

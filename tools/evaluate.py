@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from lxml import etree  # noqa: E402
 from rapidfuzz.distance import Levenshtein  # noqa: E402
 
-from edit_os import docmodel, rules, style as style_mod, tracked  # noqa: E402
+from edit_os import docmodel, references, rules, style as style_mod, tracked  # noqa: E402
 from edit_os.changes import Status  # noqa: E402
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -68,6 +68,24 @@ def distance(a: str, b: str) -> int:
     return Levenshtein.distance(tokens(a), tokens(b))
 
 
+def apply_text(text: str, changes) -> str:
+    """The paragraph's text with its changes applied. When a change starts new paragraphs
+    (tracked.PARAGRAPH_BREAK), the part holding most of the original text is this paragraph."""
+    chars = [(ch, True) for ch in text]
+    for c in sorted((c for c in changes if not c.format_only), key=lambda c: (c.start, c.end), reverse=True):
+        chars[c.start:c.end] = [(ch, False) for ch in c.new]
+    parts, cur = [], []
+    for ch, orig in chars:
+        if ch == tracked.PARAGRAPH_BREAK and not orig:
+            parts.append(cur)
+            cur = []
+        else:
+            cur.append((ch, orig))
+    parts.append(cur)
+    best = max(parts, key=lambda part: sum(orig for _, orig in part))
+    return "".join(ch for ch, _ in best)
+
+
 def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
     src = manuscript_from_zip(os.path.join(article_dir, "original.zip"))
     if src is None:
@@ -81,20 +99,26 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
             f.write(src)
         ms = docmodel.load(path)
         originals = [p.text for p in ms.paragraphs]
+        # Reference entries are scored by eval_refs.py, which pairs them by number: editors often
+        # move or retype them, so pairing paragraphs by their original text would mislead.
+        ref_ids = {x.para_id for x in references.extract(ms)}
+        is_ref = [p.id in ref_ids for p in ms.paragraphs]
         cs = rules.run_all(ms, st, only=only)
         for c in cs.changes:
             c.status = Status.ACCEPTED
-        out = os.path.join(tmp, "u.docx")
-        tracked.render(docmodel.load(path), cs, tracked=False).save(out)
-        ours = [p.text for p in docmodel.load(out).paragraphs]
+        tracked.render(docmodel.load(path), cs, tracked=False)  # refuses stale or overlapping changes
+        ours = [apply_text(p.text, cs.for_paragraph(p.id)) for p in ms.paragraphs]
 
     editor: dict[str, list[str]] = {}
     for before, after in tracked_pairs(te):
         editor.setdefault(before.strip(), []).append(after)
     r = dict(changes=len(cs.changes), dOT=0, dUT=0, matched=0, paragraphs=len(originals), helped=0, hurt=0)
-    for o, u in zip(originals, ours):
+    for o, u, ref in zip(originals, ours, is_ref):
         queue = editor.get(o.strip())
         if not o.strip() or not queue:
+            continue
+        if ref:
+            queue.pop(0)
             continue
         t = queue.pop(0)
         if not t.strip():
