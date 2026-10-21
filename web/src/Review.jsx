@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, FileText, LayoutList, PanelRightClose, PanelRightOpen, RefreshCw, ScrollText, Wand2 } from "lucide-react";
+import { Download, FileText, LayoutList, PanelRightClose, PanelRightOpen, Plane, RefreshCw, ScrollText, Wand2 } from "lucide-react";
 import { api, download } from "./api.js";
+import { AutopilotSheet } from "./Autopilot.jsx";
 import { Brand } from "./App.jsx";
 import DocView from "./DocView.jsx";
 import ListView from "./ListView.jsx";
@@ -61,6 +62,7 @@ export default function Review({ id, theme, nextTheme }) {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [final, setFinal] = useState(false);
+  const [ap, setAp] = useState(null); // autopilot: {phase: confirm | running | done | undoing, report, error}
   const [stageW, setStageW] = useState(1200);
   const stageRef = useRef(null);
   const ranRef = useRef(false);
@@ -260,6 +262,46 @@ export default function Review({ id, theme, nextTheme }) {
     }
   }
 
+  async function runAutopilot() {
+    setAp({ phase: "running" });
+    const t0 = Date.now();
+    try {
+      const rep = await api.autopilot(id);
+      const before = new Set(items.filter((i) => i.status === "suggested").map((i) => i.id));
+      const c = await api.changes(id);
+      // Let the steps play out before the report replaces them.
+      await new Promise((r) => setTimeout(r, Math.max(0, 4200 - (Date.now() - t0))));
+      setData(c);
+      setReport(await api.qc(id));
+      setQueries((await api.queries(id)).items);
+      flash(c.items.filter((i) => before.has(i.id) && i.status === "accepted").map((i) => i.id), "accepting");
+      setAp({ phase: "done", report: rep });
+    } catch (e) {
+      setAp({ phase: "confirm", error: e.message });
+    }
+  }
+
+  async function undoAutopilot() {
+    const rep = ap && ap.report;
+    setAp({ phase: "undoing", report: rep });
+    try {
+      const r = await api.undoAutopilot(id);
+      await loadAll();
+      setAp(null);
+      toast(`Autopilot undone · ${r.undone} suggestion${r.undone === 1 ? "" : "s"} back to pending`);
+    } catch (e) {
+      setAp({ phase: "done", report: rep, error: e.message });
+    }
+  }
+
+  function reviewLeft() {
+    setAp(null);
+    setOnlyPending(true);
+    setLayer(null);
+    const first = items.find((i) => i.status === "suggested");
+    if (first) select(first.id, true);
+  }
+
   const pickQuery = (q) => {
     setView("doc");
     const el = document.querySelector(`[data-q~="${q.key}"]`) || document.querySelector(`[data-pid="${q.para_id}"]`);
@@ -295,6 +337,10 @@ export default function Review({ id, theme, nextTheme }) {
               ))}
             </div>
             <ProgressRing done={decided} total={items.length} />
+            <button className="btn magic" onClick={() => setAp({ phase: "confirm" })} disabled={busy || !!ap}
+              title="AI accepts the suggestions it is sure of and leaves the rest for you">
+              <Plane size={15} /> <span className="hide-phone">Autopilot</span>
+            </button>
             <button className="btn primary hide-phone" onClick={rerender} disabled={busy} title="Render the tracked and clean copies with your decisions">
               {busy ? <RefreshCw size={15} className="spin" /> : <Wand2 size={15} />} {busy ? "Rendering…" : "Apply decisions"}
             </button>
@@ -344,6 +390,13 @@ export default function Review({ id, theme, nextTheme }) {
             open={wideScreen ? true : sheetOpen} setOpen={setSheetOpen} />
         )}
       </div>
+      <AnimatePresence>
+        {ap && (
+          <AutopilotSheet key="ap" phase={ap.phase} report={ap.report} error={ap.error} onRun={runAutopilot}
+            onClose={() => setAp(null)} onUndo={undoAutopilot} onReview={reviewLeft}
+            onDownload={() => download(id, "tracked").catch((e) => toast(e.message, "error"))} />
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {done && view === "doc" && popOpen && sel && (
           <Popover key="pop" item={sel} onClose={() => setPopOpen(false)} onNav={move}

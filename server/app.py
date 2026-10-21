@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from edit_os import docview, pipeline, style as style_mod
+from edit_os import autopilot, docview, pipeline, style as style_mod
 from edit_os.changes import Source, Status
 
 from . import db
@@ -368,17 +368,71 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         return {"para_id": body.para_id, "created": [c.to_dict() for c in plan.changes],
                 "replaced": sorted(gone), "superseded": [c.id for c in plan.superseded]}
 
+    def _render(job_id: str, final: bool = False) -> dict:
+        """Render with the current decisions; call under the job's lock."""
+        outdir, _, changes, inserts, qdicts = merged(job_id)
+        pipeline.save_records(outdir, changes, inserts, qdicts)
+        out = pipeline.render_outputs(outdir, include_pending=not final)
+        storage.save(job_id)
+        store.update(job_id, summary=compact_summary(out.summary))
+        return out.summary
+
     @app.post("/api/jobs/{job_id}/render")
     def rerender(job: dict = Depends(require_done), final: bool = False):
         """Render tracked/clean copies, query sheet and QC report with the current decisions.
         `final=true` leaves undecided suggestions out of the tracked copy too."""
         with job_lock(job["id"]):
-            outdir, _, changes, inserts, qdicts = merged(job["id"])
-            pipeline.save_records(outdir, changes, inserts, qdicts)
-            out = pipeline.render_outputs(outdir, include_pending=not final)
+            return _render(job["id"], final)
+
+    def _autopilot_path(job_id: str) -> str:
+        return os.path.join(out_dir(storage, job_id), "_autopilot_report.json")
+
+    @app.post("/api/jobs/{job_id}/autopilot")
+    def run_autopilot(job: dict = Depends(require_done)):
+        """Safe autopilot (edit_os/autopilot.py): accept the undecided suggestions it is sure of (rules,
+        verified references, checkers; Claude's copy edits only when a second Claude check agrees),
+        leave the rest pending, re-render and run QC. Decisions are recorded with editor "autopilot"."""
+        with job_lock(job["id"]):
+            outdir, man, changes, inserts, _ = merged(job["id"])
+            dec = store.decisions(job["id"])
+            # Undecided: no decision, or put back to pending (an undo); never the editor's own wording.
+            todo = [c for c in changes.changes if c.status == Status.SUGGESTED and c.id not in dec
+                    or dec.get(c.id, {}).get("status") == "suggested" and dec[c.id].get("new_text") is None]
+            todo_ins = [n for n in inserts if n.status == Status.SUGGESTED and n.id not in dec
+                        or dec.get(n.id, {}).get("status") == "suggested" and dec[n.id].get("new_text") is None]
+            p = autopilot.plan(todo, todo_ins, style_mod.load(man["journal"]), texts=paragraphs(job["id"]))
+            kinds = {c.id: "change" for c in todo} | {n.id: "insert" for n in todo_ins}
+            store.decide(job["id"], [(i, kinds[i]) for i in p.accept], "accepted", autopilot.EDITOR)
+            summary = _render(job["id"])
+            rep = autopilot.report(p, {**{c.id: c for c in todo}, **{n.id: n for n in todo_ins}}, summary, db.now())
+            with open(_autopilot_path(job["id"]), "w", encoding="utf-8") as f:
+                json.dump(rep, f, indent=2, ensure_ascii=False)
             storage.save(job["id"])
-        store.update(job["id"], summary=compact_summary(out.summary))
-        return out.summary
+        return rep
+
+    @app.get("/api/jobs/{job_id}/autopilot")
+    def autopilot_report(job: dict = Depends(require_done)):
+        path = _autopilot_path(job["id"])
+        if not os.path.exists(path):
+            raise HTTPException(404, "Autopilot has not run on this job")
+        with open(path, encoding="utf-8") as f:
+            rep = json.load(f)
+        if "undone_at" in rep:
+            raise HTTPException(404, "Autopilot was undone")
+        return rep
+
+    @app.post("/api/jobs/{job_id}/autopilot/undo")
+    def undo_autopilot(job: dict = Depends(require_done)):
+        """Put everything autopilot accepted back to pending and re-render."""
+        with job_lock(job["id"]):
+            items = store.decided_by(job["id"], autopilot.EDITOR, "accepted")
+            store.decide(job["id"], items, "suggested", autopilot.EDITOR)
+            ids = [i for i, _ in items]
+            summary = _render(job["id"])
+            with open(_autopilot_path(job["id"]), "w", encoding="utf-8") as f:  # kept, not deleted: S3 copies stay
+                json.dump({"undone_at": db.now(), "undone": len(ids)}, f)
+            storage.save(job["id"])
+        return {"undone": len(ids), "ids": ids, "pending": summary["changes"]["pending"]}
 
     @app.get("/api/jobs/{job_id}/qc")
     def qc_report(job: dict = Depends(require_done)):

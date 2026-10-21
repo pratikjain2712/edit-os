@@ -58,6 +58,8 @@ export const api = {
   qc: (id) => call("GET", `/api/jobs/${id}/qc`),
   document: (id) => call("GET", `/api/jobs/${id}/document`),
   directEdit: (id, body) => call("POST", `/api/jobs/${id}/changes`, body),
+  autopilot: (id) => call("POST", `/api/jobs/${id}/autopilot`),
+  undoAutopilot: (id) => call("POST", `/api/jobs/${id}/autopilot/undo`),
 };
 
 export async function download(id, kind) {

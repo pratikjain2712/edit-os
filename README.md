@@ -79,6 +79,13 @@ change: click one for Accept / Reject / Edit, click into any paragraph to type a
 the margin. Keys: `j`/`k` next / previous, `a` accept, `r` reject, `u` undo, `Esc`. A List toggle keeps the card
 list for bulk work.
 
+**Autopilot** (button on the review screen; `POST /api/jobs/{id}/autopilot`, `edit_os/autopilot.py`): accepts the
+undecided suggestions it is sure of -- rule suggestions (journal style, verified references, spelling, LanguageTool, front
+matter) unless the journal's `autopilot.hold` lists them, and Claude's copy edits only when a second Claude check agrees --
+leaves the rest pending, keeps every author query and earlier decision, re-renders and runs QC. The report
+(`_autopilot_report.json`, `GET .../autopilot`) lists what was accepted and why the rest was left;
+`POST .../autopilot/undo` puts its acceptances back to pending.
+
 Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.md`.
 
 ## Roadmap

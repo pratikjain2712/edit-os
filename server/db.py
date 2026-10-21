@@ -142,3 +142,9 @@ class JobStore:
         with self._conn() as c:
             return {r["item_id"]: dict(r) for r in
                     c.execute("SELECT * FROM decisions WHERE job_id = ?", (job_id,)).fetchall()}
+
+    def decided_by(self, job_id: str, editor: str, status: str) -> list[tuple[str, str]]:
+        """(item id, kind) of the items `editor` last set to `status` on the job."""
+        with self._conn() as c:
+            return [(r[0], r[1]) for r in c.execute("SELECT item_id, kind FROM decisions WHERE job_id = ? AND editor = ?"
+                                            " AND status = ?", (job_id, editor, status)).fetchall()]
