@@ -268,3 +268,14 @@ def test_scopes_structured_abstract_and_box(tmp_path):
     got = [[p.text for p in s] for s in abbrev.scopes(ms)]
     assert got == [["Abstract", "Background", "Text one.", "Methods", "Text two.", "Keywords: a, b, c"],
                    ["Highlights", "Box text."], ["<H1>Introduction", "Main text."]]
+
+
+def test_scopes_introduction_without_heading(tmp_path):
+    # IJO prints no "Introduction" heading: the text after the key words is the main text, not a box.
+    ms = make(tmp_path, ["Title", "Abstract", "Purpose: Text one.", "Keywords: a, b, c",
+                         "Intraocular pressure (IOP) was high.", "<H1>Methods", "IOP was measured."])
+    got = [[p.text for p in s] for s in abbrev.scopes(ms)]
+    assert got == [["Abstract", "Purpose: Text one.", "Keywords: a, b, c"],
+                   ["Intraocular pressure (IOP) was high.", "<H1>Methods", "IOP was measured."]]
+    _, queries = abbrev.collect(ms, journal("ijo"))
+    assert not [q for q in queries if q.text.startswith("IOP")]

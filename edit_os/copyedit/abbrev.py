@@ -156,6 +156,8 @@ def scopes(ms: Manuscript) -> list[list[Paragraph]]:
     # A structured abstract may have its own "Background" / "Methods" lines: look after the key words.
     lo = kw + 1 if kw is not None else lo
     main = next((i for i in range(lo, len(paras)) if _main_heading(paras[i])), None)
+    if kw is not None and kw + 1 < len(paras) and not _is_heading(paras[kw + 1]):
+        main = kw + 1  # body text right after the key words: an unheaded Introduction (IJO drops it), not a box
     if ab is None:
         return [paras[main:]] if main is not None else [paras]
     if main is None:
