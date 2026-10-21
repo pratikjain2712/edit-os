@@ -16,6 +16,23 @@ from .style import JournalStyle
 
 ERROR, WARNING = "error", "warning"
 
+# Every check `check` can report, with what it looks at (the QC report lists passed and failed).
+CHECKS = {
+    "references.present": "A reference list is present",
+    "citations.brackets": "Citations use the journal's brackets",
+    "citations.format": "No spaces inside citations",
+    "citations.order": "References are cited in numerical order",
+    "references.cited": "Every reference is cited",
+    "references.exists": "Every citation has a reference entry",
+    "references.authors": "Author lists within the journal's limit",
+    "references.initials": "No periods after initials",
+    "keywords.count": "Number of key words",
+    "keywords.order": "Key words in alphabetical order (when required)",
+    "sections.required": "Required back-matter sections present",
+    "sections.expected": "Expected main headings present",
+    "statistics.spacing": "Spaces around statistical operators",
+}
+
 
 @dataclass
 class Issue:

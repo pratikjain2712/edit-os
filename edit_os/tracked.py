@@ -325,14 +325,29 @@ def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, i
         anchor = p
 
 
-def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=None) -> Manuscript:
-    """Apply changes to the manuscript in place. Use a freshly loaded Manuscript per output."""
+def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=None,
+           on_conflict=None) -> Manuscript:
+    """Apply changes to the manuscript in place. Use a freshly loaded Manuscript per output.
+
+    A `ChangeConflict` stops the render, unless `on_conflict(para_id, error)` is given: then that
+    paragraph's changes are skipped (its text is left as it was) and rendering goes on.
+    """
     from .changes import Status
     statuses = statuses or (Status.ACCEPTED,)
     ids = _Ids()
     date = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     for p in ms.paragraphs:
         cs = changes.for_paragraph(p.id, statuses)
-        if cs:
+        if not cs:
+            continue
+        if on_conflict is None:
             _apply_paragraph(p.element, cs, tracked, ids, date)
+            continue
+        backup = copy.deepcopy(p.element)
+        try:
+            _apply_paragraph(p.element, cs, tracked, ids, date)
+        except ChangeConflict as e:
+            p.element.getparent().replace(p.element, backup)
+            p.element = backup
+            on_conflict(p.id, e)
     return ms

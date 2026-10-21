@@ -2,7 +2,13 @@
 
   paragraphs IN.docx                       list paragraph IDs and text
   refs IN.docx                             list the reference entries found
-  render IN.docx CHANGES.json OUTDIR       write tracked and clean copies from accepted changes
+  render IN.docx CHANGES.json OUTDIR       write tracked and clean copies from accepted changes; with
+        [--queries Q.json] [--front-matter F.json]  author queries as comments and front-matter paragraphs
+  render OUTDIR [--final]                  re-render an `edit` output folder from its records' statuses
+  edit IN.docx|IN.zip JOURNAL OUTDIR       full run: front matter + style rules + copy-edit checkers ->
+        [--stages style,copyedit]          changes.json, tracked (queries as comments) and clean copies,
+        [--accept-all]                     query sheet, QC report (.json + .html); proposals stay
+        [--first-page FP.docx] [--xml M.xml]  "suggested" unless --accept-all
   style IN.docx JOURNAL OUTDIR             run the journal's rules; write tracked (with author queries as
         [--first-page FP.docx] [--xml M.xml]  comments) and clean copies, the query sheet and QC; the title-page
   style original.zip JOURNAL OUTDIR        file and XML feed the front matter (a zip supplies all three)
@@ -16,22 +22,43 @@ import json
 import os
 import sys
 
-from . import docmodel, frontmatter, journals, qc, queries, references, rules, style, tracked
+from . import docmodel, frontmatter, journals, pipeline, qc, queries, references, rules, style, tracked
 from .changes import ChangeSet, Status
 
+_manuscript_from_zip = pipeline.manuscript_from_zip
 
-def _manuscript_from_zip(path: str, outdir: str) -> str:
-    """Write the manuscript .docx from a submission zip into OUTDIR; the one named "manuscript", else the largest."""
-    import zipfile
 
-    z = zipfile.ZipFile(path)
-    docs = [n for n in z.namelist() if n.lower().endswith(".docx") and not frontmatter._FIRST_PAGE.search(os.path.basename(n))]
-    named = [n for n in docs if "manuscript" in os.path.basename(n).lower()]
-    pick = (named or sorted(docs, key=lambda n: -z.getinfo(n).file_size))[0]
-    out = os.path.join(outdir, os.path.basename(pick))
-    with open(out, "wb") as f:
-        f.write(z.read(pick))
-    return out
+def _options(argv: list[str], flags=()) -> tuple[list[str], dict[str, str], set[str]]:
+    """Split ARGV into positionals, --key value options and bare --flags."""
+    pos, opts, seen = [], {}, set()
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in flags:
+            seen.add(a)
+        elif a.startswith("--") and i + 1 < len(argv):
+            opts[a] = argv[i + 1]
+            i += 1
+        else:
+            pos.append(a)
+        i += 1
+    return pos, opts, seen
+
+
+def _print_summary(out: "pipeline.Outputs") -> None:
+    s = out.summary
+    print(f"{s['changes']['total']} changes ({s['changes']['pending']} pending); "
+          f"{s['front_matter_inserts']['total']} front-matter paragraphs; {s['queries']['total']} author queries; "
+          f"QC {'PASSED' if s['qc']['passed'] else 'BLOCKED'} ({s['qc']['basis']})")
+    for layer, row in sorted(s["changes"]["by_layer"].items()):
+        print(f"  {layer:15s} {row['total']:4d}  accepted {row['accepted']}  rejected {row['rejected']}")
+    for c in s["qc"]["checks"]:
+        if not c["passed"]:
+            print(f"  {c['severity'] or 'error':7s} {c['check']:22s} {c['issues']} issue(s)")
+    for c in s["render_conflicts"]:
+        print(f"  skipped {c['para_id']} in {c['output']}: {c['error']}")
+    for kind in ("tracked", "clean", "queries", "qc_html"):
+        print(f"  {out.files[kind]}")
 
 
 def main(argv: list[str]) -> int:
@@ -51,14 +78,46 @@ def main(argv: list[str]) -> int:
     elif cmd == "refs":
         for r in references.extract(docmodel.load(path)):
             print(f"{r.para_id}\t{r.number if r.number is not None else '-'}\t{r.text}")
-    elif cmd == "render" and len(argv) == 4:
-        changes = ChangeSet.load(argv[2])
-        os.makedirs(argv[3], exist_ok=True)
+    elif cmd == "render" and os.path.isdir(path):
+        pos, _, flags = _options(argv[1:], ("--final",))
+        _print_summary(pipeline.render_outputs(pos[0], include_pending="--final" not in flags))
+    elif cmd == "render" and len(argv) >= 4:
+        pos, opts, _ = _options(argv[1:])
+        path, changes_path, outdir = pos[:3]
+        changes = ChangeSet.load(changes_path)
+        qs = queries.QuerySet()
+        if "--queries" in opts:
+            with open(opts["--queries"], encoding="utf-8") as f:
+                qs.queries = [pipeline.query_from_dict({"key": "", **d})[0] for d in json.load(f)
+                              if d.get("status") != Status.REJECTED.value]
+            qs.number(docmodel.load(path))
+        inserts = []
+        if "--front-matter" in opts:
+            with open(opts["--front-matter"], encoding="utf-8") as f:
+                inserts = [pipeline.insert_from_dict(d) for d in json.load(f)]
+        os.makedirs(outdir, exist_ok=True)
         stem = os.path.splitext(os.path.basename(path))[0]
         for kind, is_tracked in (("tracked", True), ("clean", False)):
-            out = os.path.join(argv[3], f"{stem}_{kind}.docx")
-            tracked.render(docmodel.load(path), changes, tracked=is_tracked).save(out)
+            out = os.path.join(outdir, f"{stem}_{kind}.docx")
+            ms = docmodel.load(path)
+            if is_tracked and qs.queries:
+                queries.write_comments(ms, qs)
+            tracked.render(ms, changes, tracked=is_tracked)
+            frontmatter.render_inserts(ms, inserts, tracked=is_tracked)
+            ms.save(out)
             print(out)
+        if qs.queries:
+            out = os.path.join(outdir, f"{stem}_queries.xlsx")
+            queries.write_sheet(docmodel.load(path), qs, out, stem)
+            print(out)
+    elif cmd == "edit" and len(argv) >= 4:
+        pos, opts, flags = _options(argv[1:], ("--accept-all",))
+        path, journal, outdir = pos[:3]
+        stages = tuple(opts.get("--stages", ",".join(pipeline.STAGES)).split(","))
+        out = pipeline.edit(path, journal, outdir, stages, first_page=opts.get("--first-page"),
+                            xml=opts.get("--xml"), accept_all="--accept-all" in flags,
+                            progress=lambda m: print(f"... {m}", file=sys.stderr))
+        _print_summary(out)
     elif cmd == "style" and len(argv) >= 4 and len(argv) % 2 == 0:
         st = style.load(argv[2])
         os.makedirs(argv[3], exist_ok=True)

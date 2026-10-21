@@ -265,7 +265,7 @@ def parse_xml(data: bytes) -> Meta:
 class _Cache:
     def __init__(self, path: str = ai_refs.CACHE_DB):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.con = sqlite3.connect(path)
+        self.con = sqlite3.connect(path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
         self.con.execute("CREATE TABLE IF NOT EXISTS frontmatter (key TEXT PRIMARY KEY, body TEXT)")
 
     @staticmethod

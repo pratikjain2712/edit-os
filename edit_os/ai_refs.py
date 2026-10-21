@@ -70,7 +70,7 @@ def available() -> bool:
 class _Cache:
     def __init__(self, path: str = CACHE_DB):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.con = sqlite3.connect(path)
+        self.con = sqlite3.connect(path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
         self.con.execute("CREATE TABLE IF NOT EXISTS parsed (key TEXT PRIMARY KEY, body TEXT)")
 
     @staticmethod

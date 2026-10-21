@@ -13,7 +13,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9", "boto3>=1.34"]
+dev = ["pytest>=8", "httpx>=0.27", "edit-os[server]"]
+
+[tool.setuptools.packages.find]
+include = ["edit_os*"]  # server/, integrations/, web/ are not part of the library
 
 [tool.setuptools.package-data]
 edit_os = ["styles/*.yaml", "copyedit/data/*.txt"]

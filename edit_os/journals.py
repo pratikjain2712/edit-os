@@ -86,7 +86,7 @@ class Directory:
     def __init__(self, db_path: str = DEFAULT_DB):
         if not os.path.exists(db_path):
             raise FileNotFoundError(f"{db_path} not found; run: python -m edit_os journals update")
-        self.con = sqlite3.connect(db_path)
+        self.con = sqlite3.connect(db_path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
         self._cache: dict[str, list[Journal]] = {}
 
     def _get(self, nlm_id: str) -> Journal:
