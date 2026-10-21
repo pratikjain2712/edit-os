@@ -90,7 +90,8 @@ def process(job_id: str, settings: Settings, store: db.JobStore, storage: LocalS
         with job_lock(job_id):
             src = input_file(storage, job, settings)
             out = pipeline.edit(src, job["journal"], out_dir(storage, job_id), tuple(job["stages"]),
-                                progress=lambda m: store.update(job_id, stage=m))
+                                progress=lambda m: store.update(job_id, stage=m),
+                                counts=lambda d: store.update(job_id, summary={"live": d}))
             storage.save(job_id)
         store.update(job_id, status=db.DONE, stage="done", summary=compact_summary(out.summary))
     except Exception as e:

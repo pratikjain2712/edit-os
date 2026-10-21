@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from edit_os import pipeline, style as style_mod
+from edit_os import docview, pipeline, style as style_mod
 from edit_os.changes import Source, Status
 
 from . import db
@@ -70,6 +70,13 @@ class Edit(BaseModel):
     editor: str = ""
 
 
+class DirectEdit(BaseModel):
+    para_id: str
+    base: str = Field(description="the paragraph's text as the editor saw it (accepted changes applied)")
+    text: str = Field(description="the paragraph's text as the editor wants it")
+    editor: str = ""
+
+
 class Decision(BaseModel):
     ids: list[str] = Field(default_factory=list, description="change, front-matter insert or query ids")
     status: Literal["accepted", "rejected", "suggested"]
@@ -84,6 +91,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
     storage: LocalStorage = make_storage(settings)
     queue = queue or ThreadQueue(lambda job_id: process(job_id, settings, store, storage), settings.workers)
     para_cache: dict[str, tuple[float, dict[str, str]]] = {}
+    doc_cache: dict[str, tuple[float, dict]] = {}
 
     @asynccontextmanager
     async def lifespan(app):
@@ -171,6 +179,14 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             hit = para_cache[job_id] = (mtime, pipeline.paragraph_texts(src))
         return hit[1]
 
+    def document_view(job_id: str) -> dict:
+        src = pipeline.source_path(out_dir(storage, job_id))
+        mtime = os.path.getmtime(src)
+        hit = doc_cache.get(job_id)
+        if hit is None or hit[0] != mtime:
+            hit = doc_cache[job_id] = (mtime, docview.document(src))
+        return hit[1]
+
     def _create(journal: str, input_name: str, stages, **kw) -> dict:
         if style_mod.resolve(journal) not in journal_codes():
             raise HTTPException(422, f"Unknown journal code {journal!r}")
@@ -238,7 +254,9 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         items = []
         for c in changes.changes:
             t = texts.get(c.para_id, "")
-            items.append({**c.to_dict(), "kind": "change", "edited": c.source == Source.EDITOR,
+            items.append({**c.to_dict(), "kind": "change",
+                          "edited": c.source == Source.EDITOR and c.reason != docview.DIRECT_EDIT,
+                          "direct": c.reason == docview.DIRECT_EDIT,
                           "context": {"before": t[max(0, c.start - context):c.start], "after": t[c.end:c.end + context],
                                       "paragraph": t}})
         first_id = next(iter(texts), None)
@@ -250,6 +268,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
                           "new": n.text, "layer": "structure", "source": n.source.value,
                           "reason": f"front_matter: {n.role}", "status": n.status.value, "format": None,
                           "where": n.where, "position": position, "edited": dec.get(n.id, {}).get("new_text") is not None,
+                          "runs": [[t, f] for t, f in n.runs] if dec.get(n.id, {}).get("new_text") is None else None,
                           "context": {"before": "", "after": "", "paragraph": t}})
         order = {pid: i for i, pid in enumerate(texts)}
         items.sort(key=lambda d: (order.get(d["para_id"], 10 ** 9), d["start"]))
@@ -303,6 +322,51 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             raise HTTPException(422, "The new text must stay within one paragraph")
         store.edit(job["id"], body.id, kinds[body.id], body.new, body.editor or x_editor or "")
         return {"id": body.id, "status": "accepted", "new": body.new}
+
+    @app.get("/api/jobs/{job_id}/document")
+    def get_document(job: dict = Depends(require_done)):
+        """The manuscript as received, paragraph by paragraph, for the page view: kind (heading with
+        level, front matter, list, table cell with table/row/col, caption, reference, body) and runs
+        with bold / italic / superscript / subscript. Suggestions come from /changes (same offsets)."""
+        outdir = out_dir(storage, job["id"])
+        man = pipeline.load_manifest(outdir)
+        return {"job_id": job["id"], "journal": man["journal"], "journal_name": man.get("journal_name"),
+                "article": man["stem"], **document_view(job["id"])}
+
+    @app.post("/api/jobs/{job_id}/changes", status_code=201)
+    def direct_edit(body: DirectEdit, job: dict = Depends(require_done), x_editor: str | None = Header(None)):
+        """The editor's own correction typed into a paragraph. Diffed word by word against the paragraph's
+        text and stored as accepted editor changes in the job's records (earlier direct edits of the
+        paragraph are replaced). 409 when it touches an accepted suggestion or the text is stale;
+        pending suggestions it overlaps are set aside (rejected) and listed."""
+        editor = body.editor or x_editor or ""
+        with job_lock(job["id"]):
+            outdir = out_dir(storage, job["id"])
+            texts = paragraphs(job["id"])
+            if body.para_id not in texts:
+                raise HTTPException(422, f"Unknown paragraph {body.para_id!r}")
+            _, _, merged_changes, _, _ = merged(job["id"])
+            try:
+                plan = docview.plan_edit(body.para_id, texts[body.para_id], merged_changes.changes, body.base,
+                                         body.text, editor)
+            except docview.EditInvalid as e:
+                raise HTTPException(422, str(e))
+            except docview.EditConflict as e:
+                raise HTTPException(409, str(e))
+            man, raw, inserts, qdicts = pipeline.load_records(outdir)
+            gone = {c.id for c in plan.replaced}
+            for c in raw.changes:
+                if c.id in gone:
+                    c.status = Status.REJECTED
+            raw.changes += plan.changes
+            pipeline.save_records(outdir, changes=raw)
+            if gone:  # a decision on an old edit (e.g. undo + redo) must not bring it back
+                store.decide(job["id"], [(i, "change") for i in gone], "rejected", editor)
+            if plan.superseded:
+                store.decide(job["id"], [(c.id, "change") for c in plan.superseded], "rejected", editor)
+            storage.save(job["id"])
+        return {"para_id": body.para_id, "created": [c.to_dict() for c in plan.changes],
+                "replaced": sorted(gone), "superseded": [c.id for c in plan.superseded]}
 
     @app.post("/api/jobs/{job_id}/render")
     def rerender(job: dict = Depends(require_done), final: bool = False):
