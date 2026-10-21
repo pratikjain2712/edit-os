@@ -204,9 +204,74 @@ def _usable_title(r: biblio.Record, p: Parsed | None) -> str:
     return title
 
 
-def sentence_case(title: str) -> str:
+# Proper nouns that keep their capital in a Title-Cased title, where no sentence-cased source
+# says otherwise: eponyms, instruments and places common in the journals' references. Kept short:
+# a word left out here is lower-cased, as the editors do with ordinary words.
+PROPER_NOUNS = frozenset("""
+Doppler Heidelberg Humphrey Goldmann Snellen Fourier Gaussian Bayesian Kaplan Meier Pearson Spearman
+Wilcoxon Kruskal Wallis Mann Whitney Fisher Bland Altman Cox Poisson Markov Monte Carlo Likert Delphi
+Parkinson Parkinson's Alzheimer Alzheimer's Graves Graves' Behçet Behcet Stargardt Leber Fuchs Coats Sjögren Sjogren
+Marfan Stevens Johnson Vogt Koyanagi Harada Bruch Bruch's Descemet Descemet's Bowman Bowman's Schlemm Schlemm's
+Tenon Tenon's Müller Muller Purkinje Horner Horner's Adie Argyll Robertson Bell's Down's Hodgkin Kaposi
+Wilms Ewing Merkel Langerhans Sturge Weber Hippel Lindau Moyamoya Susac Terson Purtscher Coats' Mooren Mooren's
+Zeiss Topcon Optovue Cirrus Spectralis Pentacam Orbscan Medmont Nidek Haag Streit Tono-Pen Icare
+Africa African America American Asia Asian Europe European Australia Australian India Indian China Chinese Japan
+Korea Nepal Pakistan Bangladesh Sri Lanka Iran Iraq Turkey Egypt Nigeria Ethiopia Kenya Ghana Brazil Colombia
+Mexico Canada Germany France Italy Spain Portugal Netherlands Sweden Norway Denmark Finland Switzerland Austria
+Poland Greece Israel Saudi Arabia Emirates Singapore Malaysia Thailand Vietnam Indonesia Philippines Taiwan
+Kong Britain England Scotland Wales Ireland Russia Ukraine Chile Peru Argentina Venezuela Delhi Mumbai Chennai
+Kolkata Bangalore Bengaluru Hyderabad Pune Kerala Karnataka Gujarat Punjab Rajasthan Maharashtra Tamil Nadu
+Andhra Pradesh Telangana Odisha Bengal Bihar Haryana Assam London Paris Boston Baltimore Beijing Shanghai Tokyo
+""".split())
+
+_MINOR_WORDS = {"a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by", "in", "of",
+                "on", "to", "up", "via", "with", "from", "into", "over", "per", "vs", "versus"}
+
+
+def _mid_title_words(title: str) -> list[str]:
+    """Words of a title other than the first and those starting a subtitle (after ":", "?", "!")."""
+    out, first = [], True
+    for w in title.split():
+        core = re.sub(r"^\W+|\W+$", "", w)
+        if not first and core:
+            out.append(core)
+        first = w.endswith((":", "?", "!")) or (w.endswith(".") and len(core) > 3)
+    return out
+
+
+def is_sentence_cased(title: str) -> bool:
+    """Most words lower case: a capital inside such a title marks a proper noun ("colour Doppler")."""
+    words = [w for w in _mid_title_words(title) if w.isalpha() or "-" in w]
+    lower = sum(1 for w in words if w[:1].islower() and w.lower() not in _MINOR_WORDS)
+    caps = sum(1 for w in words if re.fullmatch(r"[A-Z][a-z]+(?:-[A-Za-z][a-z]*)*", w)
+               and w.lower() not in _MINOR_WORDS)
+    return lower >= 2 and caps < lower
+
+
+def proper_nouns(*sources: str) -> set[str]:
+    """Capitalised words inside the sentence-cased titles among `sources` (the PubMed / CrossRef
+    record's title, the author's title): Doppler, Colombia, "Global Burden of Disease Study"."""
+    keep = set()
+    for t in sources:
+        if t and is_sentence_cased(t):
+            for core in _mid_title_words(t):
+                for part in core.split("-"):
+                    if re.fullmatch(r"[A-Z][a-z'’]+", part):
+                        keep.add(part)
+    return keep
+
+
+def _dash_compound(core: str) -> bool:
+    """"Adults-Screening" stands for "Adults—Screening": a plural noun, then a new phrase."""
+    m = re.fullmatch(r"([A-Z][a-z]{3,}[^s\W]s)-([A-Z][a-z]{4,})", core)
+    return m is not None
+
+
+def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
     """Lower-case Title-Cased words, keeping the first word, the word after a colon, acronyms
-    (ASCO, GLOBOCAN, U.S.) and words with inner capitals or digits (mRNA, COVID-19)."""
+    (ASCO, GLOBOCAN, U.S.), words with inner capitals or digits (mRNA, COVID-19) and proper nouns:
+    those in `keep` (see `proper_nouns`) and in PROPER_NOUNS."""
+    keep = set(keep) | PROPER_NOUNS
     words = re.split(r"(\s+)", title)
     out, first = [], True
     for w in words:
@@ -214,13 +279,15 @@ def sentence_case(title: str) -> str:
             out.append(w)
             continue
         core = re.sub(r"^\W+|\W+$", "", w)
-        plain = re.fullmatch(r"[A-Z][a-z]+(?:-[A-Za-z][a-z]*)*", core) is not None
-        if first:
+        plain = re.fullmatch(r"[A-Z][a-z'’]+(?:-[A-Za-z][a-z'’]*)*", core) is not None
+        if first or not plain:
             out.append(w)
-        elif plain:
-            out.append(w.replace(core, core.lower(), 1))
+        elif _dash_compound(core):
+            left, right = core.split("-")
+            out.append(w.replace(core, (left if left in keep else left.lower()) + "-" + right, 1))
         else:
-            out.append(w)
+            parts = [p if p in keep else p.lower() for p in core.split("-")]
+            out.append(w.replace(core, "-".join(parts), 1))
         first = w.endswith((":", "?", "!")) or (w.endswith(".") and len(core) > 3)
     return "".join(out)
 
@@ -241,7 +308,7 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     if title.endswith("."):
         title = title[:-1]
     if style.get("references.title_sentence_case"):
-        title = sentence_case(title)
+        title = sentence_case(title, proper_nouns(r.title, p.title if p else ""))
     if style.get("references.capitalize_after_colon"):
         title = re.sub(r":\s([a-z])", lambda m: ": " + m.group(1).upper(), title)
     end = "" if title.endswith(("?", "!")) else "."
@@ -259,6 +326,26 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     return f"{author_text}. {title}{end} {cite}."
 
 
+_ERRATUM = re.compile(
+    r"\b(?P<label>Erratum in|Corrigendum in|Correction in)\s*:\s*(?P<journal>[A-Z][^;:]*?)\.?\s+"
+    r"(?P<year>(?:19|20)\d{2})(?:\s+[A-Z][a-z]{2,8}(?:\s+\d{1,2})?)?\s*;\s*(?P<vol>\d+)\s*(?:\((?P<issue>[^)]*)\))?"
+    r"\s*:\s*(?P<pages>[A-Za-z]?\d+[A-Za-z]?(?:\s*[-–]\s*[A-Za-z]?\d+[A-Za-z]?)?)", re.I)
+
+
+def errata(text: str, style: JournalStyle) -> str:
+    """" Erratum in: Lancet Glob Health 2021;9:e408." for each erratum notice in the author's entry
+    (PubMed's "Erratum in: Lancet Glob Health. 2021 Apr;9(4):e408."), styled like the main
+    citation: no periods in the journal name, no month, issue and doi as the style says."""
+    out = []
+    for m in _ERRATUM.finditer(text):
+        label = m.group("label")[0].upper() + m.group("label")[1:].lower()
+        journal = re.sub(r"\s+", " ", m.group("journal").replace(".", " ")).strip()
+        issue = f"({m.group('issue')})" if m.group("issue") and not style.get("references.drop_issue", True) else ""
+        out.append(f" {label}: {journal} {m.group('year')};{m.group('vol')}{issue}:"
+                   f"{format_pages(m.group('pages'), style)}.")
+    return "".join(out)
+
+
 def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resolution:
     p = from_fields(text, fields) if fields else parse(text)
     journal_like = p.kind == "journal_article" if p.kind else looks_like_journal_article(text)
@@ -271,7 +358,7 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         return Resolution(QUERY, p, message=why)
     if not (record.volume and record.year):
         return Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)")
-    formatted = format_record(record, style, p)
+    formatted = format_record(record, style, p) + errata(text, style)
     t, _, _ = score(p, record)
     if fold(formatted) == fold(text) and formatted.rstrip() == text.rstrip():
         return Resolution(MATCHED, p, record, formatted, score=t)

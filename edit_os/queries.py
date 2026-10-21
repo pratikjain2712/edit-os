@@ -84,10 +84,10 @@ def _expand(nums: str) -> list[int]:
 
 
 def _citations(ms: Manuscript):
-    """(paragraph, start, end, numbers) for each [n] citation in the body."""
-    from .rules import body_paragraphs
+    """(paragraph, start, end, numbers) for each [n] citation in the body and in tables."""
+    from .renumber import citation_paragraphs
 
-    for p in body_paragraphs(ms):
+    for p in citation_paragraphs(ms):
         for m in re.finditer(r"\[(\d[\d,\-–\s]*)\]", p.text):
             nums = []
             for part in re.split(r"\s*,\s*", m.group(1).strip()):

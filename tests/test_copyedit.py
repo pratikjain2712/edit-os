@@ -192,7 +192,8 @@ def test_abbreviation_not_used_again_keeps_full_form(tmp_path):
         "<H1>Methods",
         "Patients were seen at the outpatient department.",
     ])
-    changes, qs = abbrev.collect(ms, journal())
+    assert abbrev.collect(ms, journal()) == ([], [])  # off by default: copy editors keep definitions
+    changes, qs = abbrev.collect(ms, journal(abbreviations={"unused_definition": "change"}))
     assert apply(ms, changes)[1:4] == [
         "Records came from the outpatient department and the electronic medical records.",
         "Bandage contact lens (BCL) was placed.",
@@ -220,14 +221,43 @@ def test_full_form_after_definition_becomes_abbreviation(tmp_path):
         "Intraocular pressure was noted before; intraocular pressure (IOP) rose.",
         "<H1>Intraocular pressure",
         "Mean intraocular pressure was 12 mmHg; IOP fell. Intraocular pressures were stable.",
+        "The IOP was lower at 1 week; IOP and IOP spikes were rare.",
     ])
-    changes, qs = abbrev.collect(ms, journal())
-    assert apply(ms, changes)[1:] == [
+    on = journal(abbreviations={"full_form_after_definition": "change"})
+    changes, qs = abbrev.collect(ms, on)
+    assert apply(ms, changes)[1:4] == [
         "Intraocular pressure was noted before; intraocular pressure (IOP) rose.",
         "<H1>Intraocular pressure",
         "Mean IOP was 12 mmHg; IOP fell. IOPs were stable.",
     ]
     assert {c.reason for c in changes} == {"use abbreviation after its definition"}
+    assert abbrev.collect(ms, journal())[0] == []  # off for IJO: its copy editors leave the full form
+
+
+def test_full_form_kept_when_the_author_mostly_writes_it_out(tmp_path):
+    # "retinoblastoma (RB)" in a paper about retinoblastoma: the editors leave the term written out.
+    ms = make(tmp_path, [
+        "Abstract",
+        "Adult retinoblastoma (RB) is rare. Retinoblastoma was suspected.",
+        "Keywords: Retinoblastoma, adult retinoblastoma, enucleation",
+        "Introduction",
+        "Retinoblastoma (RB) is the commonest tumour. Adult retinoblastoma is rare; RB in adults is atypical.",
+        "Retinoblastoma was confirmed. Adult retinoblastoma needs follow-up.",
+    ])
+    on = journal("ija", abbreviations={"full_form_after_definition": "change"})
+    assert [c for c in abbrev.collect(ms, on)[0] if c.reason == "use abbreviation after its definition"] == []
+
+
+def test_full_form_not_shortened_in_abstract_or_key_words(tmp_path):
+    ms = make(tmp_path, [
+        "Abstract",
+        "Intraocular pressure (IOP) was measured. IOP rose, IOP fell, intraocular pressure was stable.",
+        "Keywords: Glaucoma, intraocular pressure, IOP",
+        "Introduction",
+        "We studied it.",
+    ])
+    on = journal("ija", abbreviations={"full_form_after_definition": "change"})
+    assert [c for c in abbrev.collect(ms, on)[0] if c.reason == "use abbreviation after its definition"] == []
 
 
 def test_allowlist_and_codes_not_queried(tmp_path):

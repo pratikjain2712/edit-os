@@ -70,6 +70,118 @@ def compress(nums: list[int], style: JournalStyle) -> str:
     return style.get("citations.multiple_delimiter", ",").join(parts)
 
 
+# --- tables: where their citations stand in the citation order ---------------------------
+
+_TABLE_NOTE = re.compile(r"^\s*(?:(?:notes?|sources?|adapted|abbreviations?|data from|reproduced|modified|reprinted)\b|"
+                         r"[*†‡§¶#])", re.I)
+
+
+def _outer_table(p) -> object | None:
+    from docx.oxml.ns import qn
+
+    outer = None
+    for a in p.element.iterancestors(qn("w:tbl")):
+        outer = a
+    return outer
+
+
+def tables(ms: Manuscript) -> list[tuple[int | None, list[str]]]:
+    """(table number from its caption, ids of its paragraphs: cells and the notes under it) for
+    each table, in document order."""
+    from . import rules_figures
+
+    paras = ms.paragraphs
+    groups: list[tuple[object, list[int]]] = []
+    for i, p in enumerate(paras):
+        if not p.in_table:
+            continue
+        t = _outer_table(p)
+        if groups and groups[-1][0] is t:
+            groups[-1][1].append(i)
+        else:
+            groups.append((t, [i]))
+
+    def caption_number(i: int) -> int | None:
+        m = rules_figures.caption_match(paras[i])
+        if m and m.group("word").lower().startswith("tab"):
+            return int(m.group("num")) if m.group("num").isdigit() else rules_figures.roman_to_int(m.group("num"))
+        return None
+
+    out = []
+    for _, idxs in groups:
+        first, last = idxs[0], idxs[-1]
+        number = None
+        k, seen = first - 1, 0  # caption above (the usual place), within a few lines
+        while k >= 0 and seen < 3 and not paras[k].in_table:
+            if paras[k].text.strip():
+                number = caption_number(k)
+                seen += 1
+                if number is not None:
+                    break
+            k -= 1
+        if number is None:  # caption in the first cell
+            number = next((n for i in idxs[:3] if (n := caption_number(i)) is not None), None)
+        members = [paras[i].id for i in idxs]
+        k = last + 1
+        while k < len(paras) and not paras[k].in_table:  # notes under the table
+            text = paras[k].text
+            if text.strip():
+                if not _TABLE_NOTE.match(text):
+                    if number is None:
+                        number = caption_number(k)  # caption below the table
+                    break
+                members.append(paras[k].id)
+            k += 1
+        out.append((number, members))
+    return out
+
+
+def reading_keys(ms: Manuscript) -> dict[str, tuple]:
+    """Sort key (paragraph position, offset, ...) for each paragraph whose citations count: a
+    table's cells and notes stand at the end of the table's first callout in the text
+    ("... role.[7] Tables 1-3 summarise", as the editors renumber them), or where the table is
+    when it is never called out. Combine with a citation's offset: `citation_key`."""
+    from . import rules_figures
+
+    cached = getattr(ms, "_reading_keys", None)
+    if cached is not None:
+        return cached
+    index = {p.id: i for i, p in enumerate(ms.paragraphs)}
+    ms._para_index = index
+    callout: dict[int, tuple[int, int]] = {}
+    for c in rules_figures.citations(ms):
+        if c.kind == rules_figures.TABLE:
+            for n in c.numbers:
+                callout.setdefault(n, (index[c.para_id], c.end))
+    keys: dict[str, tuple] = {}
+    for t_order, (number, members) in enumerate(tables(ms)):
+        anchor = callout.get(number) if number is not None else None
+        for j, pid in enumerate(members):
+            keys[pid] = (anchor[0], anchor[1], 1, t_order, j) if anchor else (index[pid], 0, 1, t_order, j)
+    ms._reading_keys = keys
+    return keys
+
+
+def citation_key(ms: Manuscript, para_id: str, start: int) -> tuple:
+    keys = reading_keys(ms)
+    if para_id in keys:
+        return keys[para_id] + (start,)
+    return (ms._para_index[para_id], start, 0, 0, 0, 0)
+
+
+def citation_paragraphs(ms: Manuscript):
+    """Paragraphs whose citations count, in citation order (by paragraph; use `citation_key` for
+    the order of single citations): the body before the reference list, and tables with their
+    notes wherever they are."""
+    from . import rules
+
+    keys = reading_keys(ms)
+    ref_paras = {r.para_id for r in references.extract(ms)}
+    body = {p.id for p in rules.body_paragraphs(ms)}
+    paras = [p for p in ms.paragraphs if p.text.strip() and p.id not in ref_paras and (p.id in body or p.id in keys)]
+    return sorted(paras, key=lambda p: citation_key(ms, p.id, 0))
+
+
 @dataclass
 class Occurrence:
     para_id: str
@@ -124,9 +236,10 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
     skip_round = n_square >= n_round
     ref_paras = {r.para_id for r in references.extract(ms)}
     heading = references.find_heading(ms)
+    front = rules.front_matter_ids(ms)  # author and affiliation numbers
     out = []
     for idx, p in enumerate(ms.paragraphs):
-        if p.id in ref_paras or idx == heading or not p.text.strip():
+        if p.id in ref_paras or p.id in front or idx == heading or not p.text.strip():
             continue
         found = []
         mine = proposals.get(p.id, [])
@@ -150,8 +263,9 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
             nums = expand(m.group(2))
             if nums and max(nums) <= n_refs:
                 found.append(Occurrence(p.id, m.start(), m.end(), m.group(0), m.group(0), nums))
-        out += sorted(found, key=lambda o: o.start)
-    return out
+        out += found
+    # Tables and their notes count where they are first called out (`reading_keys`).
+    return sorted(out, key=lambda o: citation_key(ms, o.para_id, o.start))
 
 
 def duplicates(ms: Manuscript, style: JournalStyle, refs: list[references.Reference]) -> list[tuple[int, int]]:

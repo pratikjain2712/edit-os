@@ -23,6 +23,9 @@ _STOP = re.compile(
     re.I,
 )
 _LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|\d+(?=\s))\s*")
+# "Riazi-Esfahani H, Masoomian B, ...": a surname and initials, as a reference entry starts.
+_LOOKS_LIKE_REFERENCE = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}[,.]")
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 
 
 @dataclass
@@ -58,7 +61,8 @@ def extract(ms: Manuscript) -> list[Reference]:
         if m:
             digits = re.sub(r"\D", "", m.group(1))
             number, label = int(digits), m.group(0)
-        elif p.numbered:
+        elif p.numbered or auto and _LOOKS_LIKE_REFERENCE.match(raw) and _YEAR.search(raw):
+            # An entry the author left out of Word's numbered list still continues it.
             auto += 1
             number, label = auto, ""
         else:

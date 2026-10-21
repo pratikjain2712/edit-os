@@ -7,6 +7,9 @@ headings:
        results, discussion, conclusion, conclusions, references, case report, case reports,
        case presentation, review of literature]
 
+references:
+  journal_drop_qualifier: false  # IJO editors keep NLM's qualifier: Eye (Lond), Clinics (Sao Paulo), ... (Engl Ed)
+
 statistics:
   space_around_operators: false  # the editor does not add these for IJO
 
@@ -34,5 +37,7 @@ guide_replace:
   multiplication: false  # the IJO editors leave "4.5x4.5 mm" as typed
 
 copyedit:
+  abbreviations:
+    full_form_after_definition: "off"  # IJO copy editors leave the full form (19 articles: precision 36%, closure -0.8%)
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article

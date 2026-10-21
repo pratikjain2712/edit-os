@@ -56,9 +56,12 @@ def _heading_key(text: str) -> str:
 
 
 def _citations(ms: Manuscript) -> list[tuple[str, list[int]]]:
-    """(para_id, numbers) for each square-bracket citation in the body, in reading order."""
-    out = []
-    for p in body_paragraphs(ms):
+    """(para_id, numbers) for each square-bracket citation in the body and in tables, in citation
+    order (a table's citations count at its first callout: renumber.citation_key)."""
+    from .renumber import citation_key, citation_paragraphs
+
+    found = []
+    for p in citation_paragraphs(ms):
         for m in re.finditer(r"\[(\d[\d,\-–\s]*)\]", p.text):
             nums = []
             for part in re.split(r"\s*,\s*", m.group(1).strip()):
@@ -67,8 +70,8 @@ def _citations(ms: Manuscript) -> list[tuple[str, list[int]]]:
                     nums += list(range(int(r.group(1)), int(r.group(2)) + 1))
                 elif part.isdigit():
                     nums.append(int(part))
-            out.append((p.id, nums))
-    return out
+            found.append((citation_key(ms, p.id, m.start()), p.id, nums))
+    return [(pid, nums) for _, pid, nums in sorted(found, key=lambda x: x[0])]
 
 
 def check(ms: Manuscript, style: JournalStyle) -> Report:

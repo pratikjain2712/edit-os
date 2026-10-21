@@ -69,6 +69,8 @@ _PLAIN_NUMS = re.compile(r"\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*")
 
 
 _UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/cm|/mm)|[\d^×x])\s*$")
+# A statistic letter standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5".
+_STAT_BEFORE = re.compile(r"(?<![\w.])[pPnNrRtFzZdUHI]$")
 
 
 def _is_exponent(text: str, start: int) -> bool:
@@ -76,21 +78,97 @@ def _is_exponent(text: str, start: int) -> bool:
     return bool(_UNIT_BEFORE.search(text[max(0, start - 8):start]))
 
 
+def _is_statistic_index(text: str, start: int, end: int) -> bool:
+    """p¹, p2 (formatted superscript), n² after a lone statistic letter: an index, not a citation."""
+    return bool(_STAT_BEFORE.search(text[max(0, start - 3):start])) and len(text[start:end].strip()) <= 2
+
+
+def _sup_plain(s: str) -> str:
+    return "".join(str(_SUP_DIGITS.index(c)) if c in _SUP_DIGITS else {"⁻": "-", "˒": ","}.get(c, c) for c in s)
+
+
+# "[¹⁰]", "[¹3]": Unicode superscript digits typed inside square brackets (sometimes mixed with plain ones).
+_BRACKETED_SUP = re.compile(r"\[([0-9⁰¹²³⁴⁵⁶⁷⁸⁹][0-9⁰¹²³⁴⁵⁶⁷⁸⁹\s,˒⁻–\-]*)\]")
+
+
 def superscript_citations(p: Paragraph) -> list[tuple[int, int, str]]:
     """(start, end, numbers as plain text) for citations written as superscript: Unicode
-    superscript digits ("worldwide.¹") or digits formatted superscript. Powers are skipped."""
+    superscript digits ("worldwide.¹") or digits formatted superscript. Powers ("10⁹", "mm²")
+    and statistic indices ("p¹ = 0.12") are skipped; front matter is the caller's business."""
     out = []
+    taken = []
+    for m in _BRACKETED_SUP.finditer(p.text):
+        if any(c in _SUP_DIGITS for c in m.group(1)):
+            out.append((m.start(), m.end(), _sup_plain(m.group(1))))
+            taken.append((m.start(), m.end()))
     for m in _UNICODE_SUP.finditer(p.text):
-        if _is_exponent(p.text, m.start()):
+        if any(a <= m.start() < b for a, b in taken):
             continue
-        plain = "".join(str(_SUP_DIGITS.index(c)) if c in _SUP_DIGITS else {"⁻": "-", "˒": ","}.get(c, c)
-                        for c in m.group(0))
-        out.append((m.start(), m.end(), plain))
+        if _is_exponent(p.text, m.start()) or _is_statistic_index(p.text, m.start(), m.end()):
+            continue
+        if p.text[m.end():m.end() + 1].isdigit() or p.text[m.start() - 1:m.start()].isdigit() and m.start():
+            continue  # part of a longer number written half in superscript
+        out.append((m.start(), m.end(), _sup_plain(m.group(0))))
     for s, e in p.superscript:
         if _PLAIN_NUMS.fullmatch(p.text[s:e]) and not _is_exponent(p.text, s):
             lead = len(p.text[s:e]) - len(p.text[s:e].lstrip())
-            out.append((s + lead, s + len(p.text[s:e].rstrip()), p.text[s:e].strip()))
+            s2, e2 = s + lead, s + len(p.text[s:e].rstrip())
+            if _is_statistic_index(p.text, s2, e2) or any(a <= s2 < b for a, b in taken):
+                continue
+            out.append((s2, e2, p.text[s:e].strip()))
     return sorted(out)
+
+
+def front_matter_ids(ms: Manuscript) -> set[str]:
+    """Title page, author line, affiliations, correspondence (and cover letters before them):
+    paragraphs before the abstract / main text, where superscript numbers are author and
+    affiliation markers, never citations. Long paragraphs are left out, so a manuscript whose
+    body has no recognisable start does not lose its citations."""
+    cached = getattr(ms, "_front_matter_ids", None)
+    if cached is not None:
+        return cached
+    from . import frontmatter
+
+    start = next((i for i, p in enumerate(ms.paragraphs)
+                  if not p.in_table and frontmatter._BODY_START.match(p.text)), None)
+    if start is None:
+        # No abstract or main heading: only title-page-like lines (no running sentences).
+        ids = {p.id for p in frontmatter.leading_paragraphs(ms)
+               if len(p.text.split()) < 40 and not re.search(r"[a-z)\]]{2}[.?!][⁰¹²³⁴⁵⁶⁷⁸⁹\d\[\],\-–]*\s+[A-Z]", p.text)
+               and not _ROUND.search(p.text) and not _SQUARE.search(p.text)}
+    else:
+        ids = {p.id for p in ms.paragraphs[:start] if len(p.text) <= 400}
+    ms._front_matter_ids = ids
+    return ids
+
+
+_ENUMERATION = re.compile(r"\(1\)\s+[a-z].*\(2\)\s+[a-z]", re.S)
+
+
+def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]) -> set[tuple[str, int]]:
+    """Round-bracket numbers that are list markers or counts, not citations: "(1) a history of
+    ... (2) recent ..."; and, in a manuscript that cites in square brackets or superscript,
+    "RTA (77) followed by head injury (8)": in a paragraph with no other citation, round-bracket
+    numbers count as citations only when they rise in order ("lens (33), ... ring (34)")."""
+    out = set()
+    n_other = sum(len(_SQUARE.findall(p.text)) + len(superscript_citations(p)) for p in body_paragraphs(ms))
+    dominant = n_other >= len(found)
+    by_para: dict[str, list[re.Match]] = {}
+    paras = {}
+    for p, m in found:
+        by_para.setdefault(p.id, []).append(m)
+        paras[p.id] = p
+    for pid, matches in by_para.items():
+        p = paras[pid]
+        if _ENUMERATION.search(p.text):
+            out.update((pid, m.start()) for m in matches
+                       if m.group(2) in "123456789" and re.match(r"\s+[a-z]", p.text[m.end():]))
+        if not dominant or _SQUARE.search(p.text) or superscript_citations(p):
+            continue
+        nums = [int(m.group(2)) for m in matches if m.group(2).isdigit()]
+        if any(y <= x for x, y in zip(nums, nums[1:])):
+            out.update((pid, m.start()) for m in matches)
+    return out
 
 
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
@@ -99,41 +177,50 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not n_refs:
         return []
     sup = rules_format.citation_format(style)
-    out = []
-    for p in body_paragraphs(ms):
-        if p.style.lower().startswith("heading"):
-            continue
+    front = front_matter_ids(ms)
+    # The body and the tables (wherever they are; their notes too): "Garg et al., 2018[10]".
+    paras = [p for p in renumber.citation_paragraphs(ms)
+             if not p.style.lower().startswith("heading") and p.id not in front]
+    candidates: list[tuple[Paragraph, re.Match, bool]] = []
+    for p in paras:
         for pattern, is_round in ((_ROUND, True), (_SQUARE, False)):
-            if is_round and style.get("citations.brackets") != "square":
-                continue
+            if is_round and (style.get("citations.brackets") != "square" or p.in_table):
+                continue  # in tables, "Male (12)" is a count
             for m in pattern.finditer(p.text):
-                lead, inner, punct = m.group(1), m.group(2), m.group(3)
-                start = m.start()
-                prev = p.text[:start].rstrip()
+                prev = p.text[:m.start()].rstrip()
                 if not prev:  # list numbering at paragraph start
                     continue
                 if re.search(r"(\d|%|\b(table|tables|fig|figure|figures|ref|reference|n|no|eq|equation)\.?)$", prev, re.I):
                     continue  # statistics "45 (12)" or "Table (2)"-style labels, not citations
-                if _max_number(inner) > n_refs:
-                    continue
-                norm = normalise_citation(inner, style)
-                if norm is None:
-                    continue
-                if style.get("citations.after_punctuation", True) and punct:
-                    new = f"{punct}[{norm}]"
-                else:
-                    new = f"[{norm}]{punct}"
-                old = m.group(0)
-                if new == old:
-                    continue
-                if sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
-                    out.append(_change(p, start, m.end(), punct, Layer.REFERENCES, "citations"))
-                    out.append(_change(p, m.end(), m.end(), new[len(punct):], Layer.REFERENCES, "citations", sup))
-                elif sup:
-                    out.append(_change(p, start, m.end() - len(punct), new[:len(new) - len(punct)],
-                                       Layer.REFERENCES, "citations", sup))
-                else:
-                    out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
+                candidates.append((p, m, is_round))
+    not_cited = _round_not_citations(ms, [(p, m) for p, m, r in candidates if r])
+    out = []
+    for p, m, is_round in candidates:
+        if is_round and (p.id, m.start()) in not_cited:
+            continue
+        lead, inner, punct = m.group(1), m.group(2), m.group(3)
+        start = m.start()
+        if _max_number(inner) > n_refs:
+            continue
+        norm = normalise_citation(inner, style)
+        if norm is None:
+            continue
+        if style.get("citations.after_punctuation", True) and punct:
+            new = f"{punct}[{norm}]"
+        else:
+            new = f"[{norm}]{punct}"
+        old = m.group(0)
+        if new == old:
+            continue
+        if sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
+            out.append(_change(p, start, m.end(), punct, Layer.REFERENCES, "citations"))
+            out.append(_change(p, m.end(), m.end(), new[len(punct):], Layer.REFERENCES, "citations", sup))
+        elif sup:
+            out.append(_change(p, start, m.end() - len(punct), new[:len(new) - len(punct)],
+                               Layer.REFERENCES, "citations", sup))
+        else:
+            out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
+    for p in paras:
         # Superscript citations: "worldwide¹." -> "worldwide.[1]" (brackets keep the run's formatting).
         for s, e, nums in superscript_citations(p):
             if s == 0 or _max_number(nums) > n_refs:

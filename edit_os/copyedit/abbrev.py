@@ -256,22 +256,30 @@ def _unused(ms: Manuscript, key: str, ds: list[Definition], mode: str, changes: 
 
 
 def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, mode: str,
-                changes: list, queries: list) -> None:
-    """The full form written out again after the definition: use the abbreviation (not in headings)."""
+                changes: list, queries: list, n_uses: int = 0) -> None:
+    """The full form written out again after the definition: use the abbreviation (not in headings
+    or key words). A change only when the author already uses the abbreviation more often than the
+    full form after defining it: editors leave a term the author keeps writing out ("retinoblastoma"
+    in a paper about it) and shorten the stray ones ("intraocular pressure" among many "IOP")."""
     pat = re.compile(r"(?<![\w\-])" + re.escape(d0.long) + r"(s?)(?![\w\-])(?!\s*\()", re.I)
+    found = []
     for p in scope:
-        if order[p.id] < order[d0.para_id] or _is_heading(p):
+        if order[p.id] < order[d0.para_id] or _is_heading(p) or _KEYWORDS.match(p.text):
             continue
         spans = [(d.start, d.end) for d in definitions(p)] + protected_spans(p.text)
         for m in pat.finditer(p.text):
             if p.id == d0.para_id and m.start() < d0.end or overlaps(m.start(), m.end(), spans):
                 continue
-            if mode == "change":
-                changes.append(change(p, m.start(), m.end(), key + m.group(1), "abbreviations",
-                                      reason="use abbreviation after its definition"))
-            elif mode == "query":
-                queries.append(Query(p.id, m.start(), m.end(), TEXT["abbrev.full_form"].format(abbr=key),
-                                     "abbrev.full_form"))
+            found.append((p, m))
+    if n_uses <= len(found):
+        return
+    for p, m in found:
+        if mode == "change":
+            changes.append(change(p, m.start(), m.end(), key + m.group(1), "abbreviations",
+                                  reason="use abbreviation after its definition"))
+        elif mode == "query":
+            queries.append(Query(p.id, m.start(), m.end(), TEXT["abbrev.full_form"].format(abbr=key),
+                                 "abbrev.full_form"))
 
 
 def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Query]]:
@@ -294,12 +302,15 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         first_def = {k: (order[v[0].para_id], v[0].sf_start) for k, v in defs.items()}
         first_use: dict[str, tuple[Paragraph, int, int]] = {}
         used: set[str] = set()  # used outside a definition (allowlisted too; before the definition counts)
+        n_uses: dict[str, int] = {}  # uses after the definition
         for p in scope:
             spans = [(d.start, d.end) for d in definitions(p)]
             for key, s, e in uses(p):
                 if overlaps(s, e, spans):
                     continue
                 used.add(key)
+                if key in first_def and (order[p.id], s) > first_def[key]:
+                    n_uses[key] = n_uses.get(key, 0) + 1
                 if key in allow or key.upper() in allow_upper:
                     continue
                 first_use.setdefault(key, (p, s, e))
@@ -313,9 +324,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         for key in unused:
             if unused_mode != "off":
                 _unused(ms, key, defs[key], unused_mode, changes, queries)
+        main_text = n_scope == len(all_scopes) - 1  # not in the abstract
         for key, ds in defs.items():
-            if key not in unused and full_mode != "off":
-                _full_forms(scope, order, key, ds[0], full_mode, changes, queries)
+            if key not in unused and full_mode != "off" and main_text:
+                _full_forms(scope, order, key, ds[0], full_mode, changes, queries, n_uses.get(key, 0))
 
         # Defined twice in one scope: shorten the later definitions to the abbreviation, or query.
         mode = cfg.get("redefinition", "query")

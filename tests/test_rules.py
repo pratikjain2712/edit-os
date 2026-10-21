@@ -102,3 +102,91 @@ def test_superscript_citations(tmp_path):
     out = Document(tmp_path / "out.docx")
     sup = [r.text for r in out.paragraphs[0].runs if r.font.superscript]
     assert "".join(sup) == "[1][4-6][7,8]92"  # citations superscript (guide); exponents stay superscript too
+
+
+def _refs(doc, n):
+    for t in ["References"] + [f"{k}. Author A. Title {k}. J Test 2001;{k}:1-2." for k in range(1, n + 1)]:
+        doc.add_paragraph(t)
+
+
+def _no_lookup():
+    st = style.load("ijo")
+    st.settings["references"]["lookup"] = False
+    st.settings["sections"]["back_matter"]["add_missing"] = False
+    return st
+
+
+def test_statistic_indices_are_not_citations(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    p = doc.add_paragraph("Flow was similar (31.4 ± 1.7%, p")
+    p.add_run("1").font.superscript = True
+    p.add_run(" = 0.412), and changed over time (p")
+    p.add_run("2").font.superscript = True
+    p.add_run(" < 0.05). The p")
+    p.add_run("1").font.superscript = True
+    p.add_run(" values compare groups; n² ≥ 4 and P¹=0.2. Glaucoma is common.")
+    p.add_run("3").font.superscript = True
+    _refs(doc, 3)
+    path = tmp_path / "p.docx"
+    doc.save(path)
+    t = apply(str(path), _no_lookup(), tmp_path)
+    assert t[1] == ("Flow was similar (31.4 ± 1.7%, p1 = 0.412), and changed over time (p2 < 0.05). "
+                    "The p1 values compare groups; n² ≥ 4 and P¹=0.2. Glaucoma is common.[3]")
+
+
+def test_front_matter_superscripts_are_not_citations(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Running title: A rare tumour")
+    p = doc.add_paragraph("Authors: Asha Rao¹, Meena Iyer², Ravi Menon")
+    p.add_run("3").font.superscript = True
+    doc.add_paragraph("¹Department of Ophthalmology, City Hospital, Pune, India²Junior Resident, City Hospital")
+    p = doc.add_paragraph("")
+    p.add_run("3").font.superscript = True
+    p.add_run(" Professor, Department of Pathology, City Hospital, Pune, India")
+    doc.add_paragraph("Corresponding Author: Dr. Meena Iyer²")
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("A rare tumour in an adult is reported here.")
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Tumours are rare in adults.¹ Others agree.²")
+    _refs(doc, 3)
+    path = tmp_path / "f.docx"
+    doc.save(path)
+    ms = docmodel.load(str(path))
+    cs = rules.rule_citations(ms, _no_lookup())
+    front = {p.id for p in ms.paragraphs[:5]}
+    assert not [c for c in cs if c.para_id in front]
+    t = apply(str(path), _no_lookup(), tmp_path)
+    assert "Tumours are rare in adults.[1] Others agree.[2]" in t
+
+
+def test_bracketed_unicode_superscripts(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Rigidity rises.[¹⁰] It is safe.[¹3] Many agree.[⁴-⁵]")
+    _refs(doc, 13)
+    path = tmp_path / "b.docx"
+    doc.save(path)
+    st = _no_lookup()
+    st.settings["renumber"] = {"enabled": False}
+    t = apply(str(path), st, tmp_path)
+    assert t[1] == "Rigidity rises.[10] It is safe.[13] Many agree.[4,5]"
+
+
+def test_round_bracket_counts_in_a_square_citing_manuscript(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Corneas are scarce.[1] Contamination is common.[2,3] It varies.[4]")
+    doc.add_paragraph("Swabs help.[5] Media help.[6] Cold helps.[7] Speed helps.[8] So do others.[1,2]")
+    doc.add_paragraph("Causes were trauma (7) and stroke (2); scar (3), foreign body (1).")
+    doc.add_paragraph("Two risks were noted: (1) a long delay and (2) recent surgery.[5]")
+    doc.add_paragraph("Lenses were described (6), as were rings (7).")
+    _refs(doc, 8)
+    path = tmp_path / "c.docx"
+    doc.save(path)
+    st = _no_lookup()
+    st.settings["renumber"] = {"enabled": False}
+    t = apply(str(path), st, tmp_path)
+    assert t[3] == "Causes were trauma (7) and stroke (2); scar (3), foreign body (1)."
+    assert t[4] == "Two risks were noted: (1) a long delay and (2) recent surgery.[5]"
+    assert t[5] == "Lenses were described,[6] as were rings.[7]"  # rising: citations

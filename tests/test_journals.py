@@ -68,4 +68,7 @@ def test_reference_journal_rule(directory, tmp_path):
     doc.save(path)
     ms = docmodel.load(str(path))
     found = {(c.old, c.new) for c in rules.rule_references(ms, style.load("ijo")) if c.reason == "ref_journal"}
-    assert found == {("Indian Journal of Ophthalmology", "Indian J Ophthalmol")}  # Spine already right; unknown left alone
+    # IJO keeps NLM's qualifier, as its editors do ("Eye (Lond)", "Clinics (Sao Paulo)"); unknown left alone.
+    assert found == {("Indian Journal of Ophthalmology", "Indian J Ophthalmol"), ("Spine", "Spine (Phila Pa 1976)")}
+    found = {(c.old, c.new) for c in rules.rule_references(ms, style.load("ija")) if c.reason == "ref_journal"}
+    assert found == {("Indian Journal of Ophthalmology", "Indian J Ophthalmol")}  # the base style drops it

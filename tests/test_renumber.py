@@ -171,7 +171,7 @@ def test_table_citations_follow_the_renumbering(tmp_path):
     path = tmp_path / "t.docx"
     doc.save(path)
     t = _apply(str(path), _style(), tmp_path)
-    assert "As reported [1]" in t
+    assert "As reported[1]" in t  # the citation rule now covers tables too
     assert t[1] == "Alpha.[1] Beta.[2]"
 
 
@@ -210,3 +210,72 @@ def test_citation_at_end_survives_added_back_matter(tmp_path):
     assert t[1] == "Alpha.[1] Beta.[2,3] Six (6) weeks later.[3-5]"
     assert t[2:6] == ["<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
                       "There are no conflicts of interest."]
+
+
+def _table_doc(tmp_path):
+    """References cited only in a table at the end (after the list), as in submissions."""
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Alpha [1]. Beta [2]. Tables 1 and 2 summarise the reported cases.")
+    doc.add_paragraph("Gamma [3].")
+    doc.add_paragraph("References")
+    for n in range(1, 7):
+        doc.add_paragraph(f"{n}. {_ref(n)}")
+    doc.add_paragraph("Table 1: Reported cases")
+    table = doc.add_table(rows=2, cols=1)
+    table.cell(0, 0).text = "Rao et al., 2018[5]"
+    table.cell(1, 0).text = "Lee et al., 2019[4]"
+    doc.add_paragraph("Note. Adapted from Kim et al.[6]")
+    path = tmp_path / "t.docx"
+    doc.save(path)
+    return str(path)
+
+
+def test_table_citations_count_at_the_tables_first_callout(tmp_path):
+    path = _table_doc(tmp_path)
+    ms = docmodel.load(path)
+    assert renumber.tables(ms)[0][0] == 1
+    pl = renumber.plan(ms, _style())
+    assert pl.apply and not pl.uncited
+    assert pl.mapping == {1: 1, 2: 2, 5: 3, 4: 4, 6: 5, 3: 6}
+    t = _apply(path, _style(), tmp_path)
+    assert "Gamma.[6]" in t
+    assert "Rao et al., 2018[3]" in t and "Lee et al., 2019[4]" in t and "Note. Adapted from Kim et al.[5]" in t
+    refs = [x for x in t if x.startswith(tuple(f"{n}. " for n in range(1, 7)))]
+    assert refs[2] == "3. " + _ref(5) and refs[5] == "6. " + _ref(3)
+
+
+def test_qc_and_queries_count_table_citations(tmp_path):
+    from edit_os import qc
+
+    path = _table_doc(tmp_path)
+    t = _apply(path, _style(), tmp_path)
+    out = docmodel.load(str(tmp_path / "out.docx"))
+    issues = {(i.check, i.message) for i in qc.check(out, _style()).issues}
+    assert not [m for c, m in issues if c in ("references.cited", "citations.order")]
+    qs = queries.collect(out, _style())
+    assert not [q for q in qs.queries if q.check == "references.uncited"]
+    assert t  # rendered
+
+
+def test_entry_left_out_of_the_numbered_list_continues_it(tmp_path):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from edit_os import references
+
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Alpha [1]. Beta [2]. Gamma [3].")
+    doc.add_paragraph("References")
+    for n in range(1, 4):
+        p = doc.add_paragraph(_ref(n))
+        if n < 3:  # Word numbering on the first two only
+            num = OxmlElement("w:numPr")
+            for tag, val in (("w:ilvl", "0"), ("w:numId", "1")):
+                el = OxmlElement(tag)
+                el.set(qn("w:val"), val)
+                num.append(el)
+            p._p.get_or_add_pPr().append(num)
+    path = tmp_path / "n.docx"
+    doc.save(path)
+    assert [r.number for r in references.extract(docmodel.load(str(path)))] == [1, 2, 3]

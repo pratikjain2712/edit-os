@@ -107,3 +107,46 @@ def test_claude_kind_marks_books(fake_pubmed, monkeypatch):
     monkeypatch.setattr(refengine.ai_refs, "parse_batch", lambda texts: [{"kind": "book", "title": "Gerontology"}])
     [res] = refengine.resolve_all(["Ringsven MK. Gerontology. Delmar; 1996;3:4-5."], style.load("ijo"))
     assert res.status == refengine.NOT_JOURNAL and not fake_pubmed
+
+
+def _record(title, journal="J Test", **kw):
+    return biblio.Record(source=kw.pop("source", "pubmed"), pmid="9", title=title, authors=[("Rao", "S")],
+                         journal=journal, year="2020", volume="75", pages="e1874", **kw)
+
+
+def test_sentence_case_keeps_proper_nouns_from_a_sentence_cased_record():
+    st = style.load("ijo")
+    rec = _record("Placido disc imaging of the cornea in healthy adults and miners: a survey for the U.S. "
+                  "Preventive Services Task Force.")
+    title = refengine.format_record(rec, st).split(". ", 1)[1]
+    assert title.startswith("Placido disc imaging of the cornea in healthy adults and miners: A survey for the U.S. "
+                            "Preventive Services Task Force.")
+    # The author's own sentence-cased title vouches for its capitals too ("first case in Colombia").
+    p = refengine.parse("Rao S. Ocular findings in coal miners: first series from Malawi. J Test 2020;75:e1874.")
+    rec = _record("Ocular Findings in Coal Miners: First Series from Malawi", source="crossref")
+    assert "First series from Malawi." in refengine.format_record(rec, st, p)
+
+
+def test_sentence_case_of_title_cased_titles():
+    sc = refengine.sentence_case
+    assert sc("Cataract in Infants-Screening, Treatment, and Outcomes: A Survey") == \
+        "Cataract in infants-Screening, treatment, and outcomes: A survey"
+    assert sc("Comparison of Colour Doppler Imaging in Open-Angle Glaucoma") == \
+        "Comparison of colour Doppler imaging in open-angle glaucoma"
+    assert sc("Retinoblastoma in an Adult") == "Retinoblastoma in an adult"
+    assert sc("Effect of First-Line Drugs in Japan") == "Effect of first-line drugs in Japan"
+
+
+def test_journal_qualifier_kept_for_ijo():
+    rec = _record("A study of glaucoma drugs.", journal="Clinics (Sao Paulo)")
+    assert "Clinics (Sao Paulo) 2020;75:e1874." in refengine.format_record(rec, style.load("ijo"))
+    assert "Clinics 2020;75:e1874." in refengine.format_record(rec, style.load("ija"))
+
+
+def test_erratum_kept_and_styled(fake_pubmed):
+    text = ("Shields CL, Shields JA, De Potter P, Cater J, Tardio D, Barrett J. Diffuse choroidal melanoma. "
+            "Clinical features predictive of metastasis. Arch Ophthalmol. 1996 Aug;114(8):956-63. "
+            "doi: 10.1001/archopht.1996.01100140164007. Epub 1996 Jul 1. "
+            "Erratum in: Arch Ophthalmol. 1997 Apr;115(4):e408-e410.")
+    res = refengine.resolve(text, style.load("ijo"))
+    assert res.formatted.endswith("Arch Ophthalmol 1996;114:956-63. Erratum in: Arch Ophthalmol 1997;115:e408-10.")
