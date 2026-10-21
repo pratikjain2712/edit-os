@@ -439,6 +439,7 @@ RULES = {
 # Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
 from . import frontmatter  # noqa: E402  (frontmatter imports nothing from this module)
 RULES = {"front_matter": frontmatter.rule_front_matter, **RULES}
+RULES = {"submission": frontmatter.submission.rule_submission, **RULES}  # cover letter, reply to reviewers: first
 
 
 def _opens_paragraph(c: Change) -> bool:

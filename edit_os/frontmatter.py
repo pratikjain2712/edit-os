@@ -41,7 +41,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from lxml import etree
 
-from . import ai_refs, queries
+from . import ai_refs, queries, submission
 from .changes import Change, Layer, Source, Status
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle, _merge
@@ -347,14 +347,22 @@ _LABEL = re.compile(r"^\s*(title\s*page|running\s*(?:title|head)|short\s*title|(
                     r"(?:article\s*)?title|manuscript\s*type|type\s*of\s*(?:manuscript|article))\b", re.I)
 
 
+# Title-page blocks end here too: the key points / plain language summary IJO asks for come after it.
+_LEAD_STOP = re.compile(r"^\s*(?:<H\d>)?\s*(?:key\s+(?:learning\s+)?(?:points?|messages?)|plain\s+language\s+summary)\b", re.I)
+
+
 def leading_paragraphs(ms: Manuscript, limit: int = 30) -> list[Paragraph]:
     """Manuscript paragraphs before the abstract / main text: where a title page inside the
-    manuscript would be."""
+    manuscript would be. The submission's own parts (cover letter, reply to the
+    reviewers, counts and phone lines `submission.py` deletes) are skipped, so a title page after a cover
+    letter is found."""
     out = []
+    skip = submission.deleted_ids(ms, getattr(ms, "_submission_style", None))
     for p in ms.paragraphs:
-        if p.in_table or not p.text.strip():
+        if p.in_table or not p.text.strip() or p.id in skip:
             continue
-        if _BODY_START.match(p.text) or _BACK_MATTER.match(p.text) or len(p.text) > 400 or len(out) >= limit:
+        if _BODY_START.match(p.text) or _BACK_MATTER.match(p.text) or _LEAD_STOP.match(p.text) \
+                or len(p.text) > 400 or len(out) >= limit:
             break
         out.append(p)
     return out
@@ -363,9 +371,10 @@ def leading_paragraphs(ms: Manuscript, limit: int = 30) -> list[Paragraph]:
 def prompt_text(src: Sources, lead: list[Paragraph]) -> tuple[str, dict[str, str]]:
     """The numbered text Claude sees, and M-id -> paragraph id."""
     lines, ids, size = [], {}, 0
-    if src.first_page:
+    first_page = submission.texts_without_parts(src.first_page) if src.first_page else []
+    if first_page:
         lines.append("Title-page file:")
-        for i, t in enumerate(src.first_page[:80], 1):
+        for i, t in enumerate(first_page[:80], 1):
             size += len(t)
             if size > 12000:
                 break
@@ -1004,7 +1013,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     # History dates.
     dcfg = cfg.get("dates", {}) or {}
     labels = dcfg.get("labels", ["Received", "Revised", "Accepted"])
-    if meta.dates:
+    no_xml = not (meta.article_type or meta.title or meta.authors or meta.dates)
+    if meta.dates or no_xml and dcfg.get("without_xml", True) and f.authors:  # a plain .docx: "???" to fill in
         vals = [meta.dates.get(k) for k in dcfg.get("keys", ["received", "revised", "accepted"])]
         items = [[(f"{lab}:", B), (" " + (v.strftime(dcfg.get("format", "%d-%m-%Y")) if v else dcfg.get("missing", MISSING)), plain)]
                  for lab, v in zip(labels, vals)]
@@ -1135,12 +1145,17 @@ def _rewrite(p: Paragraph, runs: list[Run], layer: Layer) -> list[Change] | None
             mk(starts[i1], starts[i2], "")
             continue
         n_old = i2 - i1
+        extra = None
         if len(segs) > 1 and n_old < len(segs):
-            return None
+            if len(segs) - n_old > 1:
+                return None
+            extra = segs.pop()  # one more piece than old words ("Pillai²" -> "Pillai" + superscript "1"): inserted after
         for k, (t, f) in enumerate(segs):
             lo = i1 + k if len(segs) > 1 else i1
             hi = lo + 1 if k < len(segs) - 1 else i2
             mk(starts[lo], starts[hi], t, f or None)
+        if extra is not None:
+            mk(starts[i2], starts[i2], extra[0], extra[1] or None)
     return out
 
 
@@ -1170,6 +1185,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     if cached is not None:
         return cached
     src = src or getattr(ms, "front_sources", None) or Sources()
+    ms._submission_style = style
     cfg = _settings(style)
     pl = Plan()
     if not cfg.get("enabled", True):
@@ -1181,10 +1197,11 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         source_text = "\n".join(src.first_page + [p.text for p in lead]) + "\n" + src.meta.text()
         f = verify(raw, source_text, para_ids)
         xml_names = [Author(a.get("given", ""), a.get("surname", "")) for a in src.meta.authors]
+        xml_names += [Author(g, sn) for g, sn in submission.notice_names(ms)]  # the portal's copyright notice
         for a in f.authors:  # "Meera K R": the submission XML has the surname in full
             full = _expand(a, xml_names) if _initial_like(a.surname) else None
             if full is not None:
-                f.notes.append(f"surname {a.surname!r} expanded to {full.surname!r} from the submission XML")
+                f.notes.append(f"surname {a.surname!r} expanded to {full.surname!r} from the submission XML / notice")
                 a.surname = full.surname
         if not f.authors and src.meta.authors:  # nothing usable from the text
             m = fields_from_meta(src.meta)
@@ -1192,6 +1209,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             f.correspondence = f.correspondence or m.correspondence
     else:
         f = fields_from_meta(src.meta)
+    _fix_roles(f, lead)
     pl.notes = f.notes
     if not (f.authors or f.title or src.meta.title):
         ms._front_plan = pl
@@ -1258,6 +1276,27 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             pl.queries.append(queries.Query(anchor_q, 0, 0, queries.TEXT[check].format(**fmt), check))
     ms._front_plan = pl
     return pl
+
+
+_LABEL_ROLE = [(re.compile(r"^\s*corresponding\s*author", re.I), "correspondence"),
+               (re.compile(r"^\s*(?:list of\s+)?authors?(?:\s*names?)?\s*[:\-–]", re.I), "authors"),
+               (re.compile(r"^\s*affiliations?\s*[:\-–]", re.I), "affiliation")]
+
+
+def _fix_roles(f: Fields, lead: list[Paragraph]) -> None:
+    """Deterministic corrections to the roles Claude gives manuscript paragraphs: an author-written running
+    head on top ("Rao, et al.: ...") is the running head, not the title; a label with its content after it
+    ("Corresponding Author:" + the name on the next line) holds that content, so it is not deleted as a label."""
+    first = next((p for p in lead if f.roles.get(p.id) not in (None, "body", "other_front_matter")), None)
+    for p in lead:
+        role = f.roles.get(p.id)
+        if p is first and role == "title" and re.match(r"^\s*(?:<RH>)?[^:\n]{1,60}?,?\s+et\s+al\.?\s*:", p.text):
+            f.roles[p.id] = "running_title"
+        elif role == "label":
+            m = _LABEL.match(p.text)
+            rest = p.text[m.end():].strip(" :.-–\n\t") if m else ""
+            if rest:
+                f.roles[p.id] = next((r for rx, r in _LABEL_ROLE if rx.match(p.text)), role)
 
 
 def rule_front_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:

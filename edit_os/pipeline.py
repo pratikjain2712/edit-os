@@ -35,7 +35,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, frontmatter, qc, queries, rules, style as style_mod, tracked
+from . import docmodel, frontmatter, qc, queries, rules, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -225,6 +225,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         style_q = front.add_queries(queries.collect(ms, st), ms) if "front_matter" in ran else queries.collect(ms, st)
         changes.changes += style_changes.changes
         qs.queries += style_q.queries
+        warnings += submission.warnings(ms, st)  # submission material not certain enough to delete
         tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         stage_info["style"] = {
             "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts),
@@ -246,6 +247,8 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
             "warnings": len(res.warnings), "by_rule": dict(Counter(c.reason for c in res.changes.changes)),
         }
 
+    # a cover letter or reply to the reviewers that is deleted gets no heading tags or copy edits
+    changes.changes = submission.drop_inside_deleted(changes.changes)
     _unique_ids(changes.changes)
     qs.number(ms)
     if accept_all:

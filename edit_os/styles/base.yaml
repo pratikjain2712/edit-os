@@ -187,6 +187,25 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
                                  # manuscript has none (per journal: IJO and IDOJ editors do; ABR editors never do)
       query_missing: false       # none given anywhere (IJO editors queried 1 of 7 such articles)
 
+submission:  # parts of a submission inside the manuscript file (edit_os/submission.py); measured on the editors' files
+  enabled: true
+  copyright_notice_aq: true    # the portal's "The author(s) ... has/have not agreed to the copyright terms ..." on top:
+                               # editors prefix "AQ: " (46 of 48; 2 left it)
+  delete_cover_letter: true    # "Cover letter" / "To, The Editor ..." with a submission cue, to "Sincerely" and the
+                               # signature, followed by the manuscript: deleted (3 of 3 letters, every paragraph)
+  delete_reviewer_reply: true  # "Reply to the reviewers' comments" + the portal's table, or "Reviewer 1: ..." text
+                               # up to the title page: deleted (9 of 9 articles)
+  delete_counts: true          # "Number of Figures: 2", "Word count: 2173" before the abstract (13 of 14)
+  delete_phone: true           # phone-only lines before the abstract (35 of 45; NI editors keep them)
+  delete_orcid: false          # ORCID-only lines: kept or reworded by most journals (16 of 43 changed, 17 kept)
+  delete_title_repeat: true    # "Title - ..." over the abstract when the title page above already has the title
+  # Kept as they are (no setting): "Key learning points" / "Key messages" (9 of 12 kept), "Plain language summary",
+  # "Highlights" / "What is known?" (4 of 4). "AQ: Followed XML file for Article Type" is not added: editors wrote it
+  # in 14 of 160 articles with no consistent trigger (3 of 23 whose stated type differs from the XML).
+  journals:
+    neurol: {delete_phone: false}
+    ijo: {delete_orcid: true}  # IJO editors delete ORCID lines (4 of 4)
+
 front_matter:  # title page: running head, type, title, authors, affiliations, correspondence, history
   enabled: true
   ai_split: true                 # Claude Haiku splits the title page into fields (needs the API key)
@@ -205,6 +224,7 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
     format: "%d-%m-%Y"           # 16-09-2026
     one_line: false              # true: one paragraph, tab-separated
     missing: "???"
+    without_xml: true            # no submission XML at all (a plain .docx): the dates line with "???" for each date
   cite_label: "How to cite this article:"
   cite_journal: ""               # NLM abbreviation for the cite line; per journal below
   cite_max_authors: 6
