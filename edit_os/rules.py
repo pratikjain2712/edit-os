@@ -276,7 +276,7 @@ def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
         if style.get("references.capitalize_after_colon") and authors_end:
             stop = ym.start() if ym else len(text)
-            for m in re.finditer(r":\s([a-z])", text[authors_end:stop]):
+            for m in re.finditer(r":\s([a-z])(?!ttps?:|ttp:|ww\.)", text[authors_end:stop]):  # not "from: http://"
                 i = authors_end + m.start(1)
                 out.append(_change(p, base + i, base + i + 1, text[i].upper(), Layer.REFERENCES, "ref_title_case"))
 
@@ -324,6 +324,8 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     for ref, res in lookup_references(ms, style):
         if res.status == refengine.FORMAT_FIXED:
             out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup")
+        elif res.formatted and res.formatted != ref.text:  # books, links, reports: template fixes
+            out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other")
     return out
 
 

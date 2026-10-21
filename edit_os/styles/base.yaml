@@ -36,6 +36,11 @@ references:
   title_sentence_case: true    # "Treatment of Metastatic Cancer" -> "Treatment of metastatic cancer"
   journal_abbreviation: nlm    # Index Medicus abbreviation from NLM's journal list
   journal_drop_qualifier: true # "Spine (Phila Pa 1976)" -> "Spine", as the editors do
+  other:                       # books, links, conference papers, reports, theses (refs_other.py)
+    enabled: true              # template fixes: "Available from: URL. [Last accessed on 2010 Jul 10].", "4th ed."
+    check_links: true          # open each URL: dead links, soft 404s and redirects become queries
+    verify_books: true         # look books up in CrossRef and Open Library
+    query_unverified: true     # conference papers, reports, theses: query that they could not be verified
 
 keywords:
   min: 3

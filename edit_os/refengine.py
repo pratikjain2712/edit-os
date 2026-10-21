@@ -47,6 +47,7 @@ class Resolution:
     formatted: str = ""
     message: str = ""
     score: float = 0.0
+    queries: list[tuple[str, dict]] = field(default_factory=list)  # (queries.TEXT key, format values)
 
 
 def fold(s: str) -> str:
@@ -262,7 +263,9 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
     p = from_fields(text, fields) if fields else parse(text)
     journal_like = p.kind == "journal_article" if p.kind else looks_like_journal_article(text)
     if not journal_like:
-        return Resolution(NOT_JOURNAL, p, message="Book, website or other non-journal source")
+        from . import refs_other  # books, links, conference papers, reports, theses
+
+        return refs_other.resolve(text, style, p)
     record, why = find(p)
     if not record:
         return Resolution(QUERY, p, message=why)
