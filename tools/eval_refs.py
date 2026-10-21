@@ -55,7 +55,7 @@ def main(argv):
     tot = collections.Counter()
     shown = 0
     for d in sorted(glob.glob(os.path.join(data, "*"))):
-        if not os.path.basename(d).lower().startswith(journal + "_"):
+        if not os.path.basename(d).lower().startswith((journal + "_", journal + "-")):
             continue
         src = manuscript_from_zip(os.path.join(d, "original.zip"))
         with open(os.path.join(d, "te.docx"), "rb") as f:

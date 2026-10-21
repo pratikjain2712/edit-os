@@ -1,0 +1,22 @@
+# Indian Journal of Anaesthesia (StyleSheet_Sample_IJA RG comments_Updated.docx); only the settings that differ from base.yaml.
+# Tuned against 6 style-edited articles: closure 5.3% (hurt 26) -> 5.4% (hurt 25) (base only -> this file).
+name: Indian Journal of Anaesthesia
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+
+# not yet automated:
+#   - UK spelling
+#   - no serial comma
+#   - lists with round bullets
+#   - H1 in ALL CAPS; 'Materials and Methods' / 'Patients and Methods' -> 'Methods'
+#   - structured abstract (Background and Aims, Methods, Results, Conclusion), run-on, max 250 words
+#   - original articles: add '<H2>Statement on data sharing' with the journal's standard text before references
+#   - ORCID iDs for all authors (query if missing); salutations in correspondence
+#   - references: add DOI for online-only articles without page numbers (query if missing)
+#   - cite the reference right after an author's name when the author is named in the text
+#   - query IRB number in original articles; 'Supplementary Material' instead of Appendix
+#   - delete an 'EIC-XXXX' number at the top without query

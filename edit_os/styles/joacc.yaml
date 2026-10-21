@@ -1,0 +1,8 @@
+# JOACC (StyleSheet_Sample_JOACC.docx); only the settings that differ from base.yaml.
+name: JOACC
+
+# not yet automated:
+#   - journal title not given in the stylesheet
+#   - 'Keywords:' heading bold italic
+#   - article title in Title Case
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

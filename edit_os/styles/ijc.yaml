@@ -1,0 +1,7 @@
+# Indian Journal of Cancer (StyleSheet_IJC.docx); only the settings that differ from base.yaml.
+name: Indian Journal of Cancer
+
+# not yet automated:
+#   - structured abstract: sub-headings in separate paragraphs
+#   - ethics committee clearance for all original articles; consent / clearance for case reports
+#   - Graph/Chart/Diagram/Video citations -> 'Figure X'

@@ -1,0 +1,9 @@
+# Iranian Journal of Nursing and Midwifery Research (StyleSheet_IJNMR.docx); only the settings that differ from base.yaml.
+name: Iranian Journal of Nursing and Midwifery Research
+
+# not yet automated:
+#   - article title in Title Case
+#   - affiliation links start at 1; country not repeated
+#   - abstract for original articles only, structured as Background, Methods, Results, Conclusion
+#   - H1 'Methods' (not 'Materials and Methods')
+#   - no author queries about history dates

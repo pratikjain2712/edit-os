@@ -1,0 +1,10 @@
+# Lung India (StyleSheet_Lung_New.docx); only the settings that differ from base.yaml.
+# Checked against 6 style-edited articles: no override beat base.yaml.
+name: Lung India
+
+# not yet automated:
+#   - 'KEY WORDS:' heading; 'ABSTRACT' heading in capitals; H1 in ALL CAPS
+#   - correspondence after Abstract/Keywords
+#   - author names bold italic
+#   - structured abstract: Introduction/Background and Objective, Materials and Methods, Results, Conclusion
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

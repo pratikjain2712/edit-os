@@ -1,0 +1,8 @@
+# Journal of Anaesthesiology Clinical Pharmacology (StyleSheet_Sample_JOACP.docx); only the settings that differ from base.yaml.
+name: Journal of Anaesthesiology Clinical Pharmacology
+
+# not yet automated:
+#   - letters to the editor open with 'Dear Editor'; no running title for LTE
+#   - structured abstract: Background and Aims, Material and Methods, Results, Conclusion; systematic reviews structured, narrative reviews not
+#   - no author queries about history dates
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

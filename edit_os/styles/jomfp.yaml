@@ -1,0 +1,14 @@
+# Journal of Oral and Maxillofacial Pathology (StyleSheet_Sample_JOMFP.docx); only the settings that differ from base.yaml.
+# Tuned against 3 style-edited articles: closure 30.4% (hurt 7) -> 30.5% (hurt 6) (base only -> this file).
+name: Journal of Oral and Maxillofacial Pathology
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+
+# not yet automated:
+#   - author limits: 6 (single-institution study), 4 (case report, review), 3 (short communication)
+#   - structured abstract: sub-headings in separate paragraphs
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

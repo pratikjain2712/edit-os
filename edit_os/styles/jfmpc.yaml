@@ -1,0 +1,22 @@
+# Journal of Family Medicine and Primary Care (StyleSheet_Sample_JFMPC.docx); only the settings that differ from base.yaml.
+# Tuned against 3 style-edited articles: closure 9.7% (hurt 12) -> 10.5% (hurt 10) (base only -> this file).
+name: Journal of Family Medicine and Primary Care
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+  # base list + limitations (the editor tags these <H2>)
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions,
+       data availability statement, ethical approval, ethics approval, limitations]
+
+references:
+  page_range_dash: "–"  # the editor sets page ranges with an en dash
+  title_sentence_case: false  # the editor keeps the author's title capitalization
+
+# not yet automated:
+#   - affiliations numbered per author and not repeated
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

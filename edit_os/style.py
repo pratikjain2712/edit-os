@@ -9,6 +9,23 @@ import yaml
 
 STYLES_DIR = os.path.join(os.path.dirname(__file__), "styles")
 
+# Article-id prefixes that differ from the style file's name (styles/<code>.yaml).
+ALIASES = {
+    "neurol": "ni",                # Neurology India (Neurol-India-D-...)
+    "neurol-india": "ni",
+    "lungindia": "lung",           # Lung India
+    "smj": "sgmj",                 # Singapore Medical Journal (SMJ-...)
+    "dshmj": "ijn_dshmj",          # IJN & DSHMJ share one stylesheet
+    "ijn": "ijn_dshmj",
+    "nbcs": "njbcs",               # NJBCS pubcode
+}
+
+
+def resolve(code: str) -> str:
+    """Style file name for a journal code or article-id prefix."""
+    c = code.lower()
+    return ALIASES.get(c, c)
+
 
 def _merge(base: dict, over: dict) -> dict:
     out = dict(base)
@@ -35,7 +52,7 @@ class JournalStyle:
 def load(code: str) -> JournalStyle:
     with open(os.path.join(STYLES_DIR, "base.yaml"), encoding="utf-8") as f:
         settings = yaml.safe_load(f)
-    path = os.path.join(STYLES_DIR, f"{code.lower()}.yaml")
+    path = os.path.join(STYLES_DIR, f"{resolve(code)}.yaml")
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             settings = _merge(settings, yaml.safe_load(f) or {})

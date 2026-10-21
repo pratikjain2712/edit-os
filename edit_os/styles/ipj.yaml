@@ -1,0 +1,27 @@
+# Industrial Psychiatry Journal (StyleSheet_IPJ.docx); only the settings that differ from base.yaml.
+# Tuned against 6 style-edited articles: closure 5.8% (hurt 12) -> 6.7% (hurt 10) (base only -> this file).
+name: Industrial Psychiatry Journal
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+  # base list + statistical analysis, limitations (the editor tags these <H2>)
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions,
+       data availability statement, ethical approval, ethics approval, statistical analysis,
+       limitations]
+
+references:
+  page_range_dash: "–"  # the editor sets page ranges with an en dash
+  journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
+
+# not yet automated:
+#   - no 'Case Report' article type: editor query to confirm the type
+#   - abstract sub-headings: Background, Aim, Materials and Methods, Results, Conclusion; 'ABSTRACT' heading in capitals
+#   - before references: Acknowledgments, Authors' contributions (initials only), Ethical statement, Financial disclosure, Conflict of interest, Data availability statement, Patients' consent
+#   - H1 in capitals
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+#   - patient consent query in all case reports and in original articles with patient photographs

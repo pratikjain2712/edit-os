@@ -1,0 +1,7 @@
+# Journal of Orthodontic Science (StyleSheet_JOS.docx); only the settings that differ from base.yaml.
+name: Journal of Orthodontic Science
+
+# not yet automated:
+#   - structured abstract with four headings (query if missing)
+#   - no author queries about history dates
+#   - history dates: Received / Revised / Accepted as dd-mm-yyyy

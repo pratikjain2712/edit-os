@@ -1,0 +1,13 @@
+# Medical Journal of Dr. D.Y. Patil Vidyapeeth (StyleSheet_mjdrdypu.docx); only the settings that differ from base.yaml.
+# Tuned against 3 style-edited articles: closure 38.6% (hurt 25) -> 38.8% (hurt 22) (base only -> this file).
+name: Medical Journal of Dr. D.Y. Patil Vidyapeeth
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+
+# not yet automated:
+#   - add Data availability statement and Author Contribution if given; query if either is missing
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

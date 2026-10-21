@@ -1,0 +1,26 @@
+# Nigerian Journal of Clinical Practice (StyleSheet_Sample_NJCP_New.docx); only the settings that differ from base.yaml.
+# Tuned against 10 style-edited articles: closure 19.7% (hurt 83) -> 21.6% (hurt 51) (base only -> this file).
+name: Nigerian Journal of Clinical Practice
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+  # base list + ethical considerations (the editor tags these <H2>)
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions,
+       data availability statement, ethical approval, ethics approval, ethical considerations]
+
+citations:
+  range_dash: "–"  # the editor keeps en dashes in citation ranges
+
+references:
+  title_sentence_case: false  # the editor keeps the author's title capitalization
+
+# not yet automated:
+#   - abstract headings for original articles: Background, Aim, Methods, Results, Conclusion
+#   - H1 in Title case Small Caps
+#   - article title in Title Case
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

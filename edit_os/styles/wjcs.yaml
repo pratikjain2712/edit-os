@@ -1,0 +1,18 @@
+# WJCS (StyleSheet_Sample_WJCS---.docx); only the settings that differ from base.yaml.
+# Tuned against 3 style-edited articles: closure 14.6% (hurt 15) -> 15.0% (hurt 9) (base only -> this file).
+name: WJCS
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+
+statistics:
+  space_around_operators: false  # the editor leaves p=0.03 as typed
+
+# not yet automated:
+#   - journal title not given in the stylesheet
+#   - H1 in ALL CAPS
+#   - edited books: '1995:465-78' (colon before pages, no 'p.')
+#   - structured abstract for original articles, meta-analyses and systematic reviews

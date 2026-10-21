@@ -1,0 +1,13 @@
+# Indian Dermatology Online Journal (StyleSheet_Sample_IDOJ.docx); only the settings that differ from base.yaml.
+# Tuned against 3 style-edited articles: closure 23.4% (hurt 8) -> 24.0% (hurt 7) (base only -> this file).
+name: Indian Dermatology Online Journal
+
+references:
+  journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
+
+# not yet automated:
+#   - letters to the editor open with 'Dear Editor' (not 'Sir')
+#   - structured abstracts also for brief reports and review articles
+#   - article title in Title Case
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+#   - history dates: 'Received: Month, Year. Accepted: Month, Year.'

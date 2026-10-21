@@ -141,7 +141,7 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
 def main(argv):
     data, journal = argv[0], argv[1].lower()
     dirs = sorted(d for d in glob.glob(os.path.join(data, "*"))
-                  if os.path.basename(d).lower().startswith(journal + "_"))
+                  if os.path.basename(d).lower().startswith((journal + "_", journal + "-")))
     runs = [("all", None)] + ([(r, [r]) for r in rules.RULES] if "--per-rule" in argv else [])
     for label, only in runs:
         tot = dict(dOT=0, dUT=0, changes=0, helped=0, hurt=0, matched=0, paragraphs=0)

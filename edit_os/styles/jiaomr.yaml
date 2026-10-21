@@ -1,0 +1,5 @@
+# Journal of Indian Academy of Oral Medicine and Radiology (StyleSheet_Sample_JIAOMR-.docx); only the settings that differ from base.yaml.
+name: Journal of Indian Academy of Oral Medicine and Radiology
+
+# not yet automated:
+#   - structured abstract: sub-headings in separate paragraphs

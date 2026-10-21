@@ -1,0 +1,10 @@
+# Indian Journal of Endocrinology and Metabolism (StyleSheet_Sample_IJEM.docx); only the settings that differ from base.yaml.
+name: Indian Journal of Endocrinology and Metabolism
+
+# not yet automated:
+#   - authors: middle names as initials with period (Wael R. Sidrak)
+#   - H1 in Small Caps; original-article sections: Introduction, Materials and Methods, Ethical Aspect, Results, Discussion, Conclusion, Acknowledgement, Authors' contribution, Financial support and sponsorship, Conflict of interest, Data Availability statement, References (query missing Ethical Aspect / Authors' contribution)
+#   - review abstracts: one paragraph, no sub-headings
+#   - structured abstract: Introduction, Methods, Results, Conclusion
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+#   - article title in Title Case
