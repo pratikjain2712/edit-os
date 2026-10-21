@@ -269,7 +269,9 @@ export default function Review({ id, theme, nextTheme }) {
 
   const done = job && job.status === "done" && data && doc && ready;
   const showSide = done && (wideScreen ? sideOpen : true);
-  const wide = wideScreen && stageW >= 1020;
+  // Comment margin only when the side panel is closed: with the panel open the page stays centred
+  // and author queries show under their paragraph (they are also in the panel's Queries tab).
+  const wide = wideScreen && stageW >= 1020 && !showSide;
 
   return (
     <>
