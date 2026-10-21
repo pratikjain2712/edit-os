@@ -15,6 +15,7 @@ from . import journals, refengine, references, renumber, rules_figures, rules_fo
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
+from . import rules_guide  # the guide's search-and-replace table
 
 _ids = count(1)
 
@@ -343,7 +344,8 @@ RULES = {
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
     "references": rule_references,
-    "formatting": rules_format.rule_formatting,
+    "formatting": rules_format.rule_formatting,  # before guide_replace: its "et al" -> "et al." is also italic
+    "guide_replace": rules_guide.rule_guide,
 }
 
 

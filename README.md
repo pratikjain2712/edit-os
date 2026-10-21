@@ -53,7 +53,8 @@ accepts or rejects every suggestion.
       improved, 31 worse; remaining gap is 88% references, which step 3 covers)
 - [x] 3. Reference engine for journal articles (IJO: 40% of references identical to the editor's)
 - [x] A1. Author queries as Word comments + query sheet; superscript citations (IJO overall 11.0%)
-- [ ] A2. Search-and-replace table from the pre-editing guide (units, %, ×, minus, & -> and)
+- [x] A2. Search-and-replace table from the pre-editing guide (`rules_guide.py`, `guide_replace:` in
+      base.yaml; defaults set from how often editors make each edit)
 - [ ] A3. Tracked formatting changes (bold, italic, superscript)
 - [x] A4. Headings / abstract / key words / back matter (`edit_os/rules_sections.py`, settings under
       `sections:`); inserted text can start new paragraphs (`tracked.PARAGRAPH_BREAK`) (IJO 11.6%)

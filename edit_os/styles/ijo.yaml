@@ -29,3 +29,6 @@ sections:  # IJO prints no "Introduction" heading and uses "Methods" (stylesheet
     rename: {materials and methods: Methods, material and methods: Methods, methodology: Methods,
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, aim: Purpose, aims: Purpose}
+
+guide_replace:
+  multiplication: false  # the IJO editors leave "4.5x4.5 mm" as typed
