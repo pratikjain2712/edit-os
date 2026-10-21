@@ -190,7 +190,7 @@ def test_caption_end_period_takes_trailing_space(tmp_path):
 def test_heading_tags_replace_leading_spaces(tmp_path):
     paras = [
         "Introduction", LONG,
-        " Methods:",
+        " Methods:  ",
         (" Study design", {"bold": True}), LONG,
         "  Results", LONG,
     ] + _refs("Ames JB")

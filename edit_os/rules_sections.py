@@ -339,8 +339,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
         out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
-            k = len(p.text.rstrip()) - 1
-            out.append(_change(p, k, k + 1, "", Layer.STRUCTURE, "subheadings"))
+            k = len(p.text.rstrip()) - 1  # with the spaces after it
+            out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
     return out
 
 

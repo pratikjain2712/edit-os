@@ -15,7 +15,8 @@ accepts or rejects every suggestion.
 3. **Rendering** (`edit_os/tracked.py`): accepted changes are written back as Word tracked
    changes (`w:ins` / `w:del`) or as a clean copy. Runs are split at change boundaries so
    inserted text keeps the formatting around it. A change whose `old` text no longer matches
-   is refused.
+   is refused. A change deleting a paragraph's whole text deletes its paragraph mark too (tracked
+   `w:pPr/w:rPr/w:del`; gone from the clean copy), and an all-deleted table goes as tracked row deletions.
 4. **References** (`edit_os/references.py`): finds the reference list heading and splits it
    into entries, one per paragraph, with numbering labels (`1.`, `[1]`, `(1)`, `1)`, Word
    auto-numbering) kept separate.

@@ -179,7 +179,7 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
 
 def _trailing_space(p: Paragraph, end: int, rule: str) -> list[Change]:
     """A citation restyled at the end of a paragraph takes the spaces after it with it:
-    "glaucoma [5]. " -> "glaucoma.[5]" (IJO editors: 10 of 12 such paragraph ends)."""
+    "glaucoma [5]. " -> "glaucoma.[5]" (style editors: 79 of 84 such paragraph ends, 160 articles)."""
     rest = p.text[end:]
     if not rest or rest.strip():
         return []
@@ -457,8 +457,8 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
         lead = len(text) - len(text.lstrip())  # the tag goes at the very start: leading spaces go
         out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "heading_tags"))
         if style.get("headings.strip_trailing_colon", True) and text.rstrip().endswith(":"):
-            i = len(text.rstrip()) - 1
-            out.append(_change(p, i, i + 1, "", Layer.STRUCTURE, "heading_tags"))
+            i = len(text.rstrip()) - 1  # the colon and any spaces after it: "Conclusion: " -> "Conclusion"
+            out.append(_change(p, i, len(text), "", Layer.STRUCTURE, "heading_tags"))
     return out
 
 
