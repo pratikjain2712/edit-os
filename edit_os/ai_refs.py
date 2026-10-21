@@ -18,7 +18,9 @@ import sqlite3
 
 from .journals import DEFAULT_DB
 
-MODEL = os.environ.get("EDIT_OS_MODEL", "claude-opus-5-5")
+MODEL = os.environ.get("EDITOS_MODEL", "claude-haiku-5-5")  # same IJO score as Opus 5.5 at ~1/40 the cost
+# Models that accept the server-side refusal fallback ("default" form); Haiku has none.
+_FALLBACK_MODELS = ("claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5")
 CACHE_DB = os.path.join(os.path.dirname(DEFAULT_DB), "ai_cache.sqlite")
 KINDS = ["journal_article", "book", "book_chapter", "website", "report", "thesis", "conference", "other"]
 
@@ -34,11 +36,10 @@ SCHEMA = {
                     "index": {"type": "integer"},
                     "kind": {"type": "string", "enum": KINDS},
                     "authors": {"type": "array", "items": _FIELD},
-                    "title": _FIELD, "journal": _FIELD, "year": _FIELD, "volume": _FIELD,
-                    "issue": _FIELD, "pages": _FIELD, "doi": _FIELD, "pmid": _FIELD,
+                    "title": _FIELD, "year": _FIELD, "doi": _FIELD, "pmid": _FIELD,
                 },
-                "required": ["index", "kind", "authors", "title", "journal", "year", "volume", "issue",
-                             "pages", "doi", "pmid"],
+                # Only what the search needs; journal, volume and pages come from the matched record.
+                "required": ["index", "kind", "authors", "title", "year", "doi", "pmid"],
                 "additionalProperties": False,
             },
         }
@@ -54,8 +55,7 @@ correct any fact that is not in the entry: if a field is missing, return an empt
 - authors: one string per author as "Surname Initials" (e.g. "Shields CL"); keep group authors whole;
   leave out "et al".
 - title: the full article or chapter title, including any part after an inner full stop.
-- journal: the journal name as written. year: four digits. pages: as written. doi and pmid: only if
-  present in the entry.
+- year: four digits. doi and pmid: only if present in the entry.
 - kind: journal_article, book, book_chapter, website, report, thesis, conference or other."""
 
 
@@ -97,15 +97,18 @@ def _call(numbered: str) -> list[dict]:
         api_key=_api_key(),
         base_url=os.environ.get("EDITOS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
     )
-    response = client.beta.messages.create(
+    request = dict(
         model=MODEL,
         max_tokens=16000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",  # a declined request is re-run on Anthropic's recommended fallback model
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         system=INSTRUCTIONS,
         messages=[{"role": "user", "content": numbered}],
     )
+    if MODEL in _FALLBACK_MODELS:
+        # A declined request is re-run on Anthropic's recommended fallback model.
+        response = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **request)
+    else:
+        response = client.messages.create(**request)
     USAGE["calls"] += 1
     USAGE["input_tokens"] += response.usage.input_tokens
     USAGE["output_tokens"] += response.usage.output_tokens
