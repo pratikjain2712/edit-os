@@ -18,5 +18,10 @@ sections:
       heading: "Authors’ contributions"
       from_sources: true
 
+figures:
+  insert:
+    enabled: true  # editors placed the zip's figure files in all 3 articles that sent them separately (they put
+                   # each picture under its legend; the stylesheet's order, picture then legend, is kept here)
+
 text:
   number_words: {enabled: true}  # copy editors: "three months" -> "3 months" (rules_text.py): 12 proposed, 100%

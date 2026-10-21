@@ -104,6 +104,10 @@ Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.
 - [x] A3. Tracked formatting changes (`Change.format`, `edit_os/rules_format.py`)
 - [x] A5. Figure and table citations, captions, duplicate references, renumbering (`rules_figures.py`, `renumber.py`)
 - [x] A6. Books, links and conference references (`edit_os/refs_other.py`)
+- [x] A8. Figures sent as separate files in the zip (`edit_os/figures_insert.py`, `figures.insert:` in base.yaml): the
+      file that clearly carries a legend's number (JPEG / PNG; TIFF etc. converted to PNG) is proposed as a tracked
+      picture paragraph above the legend; unclear files (no number, several candidates, PowerPoint / PDF) are editor
+      warnings. On for IDOJ only: of 58 articles with figure files and no pictures, editors inserted them in 4
 - [x] A7. Front matter (`edit_os/frontmatter.py`): running head, type, title, authors, affiliations,
       correspondence, history dates, cite line, rebuilt from the title-page file, the submission XML and the
       manuscript; Claude Haiku only splits fields, code writes the text (`tools/eval_frontmatter.py`: 85% field

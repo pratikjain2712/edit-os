@@ -135,6 +135,15 @@ figures:                        # figure and table citations and captions (rules
   caption_separator: ": "       # "Table 1. Title" -> "Table 1: Title"
   caption_end_period: false     # delete the period at the end of a caption
   queries: true                 # out of order, cited without caption, caption never cited
+  insert:                       # figures sent as separate files in the zip -> picture above its legend (figures_insert.py)
+    enabled: false              # off: of 58 edited articles with figure files in the zip and no picture in the
+                                # manuscript, editors inserted them in 4 (IDOJ 3 of 3; NJCP 1, legends missing)
+    position: above             # above the legend (stylesheets: "Image should be present first and below it the
+                                # respective caption"); below: under it
+    max_height: 0.85            # share of the page's text height a picture may take (width: the text width)
+    parts_per_row: 2            # "1a.jpg" + "1b.jpg": one paragraph, side by side
+    max_pixels: 2400            # longer side above this is downscaled (keeps the .docx small); 0 = never
+    align: center
 
 renumber:                       # duplicate references and citation-order renumbering (renumber.py)
   enabled: true
@@ -360,6 +369,6 @@ copyedit:
 
 autopilot:  # "Autopilot" on the review screen (edit_os/autopilot.py): accepts pending suggestions it is sure of
   accept_sources: [rule]       # rules, verified references, NLM abbreviations, spelling, LanguageTool, front matter
-  hold: [sections_back_matter.consent_added, fmt_color]  # left for the editor: boilerplate consent text; colour (editors keep it in ~half)
+  hold: [sections_back_matter.consent_added, fmt_color, figure_insert]  # left for the editor: boilerplate consent text; colour (editors keep it in ~half); pictures from the zip
   ai_judge: true               # Claude's copy edits: accepted only when a second Claude check agrees; else left
   model: claude-haiku-5-5      # EDITOS_AUTOPILOT_MODEL overrides

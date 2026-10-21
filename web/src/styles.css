@@ -684,3 +684,7 @@ kbd {
 .ap-left del { background: var(--del-bg); color: var(--del-text); }
 .ap-left ins { background: var(--ins-bg); color: var(--ins-text); text-decoration: none; }
 .ap-left small { display: block; color: var(--muted); }
+
+/* a picture in the manuscript (docview `image` flag); the label is CSS content so text offsets are unchanged */
+.img-ph { display: inline-block; margin: 0 .4em .2em 0; padding: 18px 26px; border: 1px dashed var(--line-2); border-radius: 6px; color: var(--muted); font-size: 12px; vertical-align: middle; }
+.img-ph::before { content: "image"; }

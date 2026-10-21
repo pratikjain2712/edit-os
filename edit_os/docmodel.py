@@ -96,6 +96,26 @@ def paragraph_text(p_el) -> str:
     return "".join(run_text(r) for r in text_runs(p_el))
 
 
+_PICTURE_TAGS = (
+    "{http://schemas.openxmlformats.org/drawingml/2006/main}blip",  # picture in a w:drawing
+    "{urn:schemas-microsoft-com:vml}imagedata",  # older w:pict picture
+    "{http://schemas.openxmlformats.org/drawingml/2006/chart}chart",  # embedded chart
+    qn("w:object"),  # OLE object shown as a picture (MathType equations included)
+)
+
+
+def has_picture(p_el) -> bool:
+    """True when the paragraph shows a picture, chart or embedded object of its own (not one in a
+    tracked deletion, Word's duplicate fallback copy or a paragraph nested in a text box)."""
+    for el in p_el.iter(*_PICTURE_TAGS):
+        for a in el.iterancestors():
+            if a is p_el:
+                return True
+            if a.tag in _NOT_OWN:
+                break
+    return False
+
+
 def explode_runs(p_el) -> None:
     """Split every run so it holds exactly one content element (keeping its rPr).
 

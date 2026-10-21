@@ -1,7 +1,8 @@
 """What the review screen needs to show the manuscript as a page, and the editor's own edits.
 
     document(docx_path)        paragraphs in order: kind (heading, front matter, list, table cell,
-                               caption, reference, body), runs with basic formatting
+                               caption, reference, image, body), runs with basic formatting, and
+                               `image` (the paragraph shows a picture, chart or embedded object)
     plan_edit(...)             turn the editor's rewrite of one paragraph into word-level Change records
 
 Direct edits never touch the manuscript: they are `Change` records (source editor, status accepted)
@@ -98,10 +99,11 @@ def classify(ms: docmodel.Manuscript) -> list[dict]:
         sm = _HEADING_STYLE.match(p.style or "")
         tag = _TAG.match(text)
         cell = _cell(p.element, tables) if p.in_table else None
+        d["image"] = docmodel.has_picture(p.element)  # the page view shows a placeholder for the picture
         if cell:
             d["kind"], d["cell"] = "table", cell
         elif not text.strip():
-            d["kind"] = "empty"
+            d["kind"] = "image" if d["image"] else "empty"
         elif p.id in refs:
             d["kind"] = "reference"
         elif (p.style or "").lower() == "title":

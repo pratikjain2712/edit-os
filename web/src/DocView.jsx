@@ -224,7 +224,7 @@ const sameArr = (a, b) => a === b || (a.length === b.length && a.every((x, i) =>
 
 const Para = memo(function Para({ p, changes, queries, sel, anim, revealIdx, editing, onEditStart, onEditEnd, onDirectEdit, Tag = "div" }) {
   const ref = useRef(null);
-  const cls = ["blk", p.kind, p.kind === "heading" ? `h${Math.min(p.level ?? 1, 6)}` : "", p.kind !== "empty" ? "editable" : ""].join(" ");
+  const cls = ["blk", p.kind, p.kind === "heading" ? `h${Math.min(p.level ?? 1, 6)}` : "", !["empty", "image"].includes(p.kind) ? "editable" : ""].join(" ");
   useEffect(() => {
     if (!ref.current) return;
     ref.current.querySelectorAll(".chg.sel").forEach((n) => n.classList.remove("sel"));
@@ -243,10 +243,11 @@ const Para = memo(function Para({ p, changes, queries, sel, anim, revealIdx, edi
   return (
     <Tag ref={ref} className={cls} data-pid={p.id}
       onClick={(e) => {
-        if (e.target.closest("[data-cid]") || p.kind === "empty") return;
+        if (e.target.closest("[data-cid]") || p.kind === "empty" || p.kind === "image") return;
         if (window.getSelection && String(window.getSelection()).length) return; // selecting text to copy
         onEditStart(p.id, caretOffset(e, ref.current, base.length));
       }}>
+      {p.image && <span className="img-ph" aria-label="image" />}
       {renderText(p, changes, queries, anim, revealIdx)}
     </Tag>
   );

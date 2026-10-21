@@ -6,6 +6,7 @@
 What `edit` writes into OUTDIR (STEM is the manuscript's file name):
 
     source/STEM.docx          the manuscript as received (the base every offset refers to)
+    source/figures/           figure files from the zip proposed for insertion (figures_insert.py)
     STEM_changes.json         every proposed Change (status suggested / accepted / rejected)
     STEM_front_matter.json    front-matter paragraphs to insert (same statuses)
     STEM_queries.json         author queries (status suggested / accepted / rejected; rejected ones are dropped)
@@ -35,7 +36,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, frontmatter, qc, queries, rules, style as style_mod, submission, tracked
+from . import docmodel, figures_insert, frontmatter, qc, queries, rules, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -99,6 +100,8 @@ def query_from_dict(d: dict) -> tuple[queries.Query, str, str]:
 
 
 def insert_from_dict(d: dict) -> frontmatter.NewParagraph:
+    if "images" in d:  # a figure supplied as a separate file (figures_insert.py)
+        return figures_insert.FigureInsert.from_dict(d)
     return frontmatter.NewParagraph(
         id=d["id"], anchor=d["anchor"], where=d["where"], runs=[(t, f) for t, f in d["runs"]], role=d["role"],
         status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
@@ -194,7 +197,8 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
 
     say("reading manuscript")
     front_src = frontmatter.sources_from_files(first_page, xml)
-    if input_path.lower().endswith(".zip"):
+    zip_path = input_path if input_path.lower().endswith(".zip") else None
+    if zip_path:
         front_src = frontmatter.sources_from_zip(input_path)
         src = manuscript_from_zip(input_path, srcdir)
     elif input_path.lower().endswith(".docx"):
@@ -226,9 +230,12 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         changes.changes += style_changes.changes
         qs.queries += style_q.queries
         warnings += submission.warnings(ms, st)  # submission material not certain enough to delete
+        figs = figures_insert.plan(ms, st, zip_path, outdir)  # figures sent as separate files
+        inserts += figs.inserts
+        warnings += figs.warnings
         tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         stage_info["style"] = {
-            "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts),
+            "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts), "figures": len(figs.inserts),
             "queries": len(style_q.queries), "by_rule": dict(Counter(c.reason for c in style_changes.changes)),
         }
 
@@ -304,7 +311,10 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         if comments:
             queries.write_comments(ms, qs)
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
-        frontmatter.render_inserts(ms, inserts, tracked=is_tracked, statuses=statuses)
+        frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)],
+                                   tracked=is_tracked, statuses=statuses)
+        figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
+                              align=st.get("figures.insert.align", "center"))
         if kind == "clean":
             tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
         return ms
@@ -359,6 +369,9 @@ def build_report(man: dict, changes: ChangeSet, inserts, qdicts: list[dict], rep
             "pending": n_pending,
         },
         "front_matter_inserts": {"total": len(inserts), "by_status": dict(Counter(n.status.value for n in inserts))},
+        "figure_inserts": {"total": sum(map(figures_insert.is_figure_insert, inserts)),
+                           "by_status": dict(Counter(n.status.value for n in inserts
+                                                     if figures_insert.is_figure_insert(n)))},
         "queries": {"total": len(live_q), "rejected": len(qdicts) - len(live_q),
                     "by_check": dict(Counter(d["check"] for d in live_q))},
         "qc": {
