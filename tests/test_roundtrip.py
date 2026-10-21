@@ -122,3 +122,21 @@ def test_change_on_reference_entry(sample, tmp_path):
     out = tmp_path / "refs.docx"
     tracked.render(ms, cs, tracked=False).save(out)
     assert docmodel.load(str(out)).by_id(ref.para_id).text.endswith("J Orthop Rehabil 2017;12:101-109.")
+
+
+def test_text_box_paragraphs_are_separate(tmp_path):
+    """A paragraph holding a text box must not include the box's text, or edits collide."""
+    from docx.oxml import parse_xml
+    doc = Document()
+    outer = doc.add_paragraph("Outer text (N=70).")
+    box = parse_xml(
+        '<w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
+        '<mc:AlternateContent><mc:Choice Requires="wps"><w:pict><w:txbxContent><w:p><w:r><w:t>Inner box</w:t></w:r>'
+        '</w:p></w:txbxContent></w:pict></mc:Choice><mc:Fallback><w:pict><w:txbxContent><w:p><w:r><w:t>Inner box</w:t>'
+        '</w:r></w:p></w:txbxContent></w:pict></mc:Fallback></mc:AlternateContent></w:r>')
+    outer._p.append(box)
+    path = tmp_path / "box.docx"
+    doc.save(path)
+    ms = docmodel.load(str(path))
+    assert [p.text for p in ms.paragraphs] == ["Outer text (N=70).", "Inner box"]  # fallback copy skipped

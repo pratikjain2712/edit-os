@@ -18,6 +18,8 @@ _TEXT = qn("w:t")
 _TAB = qn("w:tab")
 _BREAKS = (qn("w:br"), qn("w:cr"))
 _RPR = qn("w:rPr")
+_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+_NOT_OWN = {qn("w:del"), qn("w:p"), _FALLBACK}
 
 
 @dataclass
@@ -64,9 +66,14 @@ def text_runs(p_el) -> list:
     """Runs that make up the visible text, in order, skipping existing tracked deletions."""
     runs = []
     for r in p_el.iter(qn("w:r")):
-        if any(a.tag == qn("w:del") for a in r.iterancestors()):
-            continue
-        runs.append(r)
+        # Only this paragraph's own runs: skip tracked deletions, runs of paragraphs nested in a
+        # text box (they are paragraphs of their own), and Word's duplicate fallback copy.
+        for a in r.iterancestors():
+            if a is p_el:
+                runs.append(r)
+                break
+            if a.tag in _NOT_OWN:
+                break
     return runs
 
 
@@ -116,6 +123,8 @@ def load(path: str) -> Manuscript:
     body = doc.element.body
     n = 0
     for p_el in body.iter(qn("w:p")):
+        if any(a.tag == _FALLBACK for a in p_el.iterancestors()):
+            continue  # duplicate copy of a text box for old Word versions
         n += 1
         style_el = p_el.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
         style = style_el.get(qn("w:val")) if style_el is not None else ""

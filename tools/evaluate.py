@@ -97,6 +97,8 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
         if not o.strip() or not queue:
             continue
         t = queue.pop(0)
+        if not t.strip():
+            continue  # the editor deleted the paragraph (often to retype it); eval_refs scores those
         r["matched"] += 1
         d_o, d_u = distance(o, t), distance(u, t)
         r["dOT"] += d_o
