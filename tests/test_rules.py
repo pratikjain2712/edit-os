@@ -96,4 +96,4 @@ def test_superscript_citations(tmp_path):
                     "Leukocytes were 5 × 109/L in a 2 cm2 area, 3 mm³ deep.")  # powers untouched
     out = Document(tmp_path / "out.docx")
     sup = [r.text for r in out.paragraphs[0].runs if r.font.superscript]
-    assert "".join(sup) == "[7,8]92"  # citation keeps superscript; exponents stay superscript too
+    assert "".join(sup) == "[1][4-6][7,8]92"  # citations superscript (guide); exponents stay superscript too
