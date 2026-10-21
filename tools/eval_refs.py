@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from evaluate import distance, manuscript_from_zip, tracked_pairs  # noqa: E402
 
-from edit_os import docmodel, references, rules, style as style_mod, tracked  # noqa: E402
+from edit_os import ai_refs, docmodel, references, rules, style as style_mod, tracked  # noqa: E402
 from edit_os.changes import Status  # noqa: E402
 
 _HEAD = re.compile(r"^\s*(?:<H\d>)?\s*references?\s*:?\s*$", re.I)
@@ -50,6 +50,8 @@ def main(argv):
     data, journal = argv[0], argv[1].lower()
     show = int(argv[argv.index("--show") + 1]) if "--show" in argv else 0
     st = style_mod.load(journal)
+    if "--no-ai" in argv:
+        st.settings["references"]["ai_parse"] = False
     tot = collections.Counter()
     shown = 0
     for d in sorted(glob.glob(os.path.join(data, "*"))):
@@ -88,6 +90,7 @@ def main(argv):
     print(f"references {tot['refs']}  identical to editor: before {tot['exact_before'] / r:.0%} -> after {tot['exact_after'] / r:.0%}"
           f"  closure {(tot['dOT'] - tot['dUT']) / (tot['dOT'] or 1):.1%}")
     print("  " + "  ".join(f"{k[7:]} {v}" for k, v in sorted(tot.items()) if k.startswith("status:")))
+    print(f"  Claude: {'on' if st.get('references.ai_parse') and ai_refs.available() else 'off'}, usage this run {ai_refs.USAGE}")
 
 
 if __name__ == "__main__":

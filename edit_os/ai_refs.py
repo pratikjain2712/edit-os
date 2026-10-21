@@ -4,7 +4,9 @@ Claude's output is used only to build better searches and to classify the source
 reference text that goes into the manuscript always comes from the matched database record,
 or stays as the author wrote it; it is never taken from the model.
 
-Needs ANTHROPIC_API_KEY. Without it, `available()` is False and the rule-based parser is used.
+Needs EDITOS_ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY). Without it, `available()` is False and the
+rule-based parser is used. Requests go to EDITOS_ANTHROPIC_BASE_URL, default api.anthropic.com, so a
+base URL set for some other tool in the environment is not picked up.
 """
 
 from __future__ import annotations
@@ -57,8 +59,12 @@ correct any fact that is not in the entry: if a field is missing, return an empt
 - kind: journal_article, book, book_chapter, website, report, thesis, conference or other."""
 
 
+def _api_key() -> str:
+    return os.environ.get("EDITOS_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+
+
 def available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(_api_key())
 
 
 class _Cache:
@@ -81,12 +87,16 @@ class _Cache:
 
 
 _cache: _Cache | None = None
+USAGE = {"calls": 0, "input_tokens": 0, "output_tokens": 0}  # this process, for cost reporting
 
 
 def _call(numbered: str) -> list[dict]:
     import anthropic
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(
+        api_key=_api_key(),
+        base_url=os.environ.get("EDITOS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+    )
     response = client.beta.messages.create(
         model=MODEL,
         max_tokens=16000,
@@ -96,6 +106,9 @@ def _call(numbered: str) -> list[dict]:
         system=INSTRUCTIONS,
         messages=[{"role": "user", "content": numbered}],
     )
+    USAGE["calls"] += 1
+    USAGE["input_tokens"] += response.usage.input_tokens
+    USAGE["output_tokens"] += response.usage.output_tokens
     if response.stop_reason in ("refusal", "max_tokens"):
         return []
     text = next((b.text for b in response.content if b.type == "text"), "")
