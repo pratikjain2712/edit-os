@@ -22,6 +22,28 @@ headings:
 statistics:
   space_around_operators: true  # p=0.03 -> p = 0.03
 
+guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rules_guide.py), body text only
+  # On by default: what the editors were measured to do on real articles (style + copy edit).
+  et_al_period: true          # "Smith et al reported" -> "Smith et al. reported"
+  ampersand: true             # "anxiety & depression" -> "anxiety and depression" (not references, not "Jammu & Kashmir")
+  operator_spacing: true      # "5.2±1.3" -> "5.2 ± 1.3"; off when statistics.space_around_operators is off, unless "always"
+  operators: "+±"
+  percent_space: true         # "50 %" -> "50%"
+  value_unit_space: true      # "123mg" -> "123 mg"
+  units: [μg, µg, μs, µs, Hertz, μL, µL, μl, µl, mm, cm, km, mg, rpm, nm]
+  bracket_inner_space: true   # "( 80 )" -> "(80)"
+  double_period: true         # "80.." -> "80."
+  multiplication: true        # "10x20" -> "10 × 20"
+  # Off by default: in the guide, but the editors mostly leave it (see the measurement in rules_guide.py).
+  nbsp: false                 # non-breaking space -> space
+  unary_minus: false          # "of -1.53" -> "of −1.53"
+  unary_comparison: false     # "(> 250 μm)" -> "(>250 μm)"
+  value_bracket_space: false  # "20(80)" -> "20 (80)"
+  degree_space: false         # "29 °C" -> "29°C"
+  technetium: false           # "99 mTc" -> "99mTc"
+  p_value_capital: false      # "p = 0.03" -> "P = 0.03" (copy editors, sometimes)
+  include_tables: false
+
 references:
   lookup: true                 # rebuild entries from PubMed / CrossRef when they match strictly
   ai_parse: true               # Claude splits entries into fields first (needs ANTHROPIC_API_KEY)

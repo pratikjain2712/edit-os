@@ -15,6 +15,7 @@ from . import journals, refengine, references
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
+from . import rules_guide  # the guide's search-and-replace table
 
 _ids = count(1)
 
@@ -324,6 +325,7 @@ RULES = {
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
     "references": rule_references,
+    "guide_replace": rules_guide.rule_guide,
 }
 
 

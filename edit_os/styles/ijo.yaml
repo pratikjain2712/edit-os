@@ -9,3 +9,6 @@ headings:
 
 statistics:
   space_around_operators: false  # the editor does not add these for IJO
+
+guide_replace:
+  multiplication: false  # the IJO editors leave "4.5x4.5 mm" as typed
