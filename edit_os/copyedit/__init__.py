@@ -27,6 +27,11 @@ def _spelling(ms, style, **_):
     return spelling.check(ms, style), [], []
 
 
+def _text(ms, style, **_):
+    from .. import rules_text
+    return rules_text.collect(ms, style), [], []
+
+
 def _abbreviations(ms, style, **_):
     changes, queries = abbrev.collect(ms, style)
     return changes, queries, []
@@ -44,6 +49,7 @@ def _claude(ms, style, claude_call=None, **_):
 
 CHECKERS = {
     "spelling": _spelling,
+    "text": _text,  # edit_os/rules_text.py: prefixes, number words, ranges, ... (settings under `text:`)
     "abbreviations": _abbreviations,
     "languagetool": _languagetool,
     "claude": _claude,  # needs EDITOS_ANTHROPIC_API_KEY and copyedit.claude.enabled; last, so it never wins an overlap

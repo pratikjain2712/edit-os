@@ -113,7 +113,8 @@ def load(path: str | None = None, max_level: int = 70) -> Variants:
         return parse(f, max_level)
 
 
-_WORD = re.compile(r"(?<![\w\-/])[A-Za-z]+(?:'s)?(?![\w\-/])")
+# A word, also as part of a hyphenated compound ("greyish-white"); not inside a path or code ("a/b").
+_WORD = re.compile(r"(?<![\w/])[A-Za-z]+(?:'s)?(?![\w/])")
 
 
 def _match_case(src: str, new: str) -> str:
@@ -184,10 +185,13 @@ def check(ms: Manuscript, style: JournalStyle, variants: Variants | None = None)
         table = v.to_oxford
     else:
         table = v.to_british
+    extra = {k.lower(): v for k, v in (style.get(f"copyedit.spelling.extra.{conv}") or {}).items()}
     out = []
     for p, m in _candidates(ms, skip):
         w = m.group(0)
-        new = table.get(w.lower())
+        new = table.get(w.lower()) or extra.get(w.lower())
+        if new and w.lower() in extra and re.match(r"\s+scales?\b", p.text[m.end():], re.I):
+            continue  # "visual analogue scale": the instrument's name is kept as written
         if new and new.lower() != w.lower():
             out.append(change(p, m.start(), m.end(), _match_case(w, new), "spelling",
                               reason=f"spelling ({conv})"))

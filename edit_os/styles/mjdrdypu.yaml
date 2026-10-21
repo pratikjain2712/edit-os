@@ -18,3 +18,6 @@ copyedit:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   body_unbold: false  # editors keep bold in running text (0 of 12)
+
+text:
+  prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 14 proposed, 86%

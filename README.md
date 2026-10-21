@@ -115,6 +115,9 @@ Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.
         `--batch` uses the Message Batches API. Default Claude Haiku 5.5 at effort medium: on 16 held-out
         articles 70% precision, 4.8 edits and $0.0025 per article (Sonnet 5.5 61%, $0.026; Opus 5.5 65%,
         $0.063, twice the edits). `tools/eval_ce.py DATA all --only claude --split test --model M`.
+  - [x] B5. Copy-edit text rules (`edit_os/rules_text.py`, `text:` in base.yaml, a copy-edit checker): prefixes
+        closed up, number words with time units, ranges after "between" / "from", statistics semicolons, capitalised
+        common terms (off: editors split 1:2); per journal from the copy editors' text (IJO copy-edit closure 1.7% -> 11.9%)
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
 - [x] 5. QC report output (`pipeline.py`: `_qc_report.json` / `.html`)
 - [x] 6. Editor screen: accept or reject each suggestion (`server/` API, `web/` review screen)

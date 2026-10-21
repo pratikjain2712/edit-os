@@ -51,3 +51,8 @@ copyedit:
     full_form_after_definition: "off"  # IJO copy editors leave the full form (19 articles: precision 36%, closure -0.8%)
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article
+
+text:  # copy-edit text rules (rules_text.py), measured on the IJO copy editors' text (19 articles)
+  prefixes: {enabled: true}         # 98 proposed, 93% (with copyedit.claude.close_prefixes)
+  number_words: {enabled: true}     # "three months" -> "3 months": 61, 77%
+  stat_semicolons: {enabled: true}  # "(p = 0.065); at 3 months": 2 of 2

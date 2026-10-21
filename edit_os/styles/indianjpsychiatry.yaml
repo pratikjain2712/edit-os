@@ -19,3 +19,7 @@ statistics:
 copyedit:
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 4.7 per training article
+
+text:  # copy-edit text rules (rules_text.py)
+  prefixes: {enabled: true}      # 11 proposed, 91%
+  number_words: {enabled: true}  # "six months" -> "6 months": 21, 95%
