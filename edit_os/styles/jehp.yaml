@@ -4,3 +4,6 @@ name: Journal of Education and Health Promotion
 # not yet automated:
 #   - affiliations: each linked affiliation written out in full
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  body_unbold: false  # editors keep bold in running text (0 of 6)

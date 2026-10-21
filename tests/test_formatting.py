@@ -146,14 +146,27 @@ def test_clearing_and_noop(tmp_path):
 
 def test_overlapping_format_changes_refused(sample):
     p = docmodel.load(sample).paragraphs[0]
-    cs = ChangeSet([fmt_change("a", p, "found p", {"italic": True}), fmt_change("b", p, "p<0", {"bold": True})])
+    cs = ChangeSet([fmt_change("a", p, "found p", {"italic": True}), fmt_change("b", p, "p<0", {"italic": False})])
     with pytest.raises(tracked.ChangeConflict):
         tracked.render(docmodel.load(sample), cs)
 
 
+def test_overlapping_format_changes_of_different_properties(sample, tmp_path):
+    p = docmodel.load(sample).paragraphs[0]
+    cs = ChangeSet([fmt_change("a", p, "found p", {"italic": True}), fmt_change("b", p, "p<0", {"bold": True})])
+    out = tmp_path / "o.docx"
+    tracked.render(docmodel.load(sample), cs).save(out)
+    assert formatted_text(out, "w:i") == "found p" and formatted_text(out, "w:b") == "et alp<0"
+    # "p" got both changes: one revision, holding the run's properties from before either.
+    run = [r for t, r, *_ in runs_with(out) if t == "p"][0]
+    assert len(run.findall(qn("w:rPrChange"))) == 1 and not len(run.find(qn("w:rPrChange")).find(qn("w:rPr")))
+
+
 def test_unknown_property_rejected():
     with pytest.raises(ValueError):
-        Change("x", "p0001", 0, 1, "a", "a", Layer.HOUSE_STYLE, Source.RULE, format={"underline": True})
+        Change("x", "p0001", 0, 1, "a", "a", Layer.HOUSE_STYLE, Source.RULE, format={"glow": True})
+    with pytest.raises(ValueError):  # colour, size and highlighting can only be taken off
+        Change("x", "p0001", 0, 1, "a", "a", Layer.HOUSE_STYLE, Source.RULE, format={"color": "FF0000"})
 
 
 def test_json_round_trip(changeset, tmp_path):
@@ -205,6 +218,8 @@ REFS = ["References",
 def base():
     st = style.load("base")
     st.settings["references"]["lookup"] = False
+    # The guide's italic P and n are off by default (editors do not apply them); test them here.
+    st.settings["formatting"].update(p_values=True, n_variable_italic=True)
     return st
 
 

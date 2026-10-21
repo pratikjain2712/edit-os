@@ -23,3 +23,6 @@ headings:
 copyedit:
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 5.2 per training article
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  remove_font_color: false  # editors keep the author's colours (0 of 52)

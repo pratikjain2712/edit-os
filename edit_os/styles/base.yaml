@@ -79,10 +79,20 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   et_al_italic: true           # body "et al." in italics (never in the reference list)
   et_al_period: true           # "et al" -> "et al."
   latin_italic: true           # in vivo, in vitro, in situ, ex vivo
-  p_values: true               # probability P in italics
+  p_values: false              # probability P in italics (guide; but no editor does it: 0 of 532 in 160 articles)
   p_capital: false             # "p < 0.05" -> "P < 0.05": copy-edit pass (style editors leave p as typed)
-  n_variable_italic: true      # "n = 34": italic n
+  n_variable_italic: false     # "n = 34": italic n (guide; editors never do it: 0 of 242)
   superscript_citations: true  # body citations [4] in superscript
+  # Clean-up of the author's run formatting (rules_format.rule_cleanup), from the style editors'
+  # tracked formatting (tools/eval_format.py):
+  remove_font_color: true      # the author's font colours (blue, red, ...) back to automatic, URLs aside
+  table_head_bold: true        # table column heads (header row) in bold
+  table_body_unbold: false     # no bold in the table body (rows under the header): editors keep it (4% precision)
+  label_bold: true             # "Table 1:", "Figure 1:", "Video 1:" and bold_labels ("Keywords:") in bold
+  bold_labels: [Keywords, Key words, Key word, Key messages, Key message]
+  heading_bold: true           # first-level section headings (Introduction, Methods, ...) in bold
+  heading_no_underline: true   # no underline in headings
+  body_unbold: true            # stray bold inside running text (labels and run-in headings stay)
 
 figures:                        # figure and table citations and captions (rules_figures.py)
   citations: true

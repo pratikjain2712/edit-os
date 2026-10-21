@@ -24,3 +24,6 @@ copyedit:
 #   - cite the reference right after an author's name when the author is named in the text
 #   - query IRB number in original articles; 'Supplementary Material' instead of Appendix
 #   - delete an 'EIC-XXXX' number at the top without query
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  remove_font_color: false  # editors keep the author's colours (0 of 40)

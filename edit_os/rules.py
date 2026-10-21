@@ -346,6 +346,7 @@ RULES = {
     "references": rule_references,
     "formatting": rules_format.rule_formatting,  # before guide_replace: its "et al" -> "et al." is also italic
     "guide_replace": rules_guide.rule_guide,
+    "format_cleanup": rules_format.rule_cleanup,  # author's colours, stray bold, labels and heads bold
 }
 
 # Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
@@ -371,7 +372,11 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
         for c in rule(ms, style):
             if name == "references" and c.para_id in resolved:
                 continue
-            clash = any(k.para_id == c.para_id and c.start < k.end and k.start < c.end for k in kept)
+            # A formatting-only change and a text change may overlap (the renderer applies the
+            # formatting first); two formatting changes clash only when they set the same property.
+            clash = any(k.para_id == c.para_id and c.start < k.end and k.start < c.end
+                        and (k.format_only == c.format_only)
+                        and (not c.format_only or set(k.format) & set(c.format)) for k in kept)
             # Two insertions at one point clash, unless exactly one opens new paragraphs.
             same_point = any(k.para_id == c.para_id and k.start == k.end == c.start == c.end
                              and _opens_paragraph(k) == _opens_paragraph(c) for k in kept)

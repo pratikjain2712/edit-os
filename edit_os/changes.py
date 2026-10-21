@@ -11,7 +11,11 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 
 # Run properties a change can set (True) or clear (False); see `Change.format`.
-FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps")
+FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "underline",
+                     "color", "size", "highlight")
+# Properties a change can only clear: the author's font colour (False removes it, "auto" sets
+# automatic colour over a coloured style), direct font size, highlighting / coloured shading.
+CLEAR_ONLY = {"color": (False, "auto"), "size": (False,), "highlight": (False,)}
 
 
 class Layer(str, Enum):
@@ -52,12 +56,14 @@ class Change:
     # Run formatting, e.g. {"italic": True} or {"superscript": True, "bold": False}. With
     # old == new it is a formatting-only change over start..end (Word tracked formatting);
     # with a text change it is applied to the inserted text.
-    format: dict[str, bool] | None = None
+    format: dict[str, bool | str] | None = None
 
     def __post_init__(self):
-        for k in self.format or {}:
+        for k, v in (self.format or {}).items():
             if k not in FORMAT_PROPERTIES:
                 raise ValueError(f"{self.id}: unknown format property {k!r}")
+            if k in CLEAR_ONLY and v not in CLEAR_ONLY[k]:
+                raise ValueError(f"{self.id}: {k} can only be cleared, not set to {v!r}")
 
     @property
     def format_only(self) -> bool:

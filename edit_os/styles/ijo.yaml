@@ -13,6 +13,7 @@ statistics:
 formatting:  # the IJO style editor leaves p and n as typed (lowercase, roman)
   p_values: false
   n_variable_italic: false
+  body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles)
 
 figures:
   figure_label: Fig.            # IJO editors: "[Fig. 1]", "Fig. 2 shows"; captions keep "Figure 1:"
