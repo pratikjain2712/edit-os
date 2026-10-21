@@ -1,0 +1,270 @@
+"""Copy-edit checkers (B1-B3), offline: synthetic text, a VarCon excerpt, a mocked LanguageTool."""
+
+import pytest
+from docx import Document
+
+from edit_os import copyedit, docmodel, style, tracked
+from edit_os.changes import Status
+from edit_os.copyedit import abbrev, langtool, spelling
+
+VARCON = """\
+# analyze <verified> (level 20)
+A Z: analyze / B: analyse
+A Z: analyzed / B: analysed
+A C: analyzes / B Cv: analyses
+A B: analyses | -- pl: analysis
+
+# among <verified> (level 10)
+A B. Z: among / AV B Zv: amongst
+
+# anemia <verified> (level 35)
+A C Dv: anemia / B D: anaemia
+
+# color <verified> (level 10)
+A Cv: color / B C Z: colour
+
+# organization <verified> (level 10)
+A Z: organization / B: organisation
+
+# randomized <verified> (level 50)
+A Z: randomized / B: randomised
+
+# Composite (level 70)
+A: Composite / B: Compositae
+
+# colorectal (level 80)
+A: colorectal / B: colourectal
+
+# et (level 70)
+A: et / B: aet
+"""
+
+
+@pytest.fixture
+def variants(monkeypatch):
+    v = spelling.parse(VARCON.splitlines())
+    monkeypatch.setattr(spelling, "load", lambda *a, **k: v)
+    return v
+
+
+def make(tmp_path, paras, name="m.docx"):
+    doc = Document()
+    for t in paras:
+        doc.add_paragraph(t)
+    path = tmp_path / name
+    doc.save(path)
+    return docmodel.load(str(path))
+
+
+def journal(code="ijo", **copyedit_settings):
+    st = style.load(code)
+    for section, values in copyedit_settings.items():
+        st.settings["copyedit"][section].update(values)
+    return st
+
+
+def apply(ms, changes):
+    out = {}
+    for p in ms.paragraphs:
+        text = p.text
+        for c in sorted((c for c in changes if c.para_id == p.id), key=lambda c: -c.start):
+            assert text[c.start:c.end] == c.old
+            text = text[:c.start] + c.new + text[c.end:]
+        out[p.id] = text
+    return [out[p.id] for p in ms.paragraphs]
+
+
+# --- B2 spelling ---------------------------------------------------------------------
+
+def test_varcon_parse_keeps_only_safe_conversions(variants):
+    assert variants.to_american["anaemia"] == "anemia"
+    assert variants.to_american["analysed"] == "analyzed"
+    assert variants.to_british["randomized"] == "randomised"
+    assert variants.to_oxford["organisation"] == "organization"  # British with -ize
+    assert variants.to_oxford["color"] == "colour"
+    assert "analyses" not in variants.to_american  # plural of analysis is American too
+    assert "among" not in variants.to_british       # "B." marks an equal variant
+    assert "composite" not in variants.to_british   # proper-noun cluster
+    assert "colorectal" not in variants.to_british  # level 80: too rare to trust
+    assert "et" not in variants.to_british          # too short
+
+
+def test_american_conversion(tmp_path, variants):
+    ms = make(tmp_path, ["Introduction",
+                         "Anaemia was analysed in randomised patients. The analyses showed colour changes.",
+                         "References",
+                         "1. Smith A. Anaemia in colour. J Haem 2001;1:1-2."])
+    changes = spelling.check(ms, journal("ijo", spelling={"convention": "american", "journals": {}}), variants)
+    assert apply(ms, changes)[1] == "Anemia was analyzed in randomized patients. The analyses showed color changes."
+    assert apply(ms, changes)[3] == ms.paragraphs[3].text  # references untouched
+    assert all(c.layer.value == "language" and c.source.value == "rule" for c in changes)
+
+
+def test_british_conversion_by_journal_and_names_kept(tmp_path, variants):
+    ms = make(tmp_path, ["Results",
+                         "The color of the lesion was analyzed by the World Health Organization criteria.",
+                         "Organization of care was randomized."])
+    st = journal("ijdr")  # IJDR follows British spelling
+    out = apply(ms, spelling.check(ms, st, variants))
+    assert out[1] == "The colour of the lesion was analysed by the World Health Organization criteria."
+    assert out[2] == "Organisation of care was randomised."
+
+
+def test_follow_author_fixes_the_minority(tmp_path, variants):
+    ms = make(tmp_path, ["Discussion",
+                         "Colour and organisation were analysed. Anaemia was randomised.",
+                         "One color sample."])
+    st = journal("xyz", spelling={"convention": "follow_author", "journals": {}})
+    assert spelling.convention(st, ms, variants) == "british"
+    assert apply(ms, spelling.check(ms, st, variants))[2] == "One colour sample."
+
+
+def test_skip_list_and_urls(tmp_path, variants):
+    ms = make(tmp_path, ["Methods", "See https://example.org/colour for colour charts."])
+    st = journal("ijo", spelling={"convention": "american", "journals": {}, "skip": []})
+    out = apply(ms, spelling.check(ms, st, variants))
+    assert out[1] == "See https://example.org/colour for color charts."
+
+
+# --- B3 abbreviations ----------------------------------------------------------------
+
+def test_schwartz_hearst():
+    assert abbrev.best_long_form("OCT", "using optical coherence tomography") == "optical coherence tomography"
+    assert abbrev.best_long_form("HbA1c", "levels of glycated haemoglobin A1c") is not None
+    assert abbrev.best_long_form("XYZ", "nothing here") is None
+    p = docmodel.Paragraph("p1", None, "", text="Intraocular pressure (IOP) and best-corrected visual acuity (BCVA) were noted (n = 12).")
+    defs = abbrev.definitions(p)
+    assert [(d.short, d.long) for d in defs] == [("IOP", "Intraocular pressure"),
+                                                ("BCVA", "best-corrected visual acuity")]
+
+
+def test_abbreviation_queries(tmp_path):
+    ms = make(tmp_path, [
+        "Abstract",
+        "We measured intraocular pressure (IOP) in 20 eyes.",
+        "Keywords: Glaucoma, pressure, eye",
+        "Introduction",
+        "The IOP was high and the RNFL was thin; mean SD was 2 mm.",
+        "Retinal nerve fiber layer (RNFL) was imaged with optical coherence tomography (OCT).",
+        "Later, optical coherence tomography (OCT) was repeated in the clinic of Armonk, NY.",
+        "References",
+        "1. Lee K. The PQRS study. Eye 2001;1:1-2.",
+    ])
+    changes, qs = abbrev.collect(ms, journal())
+    got = sorted((q.check, q.text) for q in qs)
+    assert got == [
+        ("abbrev.before_definition", "RNFL: Kindly expand the abbreviation at first use."),
+        ("abbrev.defined_twice", "OCT: The abbreviation has already been expanded. Kindly check."),
+        ("abbrev.undefined", "IOP: Kindly expand the abbreviation."),  # defined in the abstract only
+    ]
+    q = next(q for q in qs if q.check == "abbrev.undefined")
+    assert ms.by_id(q.para_id).text[q.start:q.end] == "IOP" and q.para_id == ms.paragraphs[4].id
+    assert changes == []
+
+
+def test_abbreviation_changes_when_configured(tmp_path):
+    ms = make(tmp_path, [
+        "Introduction",
+        "The RNFL was thin.",
+        "Retinal nerve fiber layer (RNFL) was imaged with optical coherence tomography (OCT).",
+        "Later, optical coherence tomography (OCT) was repeated.",
+    ])
+    st = journal(abbreviations={"redefinition": "change", "move_definition": True})
+    changes, qs = abbrev.collect(ms, st)
+    assert apply(ms, changes)[1:] == [
+        "The retinal nerve fiber layer (RNFL) was thin.",
+        "RNFL was imaged with optical coherence tomography (OCT).",
+        "Later, OCT was repeated.",
+    ]
+    assert qs == []
+
+
+def test_allowlist_and_codes_not_queried(tmp_path):
+    ms = make(tmp_path, ["Introduction",
+                         "DNA and HIV were tested; P < 0.05; CI 95%; C6-T4 and GDS-15 scores; WHO grade; "
+                         "ethics number IEC/0078/2022; analysed with IBM SPSS; post-COVID cases."])
+    assert abbrev.collect(ms, journal())[1] == []
+
+
+# --- B1 LanguageTool -----------------------------------------------------------------
+
+def _match(text, wrong, rep, rule, cat="TYPOGRAPHY", reps=None):
+    return {"offset": text.index(wrong), "length": len(wrong), "message": f"{rule} message",
+            "replacements": [{"value": r} for r in (reps or [rep])],
+            "rule": {"id": rule, "category": {"id": cat}}}
+
+
+def test_languagetool_client_caches(tmp_path):
+    calls = []
+
+    def post(url, data):
+        calls.append((url, data["language"]))
+        return {"matches": [{"offset": 0}]}
+
+    c = langtool.Client("http://127.0.0.1:9", cache_path=str(tmp_path / "lt.sqlite"), post=post)
+    assert c.check("Some text.", "en-US") == [{"offset": 0}]
+    assert c.check("Some text.", "en-US") == [{"offset": 0}]
+    assert calls == [("http://127.0.0.1:9/v2/check", "en-US")]
+
+
+def test_languagetool_keeps_only_safe_single_suggestions(tmp_path):
+    body = "Patients aged 18-81 years were included , and the follow up was long. Their is a effect [1-2]."
+    ms = make(tmp_path, ["Introduction", body, "References", "1. Lee K. Eye 2001;1:1-2."])
+    sent = []
+
+    def post(url, data):
+        sent.append(data)
+        t = data["text"]
+        if t != body:
+            return {"matches": []}
+        return {"matches": [
+            _match(t, "18-81", "18–81", "HYPHEN_TO_EN", "PUNCTUATION"),
+            _match(t, " ,", ",", "COMMA_PARENTHESIS_WHITESPACE"),
+            _match(t, "follow up", "follow-up", "CA_FOLLOW_UP", "GRAMMAR"),
+            _match(t, "Their", "There", "THEIR_IS", "CONFUSED_WORDS"),  # not in the allowlist
+            _match(t, "a effect", "an effect", "EN_A_VS_AN", "MISC", reps=["an effect", "the effect"]),
+            _match(t, "1-2", "1–2", "HYPHEN_TO_EN", "PUNCTUATION"),  # inside a citation: protected
+        ]}
+
+    client = langtool.Client(cache_path=str(tmp_path / "lt.sqlite"), post=post)
+    st = journal(languagetool={"warn_categories": ["CONFUSED_WORDS"]})
+    changes, warnings = langtool.collect(ms, st, client)
+    assert apply(ms, changes)[1] == \
+        "Patients aged 18–81 years were included, and the follow-up was long. Their is a effect [1-2]."
+    assert [w.rule for w in warnings] == ["THEIR_IS"]
+    assert all(d["language"] == "en-US" for d in sent)  # IJO: American spelling
+    assert not any("Eye 2001" in d["text"] for d in sent)  # references not sent
+
+
+def test_languagetool_language_follows_spelling(tmp_path):
+    ms = make(tmp_path, ["Introduction", "Text."])
+    assert langtool.language(ms, journal("ijdr")) == "en-GB"
+    assert langtool.language(ms, journal("ijo")) == "en-US"
+
+
+def test_languagetool_skipped_without_server(tmp_path, monkeypatch):
+    monkeypatch.setattr(langtool, "is_running", lambda url=None: False)
+    ms = make(tmp_path, ["Introduction", "Text."])
+    assert langtool.collect(ms, journal()) == ([], [])
+
+
+# --- run_all + rendering --------------------------------------------------------------
+
+def test_run_all_renders_tracked(tmp_path, variants, monkeypatch):
+    monkeypatch.setattr(langtool, "is_running", lambda url=None: False)
+    ms = make(tmp_path, ["Introduction", "Anaemia was analysed in 20 patients."])
+    res = copyedit.run_all(ms, journal("ijo", spelling={"journals": {}, "convention": "american"}))
+    assert [c.new for c in res.changes.changes] == ["Anemia", "analyzed"]
+    for c in res.changes.changes:
+        c.status = Status.ACCEPTED
+    out = tmp_path / "clean.docx"
+    tracked.render(docmodel.load(str(tmp_path / "m.docx")), res.changes, tracked=False).save(out)
+    assert docmodel.load(str(out)).paragraphs[1].text == "Anemia was analyzed in 20 patients."
+
+
+def test_scopes_structured_abstract_and_box(tmp_path):
+    ms = make(tmp_path, ["Title", "Abstract", "Background", "Text one.", "Methods", "Text two.",
+                         "Keywords: a, b, c", "Highlights", "Box text.", "<H1>Introduction", "Main text."])
+    got = [[p.text for p in s] for s in abbrev.scopes(ms)]
+    assert got == [["Abstract", "Background", "Text one.", "Methods", "Text two.", "Keywords: a, b, c"],
+                   ["Highlights", "Box text."], ["<H1>Introduction", "Main text."]]
