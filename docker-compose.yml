@@ -1,0 +1,24 @@
+# Local stack: API (+ in-process workers + review screen) and LanguageTool.
+#   cp deploy/env.example .env   # set EDITOS_API_KEYS, optionally EDITOS_ANTHROPIC_API_KEY / NCBI_API_KEY
+#   docker compose up --build    # http://localhost:8000
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      EDITOS_LANGUAGETOOL_URL: http://languagetool:8081
+      EDITOS_PUBLIC_URL: http://localhost:8000
+    volumes: ["editos-data:/data"]
+    depends_on: [languagetool]
+    restart: unless-stopped
+  languagetool:
+    build:
+      context: deploy
+      dockerfile: languagetool.Dockerfile
+    expose: ["8081"]
+    restart: unless-stopped
+volumes:
+  editos-data:

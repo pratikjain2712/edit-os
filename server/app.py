@@ -1,0 +1,322 @@
+"""FastAPI service: jobs, suggestions, decisions, re-render, downloads; serves the review screen.
+
+Auth: `X-API-Key` (keys from EDITOS_API_KEYS) for everything; a job's review token (`X-Review-Token`
+header or `?token=`) for that one job's review routes, so a dashboard can link an editor straight
+to the review screen without handing out an API key. With no keys configured the API refuses all
+requests, unless EDITOS_AUTH_DISABLED=1 (local development).
+"""
+
+from __future__ import annotations
+
+import hmac
+import json
+import logging
+import os
+import re
+import shutil
+from contextlib import asynccontextmanager
+from typing import Literal
+
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from edit_os import pipeline, style as style_mod
+from edit_os.changes import Status
+
+from . import db
+from .config import Settings
+from .jobqueue import ThreadQueue
+from .storage import LocalStorage, make_storage
+from .worker import compact_summary, job_lock, out_dir, process, review_url
+
+log = logging.getLogger("editos.api")
+
+DOWNLOADS = {  # kind -> (pipeline file kind, media type)
+    "tracked": ("tracked", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    "clean": ("clean", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    "queries": ("queries", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    "qc_report": ("qc_html", "text/html"),
+    "qc_json": ("qc_json", "application/json"),
+    "changes": ("changes", "application/json"),
+}
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def journal_codes() -> dict[str, str]:
+    out = {}
+    for name in sorted(os.listdir(style_mod.STYLES_DIR)):
+        if name.endswith(".yaml") and name != "base.yaml":
+            code = name[:-5]
+            out[code] = style_mod.load(code).name
+    return out
+
+
+# --- request bodies ---------------------------------------------------------------------------
+
+class S3Job(BaseModel):
+    bucket: str
+    key: str
+    journal: str
+    external_id: str = ""
+    callback_url: str = ""
+    stages: list[str] | None = None
+
+
+class Decision(BaseModel):
+    ids: list[str] = Field(default_factory=list, description="change, front-matter insert or query ids")
+    status: Literal["accepted", "rejected", "suggested"]
+    layer: str | None = Field(None, description="bulk: every still-pending change in this layer")
+    editor: str = ""
+
+
+def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
+    settings = settings or Settings.from_env()
+    os.makedirs(settings.data_dir, exist_ok=True)
+    store = db.JobStore(os.path.join(settings.data_dir, "jobs.sqlite"))
+    storage: LocalStorage = make_storage(settings)
+    queue = queue or ThreadQueue(lambda job_id: process(job_id, settings, store, storage), settings.workers)
+    para_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
+    @asynccontextmanager
+    async def lifespan(app):
+        for job_id in store.unfinished():  # resume jobs a restart interrupted
+            store.update(job_id, status=db.QUEUED, stage="queued")
+            queue.submit(job_id)
+        yield
+        queue.shutdown()
+
+    app = FastAPI(title="Edit OS", version="0.1.0", lifespan=lifespan)
+    app.state.settings, app.state.store, app.state.queue = settings, store, queue
+
+    # --- auth -------------------------------------------------------------------------------
+
+    def _key_ok(key: str | None) -> bool:
+        return bool(key) and any(hmac.compare_digest(key, k) for k in settings.api_keys)
+
+    def _check_configured():
+        if not settings.auth_disabled and not settings.api_keys:
+            raise HTTPException(503, "No API keys configured (set EDITOS_API_KEYS)")
+
+    def require_key(x_api_key: str | None = Header(None)) -> str:
+        _check_configured()
+        if settings.auth_disabled or _key_ok(x_api_key):
+            return "api"
+        raise HTTPException(401, "Missing or invalid X-API-Key")
+
+    def require_job(job_id: str, x_api_key: str | None = Header(None),
+                    x_review_token: str | None = Header(None), token: str | None = Query(None)) -> dict:
+        _check_configured()
+        job = store.get(job_id)
+        allowed = settings.auth_disabled or _key_ok(x_api_key)
+        if not allowed and job is not None:
+            t = x_review_token or token
+            allowed = bool(t) and hmac.compare_digest(t, job["review_token"])
+        if not allowed:
+            raise HTTPException(401, "Missing or invalid X-API-Key / review token")
+        if job is None:
+            raise HTTPException(404, "No such job")
+        return job
+
+    def require_done(job: dict = Depends(require_job)) -> dict:
+        if job["status"] != db.DONE:
+            raise HTTPException(409, f"Job is {job['status']}")
+        if not storage.restore(job["id"]):
+            raise HTTPException(410, "Job files are no longer available")
+        return job
+
+    # --- helpers ----------------------------------------------------------------------------
+
+    def public(job: dict, with_token: bool = False) -> dict:
+        d = {k: job[k] for k in ("id", "status", "stage", "journal", "stages", "input_name", "external_id",
+                                 "error", "summary", "created_at", "updated_at")}
+        d["links"] = {k: f"/api/jobs/{job['id']}/files/{k}" for k in DOWNLOADS} if job["status"] == db.DONE else {}
+        if with_token:
+            d["review_token"] = job["review_token"]
+            d["review_url"] = review_url(settings, job)
+        return d
+
+    def merged(job_id: str):
+        """Saved records with the editor's decisions applied."""
+        outdir = out_dir(storage, job_id)
+        man, changes, inserts, qdicts = pipeline.load_records(outdir)
+        dec = store.decisions(job_id)
+        for item in list(changes.changes) + list(inserts):
+            if item.id in dec:
+                item.status = Status(dec[item.id]["status"])
+        for q in qdicts:
+            if q["key"] in dec:
+                q["status"] = dec[q["key"]]["status"]
+        return outdir, man, changes, inserts, qdicts
+
+    def paragraphs(job_id: str) -> dict[str, str]:
+        src = pipeline.source_path(out_dir(storage, job_id))
+        mtime = os.path.getmtime(src)
+        hit = para_cache.get(job_id)
+        if hit is None or hit[0] != mtime:
+            hit = para_cache[job_id] = (mtime, pipeline.paragraph_texts(src))
+        return hit[1]
+
+    def _create(journal: str, input_name: str, stages, **kw) -> dict:
+        if style_mod.resolve(journal) not in journal_codes():
+            raise HTTPException(422, f"Unknown journal code {journal!r}")
+        stages = tuple(stages or settings.stages)
+        if set(stages) - set(pipeline.STAGES):
+            raise HTTPException(422, f"stages must be among {pipeline.STAGES}")
+        return store.create(journal.lower(), stages, input_name, **kw)
+
+    # --- routes -----------------------------------------------------------------------------
+
+    @app.get("/api/health")
+    def health():
+        return {"ok": True, "storage": storage.kind}
+
+    @app.get("/api/journals", dependencies=[Depends(require_key)])
+    def journals():
+        return [{"code": c, "name": n} for c, n in journal_codes().items()]
+
+    @app.post("/api/jobs", status_code=202, dependencies=[Depends(require_key)])
+    def upload(file: UploadFile = File(...), journal: str = Form(...), external_id: str = Form(""),
+               callback_url: str = Form(""), stages: str = Form("")):
+        name = _SAFE_NAME.sub("_", os.path.basename(file.filename or ""))
+        if not name.lower().endswith((".docx", ".zip")):
+            raise HTTPException(422, "Upload a .docx manuscript or a submission .zip")
+        job = _create(journal, name, [s for s in stages.split(",") if s], external_id=external_id,
+                      callback_url=callback_url)
+        dest = os.path.join(storage.job_dir(job["id"]), "input", name)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        limit = settings.max_upload_mb * 1024 * 1024
+        size = 0
+        with open(dest, "wb") as f:
+            while chunk := file.file.read(1 << 20):
+                size += len(chunk)
+                if size > limit:
+                    f.close()
+                    shutil.rmtree(storage.job_dir(job["id"]), ignore_errors=True)
+                    store.update(job["id"], status=db.FAILED, stage="failed", error="upload too large")
+                    raise HTTPException(413, f"File larger than {settings.max_upload_mb} MB")
+                f.write(chunk)
+        queue.submit(job["id"])
+        return public(store.get(job["id"]), with_token=True)
+
+    @app.post("/api/jobs/from-s3", status_code=202, dependencies=[Depends(require_key)])
+    def from_s3(body: S3Job):
+        if not body.key.lower().endswith((".docx", ".zip")):
+            raise HTTPException(422, "key must point to a .docx or .zip")
+        job = _create(body.journal, os.path.basename(body.key), body.stages, input_ref=f"s3://{body.bucket}/{body.key}",
+                      external_id=body.external_id, callback_url=body.callback_url)
+        queue.submit(job["id"])
+        return public(job, with_token=True)
+
+    @app.get("/api/jobs", dependencies=[Depends(require_key)])
+    def list_jobs(limit: int = 50, external_id: str | None = None):
+        return [public(j) for j in store.list(min(limit, 500), external_id)]
+
+    @app.get("/api/jobs/{job_id}")
+    def job_status(job: dict = Depends(require_job), x_api_key: str | None = Header(None)):
+        return public(job, with_token=_key_ok(x_api_key) or settings.auth_disabled)
+
+    @app.get("/api/jobs/{job_id}/changes")
+    def list_changes(job: dict = Depends(require_done), layer: str | None = None, status: str | None = None,
+                     context: int = 120):
+        outdir, man, changes, inserts, _ = merged(job["id"])
+        texts = paragraphs(job["id"])
+        items = []
+        for c in changes.changes:
+            t = texts.get(c.para_id, "")
+            items.append({**c.to_dict(), "kind": "change",
+                          "context": {"before": t[max(0, c.start - context):c.start], "after": t[c.end:c.end + context],
+                                      "paragraph": t}})
+        for n in inserts:
+            t = texts.get(n.anchor, "")
+            items.append({"id": n.id, "kind": "insert", "para_id": n.anchor, "start": 0, "end": 0, "old": "",
+                          "new": n.text, "layer": "structure", "source": n.source.value,
+                          "reason": f"front_matter: {n.role}", "status": n.status.value, "format": None,
+                          "where": n.where, "context": {"before": "", "after": "", "paragraph": t}})
+        order = {pid: i for i, pid in enumerate(texts)}
+        items.sort(key=lambda d: (order.get(d["para_id"], 10 ** 9), d["start"]))
+        layers: dict[str, dict[str, int]] = {}
+        for d in items:
+            row = layers.setdefault(d["layer"], {"total": 0, "suggested": 0, "accepted": 0, "rejected": 0})
+            row["total"] += 1
+            row[d["status"]] += 1
+        if layer:
+            items = [d for d in items if d["layer"] == layer]
+        if status:
+            items = [d for d in items if d["status"] == status]
+        return {"job_id": job["id"], "journal": man["journal"], "layers": layers, "items": items}
+
+    @app.get("/api/jobs/{job_id}/queries")
+    def list_queries(job: dict = Depends(require_done)):
+        _, _, _, _, qdicts = merged(job["id"])
+        texts = paragraphs(job["id"])
+        out = []
+        for q in qdicts:
+            t = texts.get(q["para_id"], "")
+            out.append({**q, "anchor": t[q["start"]:q["end"]] if q["end"] > q["start"] else "",
+                        "paragraph": t})
+        return {"job_id": job["id"], "items": out}
+
+    @app.post("/api/jobs/{job_id}/decisions")
+    def decide(body: Decision, job: dict = Depends(require_done), x_editor: str | None = Header(None)):
+        _, _, changes, inserts, qdicts = merged(job["id"])
+        kinds = {c.id: "change" for c in changes.changes} | {n.id: "insert" for n in inserts} | \
+                {q["key"]: "query" for q in qdicts}
+        unknown = [i for i in body.ids if i not in kinds]
+        if unknown:
+            raise HTTPException(422, f"Unknown ids: {unknown[:10]}")
+        ids = list(body.ids)
+        if body.layer:
+            pending = [c.id for c in changes.changes if c.layer.value == body.layer and c.status == Status.SUGGESTED]
+            if body.layer == "structure":
+                pending += [n.id for n in inserts if n.status == Status.SUGGESTED]
+            ids += [i for i in pending if i not in ids]
+        n = store.decide(job["id"], [(i, kinds[i]) for i in ids], body.status, body.editor or x_editor or "")
+        return {"updated": n, "ids": ids, "status": body.status}
+
+    @app.post("/api/jobs/{job_id}/render")
+    def rerender(job: dict = Depends(require_done), final: bool = False):
+        """Render tracked/clean copies, query sheet and QC report with the current decisions.
+        `final=true` leaves undecided suggestions out of the tracked copy too."""
+        with job_lock(job["id"]):
+            outdir, _, changes, inserts, qdicts = merged(job["id"])
+            pipeline.save_records(outdir, changes, inserts, qdicts)
+            out = pipeline.render_outputs(outdir, include_pending=not final)
+            storage.save(job["id"])
+        store.update(job["id"], summary=compact_summary(out.summary))
+        return out.summary
+
+    @app.get("/api/jobs/{job_id}/qc")
+    def qc_report(job: dict = Depends(require_done)):
+        outdir = out_dir(storage, job["id"])
+        with open(pipeline.file_paths(outdir, pipeline.load_manifest(outdir)["stem"])["qc_json"], encoding="utf-8") as f:
+            return json.load(f)
+
+    @app.get("/api/jobs/{job_id}/files/{kind}")
+    def download(kind: str, job: dict = Depends(require_done)):
+        if kind not in DOWNLOADS:
+            raise HTTPException(404, f"kind must be one of {sorted(DOWNLOADS)}")
+        outdir = out_dir(storage, job["id"])
+        fkind, media = DOWNLOADS[kind]
+        path = pipeline.file_paths(outdir, pipeline.load_manifest(outdir)["stem"])[fkind]
+        if not os.path.exists(path):
+            raise HTTPException(404, "Not rendered yet")
+        disposition = "inline" if kind == "qc_report" else "attachment"
+        return FileResponse(path, media_type=media, filename=os.path.basename(path),
+                            content_disposition_type=disposition)
+
+    # --- review screen ----------------------------------------------------------------------
+
+    if settings.web_dir and os.path.isdir(settings.web_dir):
+        index = os.path.join(settings.web_dir, "index.html")
+        assets = os.path.join(settings.web_dir, "assets")
+        if os.path.isdir(assets):
+            app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+        @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+        @app.get("/review/{rest:path}", response_class=HTMLResponse, include_in_schema=False)
+        def spa(rest: str = ""):
+            return FileResponse(index, media_type="text/html")
+
+    return app

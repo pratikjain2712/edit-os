@@ -47,6 +47,27 @@ accepts or rejects every suggestion.
     .venv/bin/python tools/evaluate.py DATA_DIR ijo --per-rule
     .venv/bin/python -m edit_os style original.zip ijo out/          # with front matter from the zip
     .venv/bin/python tools/eval_frontmatter.py DATA_DIR all --by-journal
+    .venv/bin/python -m edit_os edit original.zip ijo out/           # full run: style + copy edit, QC report
+    .venv/bin/python -m edit_os render out/                          # re-render out/ from its records' statuses
+
+## Service and review screen
+
+`edit_os/pipeline.py` is the end-to-end run (`edit`): front matter, style rules and copy-edit checkers
+propose changes and author queries; it writes `STEM_changes.json`, `_front_matter.json`, `_queries.json`,
+a tracked copy (queries as Word comments), a clean copy (accepted changes only), the query sheet and a QC
+report (`_qc_report.json` / `.html`: what ran, counts by layer and status, QC checks passed / failed).
+Proposals start as `suggested`; `render_outputs` re-renders with the editor's decisions.
+
+    .venv/bin/pip install -e '.[dev]'                  # adds fastapi, uvicorn, boto3
+    (cd web && npm ci && npm run build)                # review screen -> web/dist, served by the API
+    EDITOS_API_KEYS=dev-key .venv/bin/python -m server --port 8000    # http://127.0.0.1:8000
+    docker compose up --build                          # API + LanguageTool (cp deploy/env.example .env)
+
+API (`X-API-Key`, or a job's review token for that job): `POST /api/jobs` (multipart file + journal),
+`POST /api/jobs/from-s3`, `GET /api/jobs[/{id}]`, `GET /api/jobs/{id}/changes` (with paragraph context),
+`GET /api/jobs/{id}/queries`, `POST /api/jobs/{id}/decisions` (ids or a whole layer), `POST
+/api/jobs/{id}/render`, `GET /api/jobs/{id}/qc`, `GET /api/jobs/{id}/files/{tracked|clean|queries|qc_report|qc_json|changes}`.
+Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.md`.
 
 ## Roadmap
 
@@ -68,6 +89,6 @@ accepts or rejects every suggestion.
       similarity to the style editors on 160 articles, IJO 91%)
 - [ ] B. Copy edit: LanguageTool (self-hosted), VarCon spelling, abbreviation checker, Claude pass
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
-- [ ] 5. QC report output
-- [ ] 6. Editor screen: accept or reject each suggestion
+- [x] 5. QC report output (`pipeline.py`: `_qc_report.json` / `.html`)
+- [x] 6. Editor screen: accept or reject each suggestion (`server/` API, `web/` review screen)
 - [ ] 7. Test set from past edited manuscripts to measure accuracy
