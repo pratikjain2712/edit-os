@@ -1,6 +1,10 @@
 # Journal of Postgraduate Medicine (StyleSheet_Sample_JPGM.docx); only the settings that differ from base.yaml.
 name: Journal of Postgraduate Medicine
 
+copyedit:
+  spelling:
+    convention: follow_author  # from the copy editors' practice (tools/eval_ce.py)
+
 # not yet automated:
 #   - 'ABSTRACT' heading in capitals
 #   - structured abstract run-on

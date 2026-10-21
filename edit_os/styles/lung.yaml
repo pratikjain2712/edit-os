@@ -2,6 +2,10 @@
 # Checked against 6 style-edited articles: no override beat base.yaml.
 name: Lung India
 
+copyedit:
+  spelling:
+    convention: british  # from the copy editors' practice (tools/eval_ce.py)
+
 # not yet automated:
 #   - 'KEY WORDS:' heading; 'ABSTRACT' heading in capitals; H1 in ALL CAPS
 #   - correspondence after Abstract/Keywords

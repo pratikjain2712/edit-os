@@ -1,6 +1,10 @@
 # Indian Journal of Dental Research (StyleSheet_Sample_IJDR_updated.docx); only the settings that differ from base.yaml.
 name: Indian Journal of Dental Research
 
+copyedit:
+  spelling:
+    convention: british  # from the copy editors' practice (tools/eval_ce.py)
+
 # not yet automated:
 #   - British spelling
 #   - at most six authors: query for a justification letter when there are more

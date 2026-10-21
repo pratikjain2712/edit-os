@@ -8,6 +8,10 @@ headings:
        subjects and methods, results, discussion, conclusion, conclusions, references, case report,
        case reports, case presentation, review of literature]
 
+copyedit:
+  spelling:
+    convention: british  # from the copy editors' practice (tools/eval_ce.py)
+
 # not yet automated:
 #   - UK spelling
 #   - no serial comma

@@ -207,3 +207,43 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
     smj: {cite_journal: Singapore Med J, correspondence_label: "Correspondence:", capital_after_colon: false,
           dates: {labels: [Received, Accepted], keys: [received, accepted], format: "%d %b %Y", one_line: true}}
     wjcs: {cite_journal: World J Colorectal Surg}
+
+copyedit:
+  spelling:
+    enabled: true
+    convention: american       # british | american | follow_author | none (most Medknow journals: American)
+    british_z: false           # british with Oxford -ize instead of -ise
+    max_level: 70              # VarCon/SCOWL word level; rarer clusters hold odd forms ("colourectal")
+    journals: {}               # journal code -> convention; prefer copyedit.spelling.convention in styles/<journal>.yaml
+    skip: [acknowledgement, acknowledgements]  # never converted (guide: "Acknowledgement" heading in UK spelling)
+  abbreviations:
+    enabled: true
+    query_undefined: true      # "ABBR: Kindly expand the abbreviation."
+    query_before_definition: true
+    move_definition: false     # instead of a query, move the expansion to the first use
+    redefinition: query        # full form (ABBR) again in one scope: query | change (-> "ABBR") | off
+    allow: []                  # extra abbreviations that need no expansion
+  languagetool:
+    enabled: true              # skipped when no server answers (python -m edit_os.copyedit languagetool start)
+    language: null             # en-GB / en-US; default follows the spelling convention
+    level: picky               # LanguageTool's rule level; picky enables UNIT_SPACE
+    rules:                     # rule IDs whose single suggestion becomes a change (tuned with tools/eval_ce.py)
+      - HYPHEN_TO_EN           # 18-81 years -> 18–81 years
+      - UNIT_SPACE             # 10mg -> 10 mg (picky level)
+      - CONSECUTIVE_SPACES     # never next to symbol-font characters (± often sits between two spaces)
+      - DASH_RULE
+      - COMMA_PARENTHESIS_WHITESPACE  # "word ," -> "word,"
+      - SPACE_BEFORE_PARENTHESIS
+      - CA_FOLLOW_UP           # follow up (noun) -> follow-up
+      - YEAR_OLD_HYPHEN        # 45 year old -> 45-year-old
+      - DECISION_MAKING
+      - FROM_X_Y
+      - BETWEEN_TO_AND         # between 5 to 10 -> between 5 and 10
+      - SENT_START_CONJUNCTIVE_LINKING_ADVERB_COMMA  # "However the" -> "However, the"
+      - ALL_OF_THE
+      - EN_COMPOUNDS_FOLLOW_UPS
+      - EN_COMPOUNDS_LONG_STANDING
+      - EN_COMPOUNDS_SHORT_LIVED
+    categories: []
+    disabled_rules: []
+    warn_categories: []        # other matches in these categories go to the editor as warnings

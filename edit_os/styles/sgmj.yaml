@@ -14,6 +14,10 @@ figures:
 references:
   journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
 
+copyedit:
+  spelling:
+    convention: british  # from the copy editors' practice (tools/eval_ce.py)
+
 # not yet automated:
 #   - author names in full with surname last and underlined; keep up to 2 qualifications
 #   - correspondence with salutation ('Dr', no period); 'Correspondence:' label

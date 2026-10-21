@@ -1,0 +1,24 @@
+# Abbreviations the copy editor does not ask authors to expand.
+# Sources: the stylesheets' unit and statistics guidance (units after numbers, P values, CI),
+# SI units, and terms in general use. Case-sensitive; comma- or line-separated.
+
+# Units (SI and common clinical units)
+mg, kg, g, mL, ml, L, dL, dl, mm, cm, m, km, nm, um, μm, μg, mcg, ng, pg, μL, ul, mmol, μmol, nmol, mol, mEq
+mmHg, cmH2O, Hz, kHz, MHz, GHz, kDa, Da, rpm, IU, U, mIU, kcal, cal, J, kJ, W, mW, V, mV, μV, mA, mAs, kV, kVp
+Gy, cGy, mGy, Sv, mSv, Bq, MBq, GBq, mCi, Ci, dB, s, sec, ms, min, h, hr, hrs, d, wk, mo, yr, yrs
+°C, °F, K, Pa, kPa, atm, D, DS, DC, PD, logMAR, LogMAR, MAR, BMI
+
+# Statistics
+P, p, SD, SE, SEM, CI, OR, aOR, HR, aHR, RR, IQR, ANOVA, ANCOVA, AUC, ROC, AUROC, ICC, df, DF, NS
+NPV, PPV, LR, SPSS, SAS, GLM, GEE, PCA, CV, MANOVA, VIF, R2, Q1, Q3, USD, INR, Rs, EUR, GBP, SE
+
+# Terms in general use
+DNA, RNA, mRNA, cDNA, miRNA, PCR, RT-PCR, qPCR, HIV, AIDS, WHO, UK, USA, US, UAE, EU, UN, UNICEF
+COVID, COVID-19, SARS-CoV-2, SARS, MERS, ICMR, CDC, NIH, FDA, NHS, ICD, ICD-10, ICD-11, DSM, DSM-5, DSM-IV
+CONSORT, STROBE, PRISMA, CARE, STARD, GRADE, PROSPERO, PubMed, MEDLINE, EMBASE, CINAHL, ORCID, DOI, ISBN, ISSN
+ID, IDs, OK, TV, PC, AM, PM, a.m., p.m., e.g., i.e., vs, etc, AQ, OD, OS, OU, Fig, Figs, No, Nos, Ltd, Inc, LLC, Co
+ATP, ADP, NAD, NADH, NADPH, pH, O2, CO2, H2O, NaCl, KCl, HCl, NaOH, Na, K, Ca, Mg, Fe, Zn, Cu, Cl, HCO3, H2O2
+IgA, IgE, IgG, IgM, IgD, CD4, CD8, HLA, TNF, IL, MRI, CT, PET, X-ray, ECG, EEG, EMG, ICU, ENT
+
+# Company and software names, places
+IBM, SPSS, GE, NCSS, STATA, Stata, GraphPad, SAS, NY  # state codes after a city ("Armonk, NY") are skipped by rule

@@ -17,6 +17,10 @@ references:
   page_range_dash: "–"  # the editor sets page ranges with an en dash
   title_sentence_case: false  # the editor keeps the author's title capitalization
 
+copyedit:
+  spelling:
+    convention: follow_author  # from the copy editors' practice (tools/eval_ce.py)
+
 # not yet automated:
 #   - affiliations numbered per author and not repeated
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
