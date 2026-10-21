@@ -5,3 +5,7 @@ name: Journal of Orthodontic Science
 #   - structured abstract with four headings (query if missing)
 #   - no author queries about history dates
 #   - history dates: Received / Revised / Accepted as dd-mm-yyyy
+
+sections:
+  back_matter:
+    consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule

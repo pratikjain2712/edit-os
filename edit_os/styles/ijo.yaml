@@ -33,6 +33,15 @@ sections:  # IJO prints no "Introduction" heading and uses "Methods" (stylesheet
     rename: {materials and methods: Methods, material and methods: Methods, methodology: Methods,
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, aim: Purpose, aims: Purpose}
+  back_matter:  # IJO editors (19 + 2 articles): consent, contributions, financial support, conflicts
+    consent:
+      # The heading the IJO editor gave an unheaded statement, and the IJO reviewers' wording (the stylesheet says
+      # "Declaration of patient consent"); authors' own headings are kept as written (7 of 7).
+      heading: "Author’s declaration statement of patient consent"
+    contributions:
+      heading: "Authors’ contributions"  # 7 of 12 editor-final headings
+      from_sources: true             # title page / contribution form: the editors have it in all 11 articles whose
+                                     # submission lists contributions (one more found: a review the editor left)
 
 guide_replace:
   multiplication: false  # the IJO editors leave "4.5x4.5 mm" as typed

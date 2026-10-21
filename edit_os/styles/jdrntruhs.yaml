@@ -6,3 +6,7 @@ name: Journal of Dr. NTR University of Health Sciences
 #   - structured abstract with four headings (query if missing)
 #   - no author queries about history dates
 #   - affiliations: 'Departments of X and 1Y'
+
+sections:
+  back_matter:
+    consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule

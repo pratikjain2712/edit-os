@@ -360,3 +360,16 @@ def test_scopes_introduction_without_heading(tmp_path):
                    ["Intraocular pressure (IOP) was high.", "<H1>Methods", "IOP was measured."]]
     _, queries = abbrev.collect(ms, journal("ijo"))
     assert not [q for q in queries if q.text.startswith("IOP")]
+
+
+def test_formatting_only_change_does_not_block_copy_edits(monkeypatch):
+    from edit_os import copyedit
+    from edit_os.changes import Change, Layer, Source
+    ms = docmodel.Manuscript.__new__(docmodel.Manuscript)
+    fmt = Change(id="f1", para_id="p0001", start=0, end=40, old="x" * 40, new="x" * 40, layer=Layer.HOUSE_STYLE,
+                 source=Source.RULE, reason="fmt_color", format={"color": False})
+    edit = Change(id="s1", para_id="p0001", start=5, end=15, old="paediatric", new="pediatric", layer=Layer.LANGUAGE,
+                  source=Source.RULE, reason="spelling (american)")
+    monkeypatch.setattr(copyedit, "CHECKERS", {"spelling": lambda *a, **k: ([edit], [], [])})
+    res = copyedit.run_all(ms, None, existing=[fmt])
+    assert [c.id for c in res.changes.changes] == ["s1"]

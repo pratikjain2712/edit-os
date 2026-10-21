@@ -53,9 +53,10 @@ CHECKERS = {
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None,
             lt_client: langtool.Client | None = None, existing: list[Change] = (),
             claude_call=None) -> Result:
-    """Run the checkers in order; drop proposals overlapping one already kept (or `existing`)."""
+    """Run the checkers in order; drop proposals overlapping one already kept (or `existing`).
+    Formatting-only changes (e.g. colour removed over a whole paragraph) do not block text edits."""
     res = Result()
-    kept: list[Change] = list(existing)
+    kept: list[Change] = [c for c in existing if not c.format_only]
     for name, checker in CHECKERS.items():
         if only and name not in only:
             continue

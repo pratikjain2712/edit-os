@@ -148,12 +148,44 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     dedupe: true
     add_missing: true            # add the "Keywords:" line after the abstract and query
     max_query: false             # more than keywords.max: the editors keep them
-  back_matter:
+  back_matter:  # measured on the editors' tracked files (160 articles, 34 journals)
     enabled: true
-    delete_nil_statements: true  # "Funding: None" etc. go; the standard sections replace them
+    delete_nil_statements: true  # "Funding: None", "Conflict(s) of Interest and Disclosure(s): None", "No conflict
+                                 # of interest." etc. go; the standard sections replace them
     add_missing: true            # required_sections not stated -> heading + default before references
-    acknowledgement_heading: null  # e.g. Acknowledgements; editors keep the author's spelling
-    patient_consent_query: false # case report without a consent statement (editors rarely query)
+    delete_declarations_heading: true  # a bare "Declarations" / "Statements and declarations" heading over the
+                                       # statements goes (editors: 13 of 14)
+    delete_nil_ethics: true      # "Ethics: Not required ...", "Consent for publication: Not applicable" go (7 of 7
+                                 # inline ones; a heading with "Not applicable" under it is kept: ABR)
+    acknowledgement_heading: null  # stylesheets: "Acknowledgements" -> "Acknowledgement"; editors keep the
+                                   # author's spelling (0 of 17 "Acknowledgements" headings changed)
+    supplementary_heading: null  # stylesheets: "Supplementary Material" heading over supporting information;
+                                 # no editor added it (0 of 6 articles with supplementary material)
+    patient_consent_query: true  # case report with no consent statement anywhere: "Kindly confirm whether consent
+                                 # form obtained or not?" (the pre-editing query in all 8 such case reports)
+    order: [consent, contributions, funding, conflict]  # where added sections go among those already there
+    consent:  # "Declaration of patient consent" (every stylesheet but JOS, KJO, IJNMR, JDRNTRUHS)
+      enabled: true
+      heading: Declaration of patient consent
+      head_unlabelled: true      # an author's consent statement with no heading gets the heading; an inline
+                                 # "Patient Consent: Written ..." becomes heading + statement
+      rename_heading: false      # the author's own consent heading -> `heading` (AIAN); IJO editors keep it as written
+      add_missing: true          # no consent statement and identifiable patient images (an image article, or a case
+                                 # report / letter whose legends show clinical photographs): heading + standard text
+      query: true                # ... and the stylesheet's query "Please ensure that patient consent form has been obtained."
+      text: >-
+        The authors certify that they have obtained all appropriate patient consent forms. In the form the
+        patient(s) has/have given his/her/their consent for his/her/their images and other clinical information
+        to be reported in the journal. The patients understand that their names and initials will not be
+        published and due efforts will be made to conceal their identity, but anonymity cannot be guaranteed.
+    contributions:  # authors' contributions
+      enabled: true
+      heading: Author contributions
+      split_inline: true         # "Author contributions: US: data ..." -> heading + statement
+      head_unlabelled: true      # "Dr A – Concept, design ..." lines with no heading get the heading
+      from_sources: false        # add the section from the title page / contribution form / cover letter when the
+                                 # manuscript has none (per journal: IJO and IDOJ editors do; ABR editors never do)
+      query_missing: false       # none given anywhere (IJO editors queried 1 of 7 such articles)
 
 front_matter:  # title page: running head, type, title, authors, affiliations, correspondence, history
   enabled: true
@@ -278,6 +310,6 @@ copyedit:
 
 autopilot:  # "Autopilot" on the review screen (edit_os/autopilot.py): accepts pending suggestions it is sure of
   accept_sources: [rule]       # rules, verified references, NLM abbreviations, spelling, LanguageTool, front matter
-  hold: []                     # reasons always left for the editor, e.g. [renumber, front_matter, guide.multiplication]
+  hold: [sections_back_matter.consent_added, fmt_color]  # left for the editor: boilerplate consent text; colour (editors keep it in ~half)
   ai_judge: true               # Claude's copy edits: accepted only when a second Claude check agrees; else left
   model: claude-haiku-5-5      # EDITOS_AUTOPILOT_MODEL overrides

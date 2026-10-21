@@ -28,3 +28,9 @@ references:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   table_head_bold: false  # editors leave column heads as typed (7 of 31)
+
+sections:
+  back_matter:
+    order: [contributions, funding, conflict, consent]  # editors: ... Conflicts of interest, Data availability, Patients' consent
+    consent: {heading: "Patients' consent"}           # editors' heading (2 of 2)
+    contributions: {heading: "Authors' contributions"}
