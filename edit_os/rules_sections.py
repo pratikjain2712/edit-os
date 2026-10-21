@@ -16,7 +16,13 @@ What the style editors do (measured on their tracked files, IJO / ABR / NJCP / J
   are deleted and the standard "Financial support and sponsorship / Nil." and "Conflicts of
   interest / There are no conflicts of interest." sections are added before the references, as
   new paragraphs (tracked.PARAGRAPH_BREAK). A real statement keeps its text under the standard
-  heading.
+  heading. A nil statement becomes the standard section in place when that keeps the order. A bare
+  "Declarations" heading and inline nil ethics statements ("Ethics: Not required") go.
+- Patient consent: an author's statement without a heading gets one; with none at all and
+  identifiable patient images (decided from the article type and figure legends), the standard
+  statement is added with the stylesheet's query. Authors' contributions: an unlabelled list gets
+  its heading; per journal, the list from the title page / contribution form / cover letter is added.
+  New sections go in the journal's order (consent, contributions, financial support, conflicts).
 
 Everything is a `Change` on the original text; settings live under `sections:` in the style.
 """
@@ -434,12 +440,19 @@ def rule_keywords(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 # --- back matter -----------------------------------------------------------------------
 
-_CONFLICT = (r"conflicts?\s+of\s+interests?(?:\s+statement)?|competing\s+interests?|"
-             r"declaration\s+of\s+(?:competing\s+|conflicting\s+)?interests?|(?:financial\s+)?disclosures?(?:\s+statement)?|"
-             r"conflicting\s+interests?")
-_FUNDING = (r"funding(?:\s+(?:information|sources?|statement|support))?|financial\s+support(?:\s+and\s+sponsorship)?|"
-            r"sources?\s+of\s+(?:funding|support)|sponsorship|grant\s+support|support")
-_ACK = r"acknowledge?ments?"
+_PL = r"(?:\(s\)|s)?"  # "Conflict(s)", "Source(s)", "Disclosure(s)"
+_CONFLICT = (r"(?:declaration\s+of\s+)?conflict" + _PL + r"\s+of\s+interest" + _PL + r"(?:\s+statement)?"
+             r"(?:\s+and\s+(?:any\s+)?disclosure" + _PL + r")?|"
+             r"competing\s+interest" + _PL + r"(?:\s+(?:statement|declaration))?|"
+             r"declaration\s+of\s+(?:competing\s+|conflicting\s+)?interest" + _PL + r"|"
+             r"(?:financial\s+)?disclosure" + _PL + r"(?:\s+statement)?|"
+             r"conflicting\s+interest" + _PL + r"(?:\s+statement)?|"
+             r"financial\s+(?:relationship|interest)" + _PL + r"(?:\s+and\s+sponsor(?:ship|ership))?")
+_FUNDING = (r"funding(?:\s+(?:information|sources?|statement|support|details))?|"
+            r"financial\s+support(?:\s+and\s+sponsorship)?|"
+            r"source" + _PL + r"\s+of\s+(?:funding|support)(?:\s*/\s*funding)?|"
+            r"sponsorship|grant\s+support|support(?:\s*/\s*funding)?")
+_ACK = r"acknowledge?ments?|acknowledge(?=\s*[:\-–—])"
 _LABEL = re.compile(
     r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>(?P<conflict>" + _CONFLICT + r")(?:\s*(?:&|and)\s*(?P<both>"
     + _FUNDING + r"))?|(?P<funding>" + _FUNDING + r")|(?P<ack>" + _ACK + r"))"
@@ -447,13 +460,18 @@ _LABEL = re.compile(
 _NIL = re.compile(r"\b(?:none|nil|no|not|nothing|n/?a|non[- ]?existent)\b", re.I)
 _REAL = re.compile(r"\b(?:grant|supported|funded|funding from|award|fellowship|scheme|project no|received (?:a|funding|support)"
                    r"|thank|grateful|gratitude)\b", re.I)
+_NEGATION = re.compile(r"\b(?:no|not|nothing|none|neither|nor|without)\b", re.I)
 
 
 def _nil(content: str) -> bool:
+    """A statement that says nothing: "None", "Nil.", "The authors declare no conflicts of interest",
+    "This review has no specific grant from any funding agency" (a negated "grant" is not real support)."""
     c = content.strip()
     if not c:
         return True
-    return _words(c) <= 30 and bool(_NIL.search(c)) and not _REAL.search(c)
+    if _words(c) > 30 or not _NIL.search(c):
+        return False
+    return not any(not _NEGATION.search(c[max(0, m.start() - 60):m.start()]) for m in _REAL.finditer(c))
 
 
 def _kind(m) -> str:
@@ -463,6 +481,65 @@ def _kind(m) -> str:
 
 
 _CAPTION = re.compile(r"^\s*(?:<[A-Z]+\d*>)?\s*(?:table|figure|fig\.?|graph|chart|supplementary)\s*[S]?\d", re.I)
+
+# A sentence with no label that only says there is nothing to declare ("No conflict of interest.",
+# "The authors have nothing to disclose.", "This work did not receive any funding ..."): editors delete it.
+_NIL_SENTENCE = re.compile(r"^\s*(?:the\s+authors?(?:\(s\))?|all\s+(?:the\s+)?authors|authors|we|none\s+of\s+the\s+authors|no"
+                           r"|there\s+(?:is|are|was|were)\s+no|this\s+(?:work|study|research|article|review|manuscript"
+                           r"|systematic\s+review|case(?:\s+report)?))\b", re.I)
+_NIL_TOPIC = re.compile(r"conflict|competing|\binterests?\b|funding|financial|\bgrant|sponsor|disclos|relationship", re.I)
+
+# "Declarations" / "Statements and declarations": a container heading over the author statements; editors
+# delete it (13 of 14 in the training files) as the statements become the journal's own sections.
+_DECLARATIONS = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?(?:(?:ethical\s+)?declarations|statements?\s+and\s+declarations"
+                           r"|declarations?\s+and\s+statements?|compliance\s+with\s+ethical\s+standards)\s*:?\s*$", re.I)
+# Ethics / consent statements that say nothing ("Ethics: Not required for single case report.", "Consent for
+# publication: Not applicable"): editors delete them (7 of 7).
+_ETHICS = re.compile(
+    r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>(?:ethic(?:s|al)|ethics\s+committee)(?:\s+(?:approval|statement|clearance"
+    r"|declaration|committee\s+approval|considerations?))?(?:\s+and\s+consent(?:\s+to\s+participate)?(?:\s+and\s+publication)?)?"
+    r"|consent\s+(?:for|to)\s+(?:publication|participate)(?:\s+and\s+(?:publication|publish))?"
+    r"|institutional\s+review\s+board(?:\s+statement)?)(?P<sep>\s*[:.\-–—]\s*|\s*$)", re.I)
+_ETHICS_NIL = re.compile(r"^\s*(?:not\s+(?:applicable|required|needed|necessary|sought)|n/?a\b|none\b|nil\b|exempt|waived)", re.I)
+
+# Consent: a heading ("Declaration of patient consent", "Patient Consent:", "Consent for publication") or a
+# statement without one ("Written informed consent was obtained from the patient for the publication ...").
+_CONSENT_HEAD = re.compile(
+    r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>(?:authors?[’'`]?s?[’'`]?\s+)?declaration(?:\s+statement)?\s+of\s+"
+    r"(?:the\s+)?(?:patients?[’'`]?s?[’'`]?\s+)?consent|patients?[’'`]?s?[’'`]?\s+consent(?:\s+(?:statement|form|for\s+publication))?"
+    r"|participants?[’'`]?s?[’'`]?\s+consent|informed\s+consent(?:\s+statement)?)(?P<sep>\s*[:.\-–—]\s*|\s*$)", re.I)
+_CONSENT_GIVEN = re.compile(r"\bconsent\b.{0,200}\b(?:obtained|given|taken|signed|provided|received)\b|"
+                            r"\b(?:obtained|given|taken|signed|provided|certify)\b.{0,120}\bconsent\b", re.I)
+_CONSENT_PUBLICATION = re.compile(r"\b(?:publication|publish\w*|images?|photo\w*|clinical\s+(?:information|details)"
+                                  r"|case\s+report|this\s+case|reported\s+in\s+the\s+journal)\b", re.I)
+
+# Authors' contributions: a heading ("Authors' contributions", "Author Contributions (CRediT)") or an inline label.
+_CONTRIB = re.compile(
+    r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>(?P<author>(?:authors?[’'`]?s?[’'`]?|authorship|individual)\s+)?"
+    r"contributions?(?:\s+of\s+(?:the\s+)?authors?)?(?:\s+(?:statement|details))?(?:\s*\(credit\))?"
+    r"|credit\s+(?:authorship\s+)?(?:contribution\s+)?statement)(?P<sep>\s*[:.\-–—]\s*|\s+|$)", re.I)
+_CONTRIB_WORDS = re.compile(
+    r"\b(?:concept\w*|design\w*|intellectual|literature|data|manuscript|writing|wrote|draft\w*|review\w*|edit\w*|analy[sz]\w*"
+    r"|statistic\w*|supervis\w*|investigation|methodology|clinical|surg\w*|acquisition|interpretation|curation|visuali[sz]\w*"
+    r"|validation|resources|software|approv\w*|responsible|performed|collect\w*|critical\w*|revis\w*|stud(?:y|ies)|patients?)\b",
+    re.I)
+_UP = "A-ZÀ-ÖØ-Þİ"
+# "Prof. Dr. Asha K. R. – Concept, design, ..."; "A.B.: Conceptualization, ..."; "Ravi Kumar (RK): ..."
+_CONTRIB_LINE = re.compile(rf"^\s*(?:[•➢▪*]\s*)?(?:(?:prof|dr|mr|mrs|ms)\.?\s+)*(?:[{_UP}][\w.’'\-]*\.?\s*){{1,6}}"
+                           rf"(?:\([{_UP}. ]{{1,10}}\)\s*)?[:–—\-]\s+\S")
+_TEMPLATE = re.compile(r"[\[\]□☐✓]|^author\s+name|^contributor\s*\d|write the first letter|^role\b|tick", re.I)
+_OTHER_LABEL = re.compile(r"^\s*(?:corresponding|address|e-?mail|word\s+count|no\.?\s+of|number\s+of|thank|sincerely|yours|"
+                          r"regards|declaration|statement\s+on|data\s+(?:availability|sharing|supporting)|availability|key\s*words?|"
+                          r"running\s+title|orcid|ethic|consent|funding|conflict|acknowledg|financial|source|competing|"
+                          r"meeting|presentation|copyright|guarantor|we\s+(?:hope|look)|the\s+manuscript\s+(?:has|is)\s+not)",
+                          re.I)
+_PHOTO_LEGEND = re.compile(r"clinical\s+(?:photo(?:graph)?s?|pictures?|images?)|(?:facial|external|full[- ]face)\s+"
+                           r"(?:photo(?:graph)?s?|appearance|view)|photo(?:graph)?s?\s+of\s+the\s+(?:patient|face|child|baby|infant)"
+                           r"|patient[’']?s\s+face", re.I)
+_LEGEND = re.compile(r"^\s*(?:<[A-Z]+\d*>)?\s*(?:figure|fig\.?)\s*\d", re.I)
+_CASE_TYPE = re.compile(r"\bcase\s+(?:reports?|series|snippets?|history)\b|clinicopathologic", re.I)
+_IMAGE_TYPE = re.compile(r"\bimages?\b|neuroimage|photo\s*(?:essay|quiz)", re.I)
+_LETTER_TYPE = re.compile(r"\bletters?\b|correspondence", re.I)
 
 
 def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
@@ -478,7 +555,10 @@ def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
             start = i + 1
     if not start:
         start = len(paras) * 2 // 3
-    ref_ids = {r.para_id for r in references.extract(ms)}
+    # A label statement read as the last entries of a reference list ("Conflicts of interests: None" after
+    # the references) is back matter, not a reference.
+    ref_ids = {r.para_id for r in references.extract(ms)
+               if not (_LABEL.match(r.text) and _words(r.text) <= 12 and _LABEL.match(r.text).group("sep").strip())}
     region = [p for p in ms.paragraphs[start:] if not p.in_table and p.id not in ref_ids
               and (ref_i is None or p is not ms.paragraphs[ref_i])]
     anchor = None
@@ -494,12 +574,112 @@ def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
     return region, anchor
 
 
+def article_type(ms: Manuscript) -> str:
+    """The article type from the submission XML ("Case Report", "Letter to Editor"), when there is one."""
+    src = getattr(ms, "front_sources", None)
+    return (getattr(getattr(src, "meta", None), "article_type", "") or "").strip()
+
+
+def _is_case_report(ms: Manuscript) -> bool:
+    if _CASE_TYPE.search(article_type(ms)):
+        return True
+    return any(_key(p.text) in ("case report", "case reports", "case presentation", "case description",
+                                "case history", "case summary")
+               for p in ms.paragraphs if len(p.text) < 40)
+
+
+def has_consent_statement(ms: Manuscript) -> bool:
+    return any(re.search(r"\bconsent\b", p.text, re.I) for p in ms.paragraphs)
+
+
+def identifiable_patient_images(ms: Manuscript) -> bool:
+    """Does the article print images of a patient (the stylesheets' "images with any identifiable patient
+    information")? Decided from the article type and the figure legends only:
+    an image article (Images in Neurology, Ophthalmic Images, ...) with figures, or a case report / case series /
+    letter whose legends show clinical photographs ("Clinical photograph showing ...", "facial appearance")."""
+    legends = [p.text for p in ms.paragraphs if _LEGEND.match(p.text)]
+    if not legends:
+        return False
+    kind = article_type(ms)
+    if _IMAGE_TYPE.search(kind):
+        return True
+    patient_article = bool(_CASE_TYPE.search(kind) or _LETTER_TYPE.search(kind)) or (not kind and _is_case_report(ms))
+    return patient_article and any(_PHOTO_LEGEND.search(t) for t in legends)
+
+
+def _contribution_items(paras: list[str]) -> list[str]:
+    """The contribution statements after an "Author contributions" label in a title page, contribution
+    form or cover letter: the label's own text and the lines after it that name what authors did. A list of
+    names, a tick-box table or a form template gives nothing (nothing is invented)."""
+    for i, text in enumerate(paras):
+        m = _CONTRIB.match(text)
+        if not m or (m.group("sep").isspace() and not m.group("author")) or len(text) > 2000:
+            continue
+        items = [t.strip() for t in re.split(r"\s*\n\s*", text[m.end():]) if t.strip()]
+        if items and not all(_CONTRIB_WORDS.search(t) and not _TEMPLATE.search(t) for t in items):
+            continue
+        for nxt in paras[i + 1:i + 30]:
+            lines = [t.strip() for t in re.split(r"\s*\n\s*", nxt) if t.strip()]
+            if not lines or any(len(t) > 700 or _TEMPLATE.search(t) or _OTHER_LABEL.match(t) or _CONTRIB.match(t)
+                                or not _CONTRIB_WORDS.search(t) for t in lines):
+                break
+            items += lines
+        if items:
+            return items
+    return []
+
+
+def contributions_from_sources(ms: Manuscript, skip: set[str] = frozenset()) -> list[str]:
+    """Authors' contributions given with the submission: the title-page file, a contribution form, or a cover
+    letter inside the manuscript (paragraphs in `skip`, the back matter, are not read)."""
+    src = getattr(ms, "front_sources", None)
+    pools = [list(getattr(src, "first_page", None) or [])] + [list(f) for f in getattr(src, "contribution_forms", None) or []]
+    pools.append([p.text for p in ms.paragraphs if p.id not in skip and not p.in_table])
+    for pool in pools:
+        items = _contribution_items(pool)
+        if items:
+            return items
+    return []
+
+
+@dataclass
+class _Section:
+    kind: str           # consent | contributions | funding | conflict
+    para: Paragraph     # its first paragraph (heading, or the statement itself)
+    heading: bool       # para is a heading line (heading_tags may insert at its start)
+    end: Paragraph | None = None  # its last paragraph, when known
+
+
+def _sentence_label(label: str) -> str:
+    label = re.sub(r"\s+", " ", label).strip()
+    return label if label.isupper() else label[:1] + _sentence_case(label)[1:]
+
+
+def back_matter_plan(ms: Manuscript, style: JournalStyle, run: bool = False) -> dict:
+    """What the back-matter rule does to the consent and contributions sections, for the queries:
+    "exists" | "added" | "missing" | None (not checked). With `run`, works it out if the rule has not run."""
+    cached = getattr(ms, "_back_matter_plan", None)
+    if cached is not None and cached[0] is style:
+        return cached[1]
+    plan = {"consent": None, "contributions": None}
+    ms._back_matter_plan = (style, plan)
+    if run and _on(style, "back_matter.enabled"):
+        _statements(ms, style)
+    return plan
+
+
 def rule_back_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not _on(style, "back_matter.enabled"):
         return []
+    return _statements(ms, style) + _supplementary(ms, style)
+
+
+def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     region, anchor = _back_region(ms)
     tag = "<H2>" if style.get("headings.tag") else ""
     levels = _levels(style)
+    plan = back_matter_plan(ms, style)
+    plan.update(consent=None, contributions=None)
     std = {}
     for sec in style.get("required_sections", []) or []:
         h = sec["heading"].lower()
@@ -507,15 +687,126 @@ def rule_back_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:
         std[kind] = sec
     out = []
     satisfied: set[str] = set()
-    deleted: set[str] = set()
+    deleted: set[str] = set()   # paragraphs this rule deletes
+    consumed: set[str] = set()  # statement paragraphs read with the label before them
+    sections: list[_Section] = []
+    candidates = []             # nil statements of a required section, which may become that section in place
     delete_nil = _on(style, "back_matter.delete_nil_statements")
     ack_heading = _cfg(style, "back_matter.acknowledgement_heading")
+    consent_cfg = _cfg(style, "back_matter.consent") or {}
+    contrib_cfg = _cfg(style, "back_matter.contributions") or {}
+    consent_on = _cfg(style, "enabled", True) and consent_cfg.get("enabled", False)
+    contrib_on = _cfg(style, "enabled", True) and contrib_cfg.get("enabled", False)
     nonempty = [p for p in region if p.text.strip()]
+    by_text = {p.id: p.text for p in ms.paragraphs}
+    ref_i = references.find_heading(ms)
+    # After the reference list (legends, leftovers) a consent or contributions section counts as present, but
+    # editors do not restyle it there.
+    after_refs = {p.id for p in ms.paragraphs[ref_i:]} if ref_i is not None else set()
+
+    def delete(p: Paragraph):
+        out.append(_change(p, 0, len(p.text), "", Layer.STRUCTURE, "sections_back_matter"))
+        deleted.add(p.id)
+
+    def label_only(p: Paragraph) -> bool:
+        return bool(p.text.strip()) and _words(p.text) <= 8 and not p.text.rstrip().endswith(".")
+
+    def tag_heading(p: Paragraph, m, name: str, rename: str | None = None):
+        """Tag a heading line the journal's heading list does not know, drop its colon, sentence case."""
+        s, e = m.start("label"), m.end("label")
+        label = p.text[s:e]
+        known = levels.get(_key(p.text)) or p.text.lstrip().startswith("<H")
+        new = rename or _sentence_label(label)
+        if not known and tag:
+            new = tag + new
+        if new != label:
+            out.append(_change(p, s, e, new, Layer.STRUCTURE, f"sections_{name}"))
+        end = len(p.text.rstrip())
+        if not known and p.text[e:end].strip() in (":", ".", "-", "–", "—"):
+            out.append(_change(p, e, end, "", Layer.STRUCTURE, f"sections_{name}"))
+
+    def split_inline(p: Paragraph, m, name: str, rename: str | None = None):
+        """"Patient Consent: Written informed ..." -> heading paragraph + statement."""
+        s = len(p.text) - len(p.text.lstrip())
+        out.append(_change(p, s, m.end(), f"{tag}{rename or _sentence_label(m.group('label'))}{BR}", Layer.STRUCTURE,
+                           f"sections_{name}"))
+
     for i, p in enumerate(nonempty):
-        if p.id in deleted:
+        if p.id in deleted or p.id in consumed:
             continue
+        nxt = nonempty[i + 1] if i + 1 < len(nonempty) else None
+        # "Declarations" container heading, nil ethics statements
+        if _on(style, "back_matter.delete_declarations_heading") and _DECLARATIONS.match(p.text):
+            delete(p)
+            continue
+        em = _ETHICS.match(p.text)
+        if em and _on(style, "back_matter.delete_nil_ethics"):
+            # Inline only: a heading with "Not applicable" on its own line is kept (ABR editors tag it).
+            content = p.text[em.end():]
+            if content.strip() and em.group("sep").strip() and _ETHICS_NIL.match(content) and _words(content) <= 25:
+                delete(p)
+            continue
+        # consent
+        cm = _CONSENT_HEAD.match(p.text)
+        if cm and consent_on:
+            content = p.text[cm.end():]
+            sections.append(_Section("consent", p, not content.strip()))
+            if p.id in after_refs:
+                continue
+            rename = consent_cfg.get("heading") if consent_cfg.get("rename_heading") and re.search(
+                r"patient|declaration", cm.group("label"), re.I) else None
+            if content.strip() and cm.group("sep").strip() and _words(content) > 3:
+                split_inline(p, cm, "consent", rename)
+            elif not content.strip():
+                tag_heading(p, cm, "consent", rename)
+                if nxt is not None:
+                    consumed.add(nxt.id)
+            continue
+        if consent_on and consent_cfg.get("head_unlabelled", True) and _CONSENT_GIVEN.search(p.text) \
+                and _CONSENT_PUBLICATION.search(p.text) and _words(p.text) <= 90 \
+                and not any(s.kind == "consent" for s in sections):
+            prev = nonempty[i - 1] if i else None
+            if p.id in after_refs:
+                sections.append(_Section("consent", p, False))
+            elif prev is None or prev.id in deleted or not label_only(prev):
+                sections.append(_Section("consent", p, False))
+                out.append(_change(p, 0, 0, f"{tag}{consent_cfg.get('heading', 'Declaration of patient consent')}{BR}",
+                                   Layer.STRUCTURE, "sections_consent", {"bold": False, "italic": False}))
+            continue
+        # authors' contributions
+        km = _CONTRIB.match(p.text)
+        if km and contrib_on and not km.group("author") and not km.group("label").lower().startswith("credit"):
+            km = None  # "Contribution: This author helped ..." under each author's name is not the section's label
+        if km and contrib_on:
+            content = p.text[km.end():]
+            sections.append(_Section("contributions", p, not content.strip()))
+            if p.id in after_refs:
+                continue
+            if content.strip() and km.group("sep").strip():
+                if contrib_cfg.get("split_inline", True):
+                    split_inline(p, km, "contributions")
+            elif not content.strip():
+                tag_heading(p, km, "contributions")
+            continue
+        if contrib_on and contrib_cfg.get("head_unlabelled", True) and _CONTRIB_LINE.match(p.text) \
+                and len(_CONTRIB_WORDS.findall(p.text)) >= 2 and not _OTHER_LABEL.match(p.text) \
+                and not any(s.kind == "contributions" for s in sections):
+            prev = nonempty[i - 1] if i else None
+            if p.id in after_refs:
+                sections.append(_Section("contributions", p, False))
+            elif prev is None or prev.id in deleted or not label_only(prev) or _LABEL.match(prev.text):
+                sections.append(_Section("contributions", p, False))
+                out.append(_change(p, 0, 0, f"{tag}{contrib_cfg.get('heading', 'Author contributions')}{BR}",
+                                   Layer.STRUCTURE, "sections_contributions", {"bold": False, "italic": False}))
+            continue
+        # funding / conflicts / acknowledgement
         m = _LABEL.match(p.text)
         if not m or (m.group("sep") and m.group("sep").isspace() and _words(p.text[m.end():]) > 30):
+            if delete_nil and _NIL_SENTENCE.match(p.text) and _NIL_TOPIC.search(p.text) and _words(p.text) <= 35 \
+                    and _nil(p.text):
+                prev = nonempty[i - 1] if i else None
+                if prev is None or prev.id in deleted or not label_only(prev):
+                    delete(p)
             continue
         kind = _kind(m)
         if kind == "funding" and m.group("label").lower() == "support" and not m.group("sep").strip():
@@ -523,18 +814,17 @@ def rule_back_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:
         content = p.text[m.end():]
         content_p = None
         if not content.strip():
-            nxt = nonempty[i + 1] if i + 1 < len(nonempty) else None
             if nxt is not None and not _LABEL.match(nxt.text):
                 content_p, content = nxt, nxt.text
+                consumed.add(nxt.id)
         nil = _nil(content)
         kinds = ("conflict", "funding") if kind == "both" else (kind,)
         if kind == "ack":
             if nil and delete_nil and (content.strip() or content_p is None and i + 1 < len(nonempty)):
-                out.append(_change(p, 0, len(p.text), "", Layer.STRUCTURE, "sections_back_matter"))
+                delete(p)
                 if content_p is not None:
-                    out.append(_change(content_p, 0, len(content_p.text), "", Layer.STRUCTURE, "sections_back_matter"))
-                    deleted.add(content_p.id)
-            elif ack_heading and not content.strip():
+                    delete(content_p)
+            elif ack_heading and not p.text[m.end():].strip():
                 s, e = m.start("ack"), m.end("ack")
                 if p.text[s:e] != ack_heading:
                     out.append(_change(p, s, e, ack_heading, Layer.STRUCTURE, "sections_back_matter"))
@@ -543,26 +833,29 @@ def rule_back_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if nil and content_p is not None and standard:
             # The standard heading with a "None" under it: keep both, word the statement as the journal does.
             satisfied.add(kind)
+            sections.append(_Section(kind, p, True))
             body = content_p.text.strip()
             default = std[kind].get("default", "")
-            if body.rstrip(".").lower() in ("none", "nil", "not applicable", "na", "n/a") and \
-                    body.rstrip(".").lower() != default.rstrip(".").lower():
+            short = body.rstrip(".").lower() in ("none", "nil", "not applicable", "na", "n/a")
+            if body and body.rstrip(".").lower() != default.rstrip(".").lower() and (short or _nil(body)):
+                # "None" -> "Nil" / the journal's wording; "The authors declare no conflict of interest" -> the same
                 s = content_p.text.index(body)
-                new = "Nil" + body[len(body.rstrip(".")):] if kind == "funding" else default
+                new = ("Nil" + body[len(body.rstrip(".")):] if short else "Nil.") if kind == "funding" else default
                 out.append(_change(content_p, s, s + len(body), new, Layer.STRUCTURE, "sections_back_matter"))
-            deleted.add(content_p.id)
             continue
         if nil and delete_nil:
-            out.append(_change(p, 0, len(p.text), "", Layer.STRUCTURE, "sections_back_matter"))
+            delete(p)
             if content_p is not None:
-                out.append(_change(content_p, 0, len(content_p.text), "", Layer.STRUCTURE, "sections_back_matter"))
-                deleted.add(content_p.id)
+                delete(content_p)
+            if kind in std and p.id not in after_refs and (m.group("sep").strip() or content_p is not None):
+                candidates.append((kind, p, m, content_p))
             continue
         if kind == "both" or not all(k in std for k in kinds):
             satisfied.update(kinds)  # a real joint statement: leave it to the editor
             continue
         sec = std[kind]
         satisfied.add(kind)
+        sections.append(_Section(kind, p, content_p is not None or not content.strip()))
         if content_p is None and content.strip():
             # "Funding: Eye Research Foundation grant 12." -> heading paragraph + statement
             s = len(p.text) - len(p.text.lstrip())
@@ -577,17 +870,159 @@ def rule_back_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 out.append(_change(p, s, e, new, Layer.STRUCTURE, "sections_back_matter"))
             if not tagged and p.text[e:head_end].strip() in (":", "."):
                 out.append(_change(p, e, head_end, "", Layer.STRUCTURE, "sections_back_matter"))
-    if anchor is None:
-        return out
-    block = []
-    for kind, sec in std.items():
-        if kind in satisfied:
+
+    # A nil statement becomes the journal's section in place ("Funding: None" -> "Financial support and sponsorship
+    # / Nil.") when that keeps the journal's order; the rest stay deleted and the sections are added below.
+    order = list(_cfg(style, "back_matter.order") or ["consent", "contributions", "funding", "conflict"])
+    rank = {k: i for i, k in enumerate(order)}
+    pos = {p.id: i for i, p in enumerate(ms.paragraphs)}
+    done: set[str] = set(satisfied)
+    for kind, p, m, content_p in candidates:
+        if kind in done or kind not in std or kind not in rank:
             continue
-        block += [f"{tag}{sec['heading']}", sec.get("default", "")]
-    if block and _on(style, "back_matter.add_missing"):
-        out.append(_change(anchor, len(anchor.text), len(anchor.text), BR + BR.join(block), Layer.STRUCTURE,
-                           "sections_back_matter", {"bold": False, "italic": False, "superscript": False}))
+        here = [x for x in sections if x.para.id not in deleted]
+        if any(rank.get(k, -1) < rank[kind] and k not in done for k in std) \
+                or any(rank.get(x.kind, -1) > rank[kind] and pos[x.para.id] < pos[p.id] for x in here) \
+                or any(rank.get(x.kind, -1) < rank[kind] and pos[x.para.id] > pos[p.id] for x in here):
+            continue
+        sec = std[kind]
+        out[:] = [c for c in out if not (c.para_id in (p.id, getattr(content_p, "id", None))
+                                          and c.start == 0 and c.end == len(by_text[c.para_id]) and not c.new)]
+        deleted.discard(p.id)
+        s0, e0 = m.start("label"), m.end("label")
+        lead = len(p.text) - len(p.text.lstrip())
+        out.append(_change(p, lead, e0, f"{tag}{sec['heading']}", Layer.STRUCTURE, "sections_back_matter"))
+        if content_p is None:
+            out.append(_change(p, e0, len(p.text), BR + sec.get("default", ""), Layer.STRUCTURE, "sections_back_matter"))
+        else:
+            if e0 < len(p.text):
+                out.append(_change(p, e0, len(p.text), "", Layer.STRUCTURE, "sections_back_matter"))
+            deleted.discard(content_p.id)
+            out.append(_change(content_p, 0, len(content_p.text), sec.get("default", ""), Layer.STRUCTURE,
+                               "sections_back_matter"))
+        done.add(kind)
+        satisfied.add(kind)
+        sections.append(_Section(kind, p, True, content_p or p))
+
+    # --- sections to add: the standard statements, patient consent, authors' contributions ---
+    new: dict[str, list[str]] = {}
+    for kind, sec in std.items():
+        if kind not in satisfied:
+            new[kind] = [f"{tag}{sec['heading']}", sec.get("default", "")]
+    have = {s.kind for s in sections}
+    if consent_on:
+        if "consent" in have or has_consent_statement(ms):
+            plan["consent"] = "exists"
+        elif consent_cfg.get("add_missing", True) and identifiable_patient_images(ms):
+            new["consent"] = [f"{tag}{consent_cfg.get('heading', 'Declaration of patient consent')}",
+                              consent_cfg.get("text", "")]
+            plan["consent"] = "added"
+        else:
+            plan["consent"] = "missing"
+    if contrib_on:
+        if "contributions" in have:
+            plan["contributions"] = "exists"
+        else:
+            items = contributions_from_sources(ms, {p.id for p in region}) if contrib_cfg.get("from_sources") else []
+            if items:
+                new["contributions"] = [f"{tag}{contrib_cfg.get('heading', 'Author contributions')}"] + items
+                plan["contributions"] = "added"
+            else:
+                plan["contributions"] = "missing"
+    if not _on(style, "back_matter.add_missing"):
+        new = {k: v for k, v in new.items() if k in ("consent", "contributions")}
+    if anchor is None:
+        # No reference list found: add the sections after the last statement read here.
+        seen = [p for p in nonempty if p.id in deleted or p.id in consumed or any(x.para is p for x in sections)]
+        anchor = seen[-1] if seen else None
+    if not new or anchor is None:
+        return out
+    # Each new section goes before the first section already there that comes after it in the journal's order
+    # (consent, contributions, financial support, conflicts of interest), else with the others before the references.
+    # A new section goes after the one before it in that order when that one is there (and nothing that comes
+    # after it in the order stands between), else before the first one after it, else before the references.
+    kept = [s for s in sections if s.para.id not in deleted]
+    starts = {s.para.id for s in sections}
+    at = {p.id: i for i, p in enumerate(nonempty)}
+
+    def section_end(x: _Section) -> Paragraph:
+        if x.end is not None:
+            return x.end
+        last = x.para
+        for q in nonempty[at[x.para.id] + 1:at[x.para.id] + 31]:
+            if q.id in starts or q.id in deleted or q.in_table or _CAPTION.match(q.text) or (q.id in after_refs) != (
+                    x.para.id in after_refs) or _key(q.text) in ("references", "reference", "bibliography") or any(
+                    r.match(q.text) for r in (_LABEL, _CONSENT_HEAD, _CONTRIB, _ETHICS, _DECLARATIONS)) \
+                    or (x.kind != "contributions" and label_only(q)):
+                break
+            last = q
+        return last
+
+    targets: dict[tuple[str, str], list[str]] = {}
+    for kind in sorted(new, key=lambda k: rank.get(k, len(order))):
+        r = rank.get(kind, len(order))
+        later = [s for s in kept if rank.get(s.kind, -1) > r]
+        before = min(later, key=lambda s: pos[s.para.id]) if later else None
+        earlier = [s for s in kept if rank.get(s.kind, len(order)) < r and s.para.id not in after_refs]
+        prev_end = max((section_end(s) for s in earlier), key=lambda q: pos[q.id]) if earlier else None
+        if prev_end is not None and pos[prev_end.id] < pos[anchor.id] and all(
+                q.id in deleted for q in nonempty if pos[prev_end.id] < pos[q.id] <= pos[anchor.id]):
+            prev_end = anchor  # only deleted statements between: with the others, after them
+        if prev_end is not None and (before is None or pos[prev_end.id] < pos[before.para.id]):
+            targets.setdefault(("after", prev_end.id), []).extend(new[kind])
+        elif before is None or pos[before.para.id] > pos[anchor.id]:
+            targets.setdefault(("after", anchor.id), []).extend(new[kind])
+        elif not before.heading:
+            targets.setdefault(("before", before.para.id), []).extend(new[kind])
+        else:
+            # Before a heading line (heading_tags inserts its tag there): after the paragraph above it.
+            j = ms.paragraphs.index(before.para)
+            above = next((q for q in reversed(ms.paragraphs[:j]) if q.text.strip() and not q.in_table), None)
+            if above is None:
+                continue
+            targets.setdefault(("after", above.id), []).extend(new[kind])
+    by_id = {p.id: p for p in ms.paragraphs}
+    fmt = {"bold": False, "italic": False, "superscript": False}
+    consent_text = (new.get("consent") or [None, None])[1] if plan.get("consent") == "added" else None
+    for (where, pid), lines in targets.items():
+        p = by_id[pid]
+        # The standard consent statement asserts that consent was obtained: its own reason, so that autopilot can hold it.
+        reason = "sections_back_matter.consent_added" if consent_text and consent_text in lines else "sections_back_matter"
+        if where == "after":
+            out.append(_change(p, len(p.text), len(p.text), BR + BR.join(lines), Layer.STRUCTURE, reason, fmt))
+        else:
+            # Merge with a heading this rule adds at the same point ("before" an unlabelled statement).
+            mine = next((c for c in out if c.para_id == pid and c.start == c.end == 0), None)
+            if mine is not None:
+                out.remove(mine)
+                out.append(_change(p, 0, 0, BR.join(lines) + BR + mine.new, Layer.STRUCTURE, reason, mine.format))
+            else:
+                out.append(_change(p, 0, 0, BR.join(lines) + BR, Layer.STRUCTURE, reason, fmt))
     return out
+
+
+def _supplementary(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """The stylesheets' "Supplementary Material" heading over supporting information (sections.back_matter.
+    supplementary_heading). Off by default: no editor added it in the training files (0 of 6 articles)."""
+    heading = _cfg(style, "back_matter.supplementary_heading")
+    if not heading or not _on(style, "back_matter.enabled"):
+        return []
+    tag = "<H2>" if style.get("headings.tag") else ""
+    region, _ = _back_region(ms)
+    head = re.compile(r"^\s*(?:<H\d>)?\s*(?P<label>(?:supporting|supplementary|supplemental)\s+(?:information|materials?|data"
+                      r"|files?|digital\s+content))\s*:?\s*$", re.I)
+    for p in region:
+        m = head.match(p.text)
+        if m:
+            if m.group("label") != heading:
+                return [_change(p, m.start("label"), m.end("label"), heading, Layer.STRUCTURE, "sections_back_matter")]
+            return []
+    first = next((p for p in region if re.match(r"^\s*(?:supplementary|supplemental)\s+(?:table|figure|fig\.?|file|material"
+                                                r"|video|appendix)\s*S?\d", p.text, re.I)), None)
+    if first is None:
+        return []
+    return [_change(first, 0, 0, f"{tag}{heading}{BR}", Layer.STRUCTURE, "sections_back_matter",
+                    {"bold": False, "italic": False})]
 
 
 # --- author queries ------------------------------------------------------------------------
@@ -599,13 +1034,9 @@ TEXT = {
                                        "abstract, hence will have to remove the headings.",
     "keywords.too_many": "Kindly provide a maximum of {n} key words.",
     "sections.patient_consent": "Kindly confirm whether consent form obtained or not?",
+    "sections.consent_added": "Please ensure that patient consent form has been obtained.",
+    "sections.contributions_missing": "Please provide authors’ contributions.",
 }
-
-
-def _is_case_report(ms: Manuscript) -> bool:
-    return any(_key(p.text) in ("case report", "case reports", "case presentation", "case description",
-                                "case history", "case summary")
-               for p in ms.paragraphs if len(p.text) < 40)
 
 
 def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
@@ -641,8 +1072,16 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
             qs.add(lay.keywords.id, "keywords.too_many", n=hi)
     elif lay.keywords is None and lay.abstract and _on(style, "keywords.add_missing"):
         qs.add(lay.abstract[-1].id, "keywords.missing")
-    if _on(style, "back_matter.patient_consent_query") and _is_case_report(ms):
-        if not any(re.search(r"\bconsent\b", p.text, re.I) for p in ms.paragraphs):
-            ref_i = references.find_heading(ms)
-            if ref_i is not None:
-                qs.add(ms.paragraphs[ref_i].id, "sections.patient_consent")
+    if _cfg(style, "back_matter.enabled", True):
+        ref_i = references.find_heading(ms)
+        at = ms.paragraphs[ref_i].id if ref_i is not None else None
+        plan = back_matter_plan(ms, style, run=True)
+        consent_cfg = _cfg(style, "back_matter.consent") or {}
+        if plan.get("consent") == "added" and consent_cfg.get("query", True) and at:
+            qs.add(at, "sections.consent_added")
+        elif _on(style, "back_matter.patient_consent_query") and _is_case_report(ms) \
+                and not has_consent_statement(ms) and at:
+            qs.add(at, "sections.patient_consent")
+        if plan.get("contributions") == "missing" and (_cfg(style, "back_matter.contributions") or {}).get(
+                "query_missing") and at:
+            qs.add(at, "sections.contributions_missing")

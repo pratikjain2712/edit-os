@@ -4,3 +4,7 @@ name: Kerala Journal of Ophthalmology
 # not yet automated:
 #   - the sheet only lists updates: authors bottom of the right column; history dates before 'Access this article online'
 #   - structured abstract run-on; H1 in ALL CAPS
+
+sections:
+  back_matter:
+    consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule

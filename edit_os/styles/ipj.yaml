@@ -25,3 +25,9 @@ references:
 #   - H1 in capitals
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - patient consent query in all case reports and in original articles with patient photographs
+
+sections:
+  back_matter:
+    order: [contributions, funding, conflict, consent]  # editors: ... Conflicts of interest, Data availability, Patients' consent
+    consent: {heading: "Patients' consent"}           # editors' heading (2 of 2)
+    contributions: {heading: "Authors' contributions"}

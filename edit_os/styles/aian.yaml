@@ -26,3 +26,8 @@ keywords:
 #   - references: delete DOIs if added
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
+
+sections:
+  back_matter:
+    consent: {rename_heading: true}  # "Patient Consent-" -> "Declaration of patient consent" (editors: 2 of 2 not
+                                     # already standard)

@@ -7,3 +7,7 @@ name: Iranian Journal of Nursing and Midwifery Research
 #   - abstract for original articles only, structured as Background, Methods, Results, Conclusion
 #   - H1 'Methods' (not 'Materials and Methods')
 #   - no author queries about history dates
+
+sections:
+  back_matter:
+    consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule

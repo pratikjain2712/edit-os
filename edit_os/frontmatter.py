@@ -156,6 +156,9 @@ class Meta:
 class Sources:
     first_page: list[str] = field(default_factory=list)  # paragraphs of the title-page file
     meta: Meta = field(default_factory=Meta)
+    # paragraphs of other submission files named for author contributions ("Author Contribution Form.docx"),
+    # read by the back-matter rule (rules_sections) for the authors' contributions section
+    contribution_forms: list[list[str]] = field(default_factory=list)
 
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -184,6 +187,13 @@ def sources_from_zip(path: str) -> Sources:
     xml = [n for n in names if n.lower().endswith(".xml") and "/" not in n.strip("/")]
     if xml:
         src.meta = parse_xml(z.read(xml[0]))
+    for n in sorted(names):
+        if n.lower().endswith(".docx") and re.search(r"contribut", os.path.basename(n), re.I) \
+                and not _FIRST_PAGE.search(os.path.basename(n)):
+            try:
+                src.contribution_forms.append(docx_paragraphs(z.read(n)))
+            except (KeyError, zipfile.BadZipFile, etree.XMLSyntaxError):
+                pass
     return src
 
 
