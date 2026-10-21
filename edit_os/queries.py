@@ -161,6 +161,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
         target = next((p for p in ms.paragraphs if p.text.strip().lower() in {"discussion", "<h1>discussion"}), None)
         if target is not None:
             qs.add(target.id, "sections.conclusion")
+    from . import renumber, rules_figures
+    renumber.add_queries(ms, style, qs)
+    rules_figures.add_queries(ms, style, qs)
     return qs.number(ms)
 
 

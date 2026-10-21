@@ -13,3 +13,8 @@ statistics:
 formatting:  # the IJO style editor leaves p and n as typed (lowercase, roman)
   p_values: false
   n_variable_italic: false
+
+figures:
+  figure_label: Fig.            # IJO editors: "[Fig. 1]", "Fig. 2 shows"; captions keep "Figure 1:"
+  figure_label_plural: Figs.
+  compress_lists: true          # stylesheet: "Tables 1–6"

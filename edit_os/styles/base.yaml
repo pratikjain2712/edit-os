@@ -61,3 +61,23 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   p_capital: false             # "p < 0.05" -> "P < 0.05": copy-edit pass (style editors leave p as typed)
   n_variable_italic: true      # "n = 34": italic n
   superscript_citations: true  # body citations [4] in superscript
+
+figures:                        # figure and table citations and captions (rules_figures.py)
+  citations: true
+  brackets: square              # (Figure 1) -> [Figure 1]
+  figure_label: Figure          # "Fig. 1" -> "Figure 1" (every journal but IJO in the editors' files)
+  figure_label_plural: Figures
+  part_labels: lower            # Figure 1A -> Figure 1a: what the editors do (the guide says uppercase)
+  part_case_query: false
+  range_dash: "–"               # "Tables 1 to 3" -> "Tables 1–3"
+  compress_lists: false         # "Tables 1, 2 and 3" -> "Tables 1–3"
+  captions: true
+  caption_separator: ": "       # "Table 1. Title" -> "Table 1: Title"
+  caption_end_period: false     # delete the period at the end of a caption
+  queries: true                 # out of order, cited without caption, caption never cited
+
+renumber:                       # duplicate references and citation-order renumbering (renumber.py)
+  enabled: true
+  remove_duplicates: true       # guide E.g. 3
+  reorder: true                 # guide E.g. 4; never when a reference is uncited (E.g. 5)
+  compress_from: 3              # renumbered [4,5,6] -> [4-6]; two numbers stay a list
