@@ -170,3 +170,32 @@ def test_subheadings_skip_run_in_section_and_abstract(tmp_path):
     path = _save(tmp_path, paras)
     ms = docmodel.load(path)
     assert rules_sections.rule_subheadings(ms, _style()) == []
+
+
+def test_citation_at_paragraph_end_takes_trailing_space(tmp_path):
+    body = ["Introduction", "It is the main target in glaucoma [1]. ", "Ames et al. showed it in rats.[2]  ",
+            "Caption-free text with a citation [1] in the middle. "]
+    path = _save(tmp_path, body + _refs("Kay T", "Ames JB"))
+    _, t = _run(path, _style(), tmp_path, CITE_RULES)
+    assert t[1] == "It is the main target in glaucoma.[1]"   # not "glaucoma.[1] "
+    assert t[2] == "Ames et al.[2] showed it in rats."
+    assert t[3] == "Caption-free text with a citation[1] in the middle. "  # not at the end: spaces kept
+
+
+def test_caption_end_period_takes_trailing_space(tmp_path):
+    _, t = _run(_save(tmp_path, ["Figure 1: Fundus photograph showing folds. "]), _style(), tmp_path, ["fig_captions"])
+    assert t[0] == "Figure 1: Fundus photograph showing folds"
+
+
+def test_heading_tags_replace_leading_spaces(tmp_path):
+    paras = [
+        "Introduction", LONG,
+        " Methods:",
+        (" Study design", {"bold": True}), LONG,
+        "  Results", LONG,
+    ] + _refs("Ames JB")
+    path = _save(tmp_path, paras)
+    _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
+    assert t[2] == "<H1>Methods"
+    assert t[3] == "<H2>Study design"
+    assert t[5] == "<H1>Results"

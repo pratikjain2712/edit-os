@@ -177,6 +177,15 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
     return out
 
 
+def _trailing_space(p: Paragraph, end: int, rule: str) -> list[Change]:
+    """A citation restyled at the end of a paragraph takes the spaces after it with it:
+    "glaucoma [5]. " -> "glaucoma.[5]" (IJO editors: 10 of 12 such paragraph ends)."""
+    rest = p.text[end:]
+    if not rest or rest.strip():
+        return []
+    return [_change(p, end, len(p.text), "", Layer.REFERENCES, rule)]
+
+
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     refs = references.extract(ms)
     n_refs = max((r.number or 0 for r in refs), default=len(refs)) or len(refs)
@@ -231,6 +240,7 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                                Layer.REFERENCES, "citations", sup))
         else:
             out.append(_change(p, start, end, new, Layer.REFERENCES, "citations"))
+        out += _trailing_space(p, end, "citations")
     for p in paras:
         # Superscript citations: "worldwide¹." -> "worldwide.[1]" (brackets keep the run's formatting).
         for s, e, nums in superscript_citations(p):
@@ -244,6 +254,7 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 out.append(_change(p, s, s, nxt, Layer.REFERENCES, "citations"))   # punctuation before
                 out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
                 out.append(_change(p, e, e + 1, "", Layer.REFERENCES, "citations"))  # and not after
+                out += _trailing_space(p, e + 1, "citations")
             else:
                 out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
     return out
@@ -415,7 +426,10 @@ def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
             # Take the citation out; punctuation right after it is kept but covered, so the citation
             # rule's bracket insertion after it ("worldwide¹." -> "worldwide.[1]") cannot come back.
             trail = re.match(r"[.,;:]?", after).group(0)
-            out.append(_change(p, s, e + len(trail), trail, Layer.REFERENCES, "author_citations"))
+            end = e + len(trail)
+            if not text[end:].strip():  # it ended the paragraph: the spaces after it go too
+                end = len(text)
+            out.append(_change(p, s, end, trail, Layer.REFERENCES, "author_citations"))
     return out
 
 
@@ -440,8 +454,8 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
         level = levels.get(key)
         if not level:
             continue
-        lead = len(text) - len(text.lstrip())
-        out.append(_change(p, lead, lead, f"<{level}>", Layer.STRUCTURE, "heading_tags"))
+        lead = len(text) - len(text.lstrip())  # the tag goes at the very start: leading spaces go
+        out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "heading_tags"))
         if style.get("headings.strip_trailing_colon", True) and text.rstrip().endswith(":"):
             i = len(text.rstrip()) - 1
             out.append(_change(p, i, i + 1, "", Layer.STRUCTURE, "heading_tags"))
