@@ -61,6 +61,36 @@ def _max_number(nums: str) -> int:
     return max(int(n) for n in re.findall(r"\d+", nums))
 
 
+_SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+_UNICODE_SUP = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*[,˒⁻–\-]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+)*")
+_PLAIN_NUMS = re.compile(r"\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*")
+
+
+_UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/cm|/mm)|[\d^×x])\s*$")
+
+
+def _is_exponent(text: str, start: int) -> bool:
+    """10⁹, mm², kg/m² and the like are powers, not citations."""
+    return bool(_UNIT_BEFORE.search(text[max(0, start - 8):start]))
+
+
+def superscript_citations(p: Paragraph) -> list[tuple[int, int, str]]:
+    """(start, end, numbers as plain text) for citations written as superscript: Unicode
+    superscript digits ("worldwide.¹") or digits formatted superscript. Powers are skipped."""
+    out = []
+    for m in _UNICODE_SUP.finditer(p.text):
+        if _is_exponent(p.text, m.start()):
+            continue
+        plain = "".join(str(_SUP_DIGITS.index(c)) if c in _SUP_DIGITS else {"⁻": "-", "˒": ","}.get(c, c)
+                        for c in m.group(0))
+        out.append((m.start(), m.end(), plain))
+    for s, e in p.superscript:
+        if _PLAIN_NUMS.fullmatch(p.text[s:e]) and not _is_exponent(p.text, s):
+            lead = len(p.text[s:e]) - len(p.text[s:e].lstrip())
+            out.append((s + lead, s + len(p.text[s:e].rstrip()), p.text[s:e].strip()))
+    return sorted(out)
+
+
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     refs = references.extract(ms)
     n_refs = max((r.number or 0 for r in refs), default=len(refs)) or len(refs)
@@ -94,6 +124,20 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if new == old:
                     continue
                 out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
+        # Superscript citations: "worldwide¹." -> "worldwide.[1]" (brackets keep the run's formatting).
+        for s, e, nums in superscript_citations(p):
+            if s == 0 or _max_number(nums) > n_refs:
+                continue
+            norm = normalise_citation(nums, style)
+            if norm is None:
+                continue
+            nxt = p.text[e:e + 1]
+            if style.get("citations.after_punctuation", True) and nxt in ".,;:":
+                out.append(_change(p, s, s, nxt, Layer.REFERENCES, "citations"))   # punctuation before
+                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations"))
+                out.append(_change(p, e, e + 1, "", Layer.REFERENCES, "citations"))  # and not after
+            else:
+                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations"))
     return out
 
 

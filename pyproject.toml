@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6",
     "rapidfuzz>=3",
     "anthropic>=1.16",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

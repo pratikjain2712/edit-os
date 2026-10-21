@@ -3,7 +3,8 @@
   paragraphs IN.docx                       list paragraph IDs and text
   refs IN.docx                             list the reference entries found
   render IN.docx CHANGES.json OUTDIR       write tracked and clean copies from accepted changes
-  style IN.docx JOURNAL OUTDIR             run the journal's rules, write tracked + clean copies and QC
+  style IN.docx JOURNAL OUTDIR             run the journal's rules; write tracked (with author queries as
+                                           comments) and clean copies, the query sheet and QC
   journals update                          download NLM's journal list into the local database
   journals find NAME                       look up a journal by title, abbreviation or ISSN
 """
@@ -13,7 +14,7 @@ from __future__ import annotations
 import os
 import sys
 
-from . import docmodel, journals, qc, references, rules, style, tracked
+from . import docmodel, journals, qc, queries, references, rules, style, tracked
 from .changes import ChangeSet, Status
 
 
@@ -50,11 +51,18 @@ def main(argv: list[str]) -> int:
         os.makedirs(argv[3], exist_ok=True)
         stem = os.path.splitext(os.path.basename(path))[0]
         changes.dump(os.path.join(argv[3], f"{stem}_changes.json"))
+        qs = queries.collect(docmodel.load(path), st)
         for kind, is_tracked in (("tracked", True), ("clean", False)):
             out = os.path.join(argv[3], f"{stem}_{kind}.docx")
-            tracked.render(docmodel.load(path), changes, tracked=is_tracked).save(out)
+            ms = docmodel.load(path)
+            if is_tracked:
+                queries.write_comments(ms, queries.collect(ms, st))  # anchors from the original text
+            tracked.render(ms, changes, tracked=is_tracked).save(out)
+        queries.write_sheet(docmodel.load(path), qs, os.path.join(argv[3], f"{stem}_queries.xlsx"), stem)
         report = qc.check(docmodel.load(out), st)
-        print(f"{len(changes.changes)} changes; QC {'PASSED' if report.passed else 'BLOCKED'}")
+        print(f"{len(changes.changes)} changes; {len(qs.queries)} author queries; QC {'PASSED' if report.passed else 'BLOCKED'}")
+        for q in qs.queries:
+            print(f"  {q.id:5s} {q.text}")
         for i in report.issues:
             print(f"  {i.severity:7s} {i.check:22s} {i.message}")
     else:

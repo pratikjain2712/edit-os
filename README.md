@@ -26,7 +26,12 @@ accepts or rejects every suggestion.
    (initials, et al., year/volume, issue, page ranges, capital after colon).
 7. **QC gate** (`edit_os/qc.py`): checks the edited file; errors block it, warnings go to the
    editor's checklist.
-8. **Evaluation** (`tools/evaluate.py`): runs the rules on original manuscripts and scores them
+8. **References engine** (`edit_os/refengine.py`, `biblio.py`, `journals.py`, `ai_refs.py`): Claude Haiku
+   splits entries into fields, PubMed / CrossRef verify them, NLM's list gives journal abbreviations;
+   only strict matches are rebuilt, everything else becomes a query.
+9. **Author queries** (`edit_os/queries.py`): the pre-editing guide's wording, numbered AQ1..., written as
+   Word comments in the tracked file and listed on a query sheet (`_queries.xlsx`).
+10. **Evaluation** (`tools/evaluate.py`, `tools/eval_refs.py`): runs the rules on original manuscripts and scores them
    against a style editor's tracked files (`closure` = share of the editor's edits reproduced).
 
 ## Run
@@ -36,7 +41,7 @@ accepts or rejects every suggestion.
     .venv/bin/python -m edit_os paragraphs manuscript.docx
     .venv/bin/python -m edit_os refs manuscript.docx
     .venv/bin/python -m edit_os render manuscript.docx changes.json out/
-    .venv/bin/python -m edit_os style manuscript.docx ijo out/     # rules -> tracked + clean + QC
+    .venv/bin/python -m edit_os style manuscript.docx ijo out/     # tracked + clean + query sheet + QC
     .venv/bin/python tools/evaluate.py DATA_DIR ijo --per-rule
 
 ## Roadmap
@@ -44,9 +49,14 @@ accepts or rejects every suggestion.
 - [x] 1. Read and write `.docx` with tracked changes and formatting intact; find references
 - [x] 2. Journal stylesheet as rules; QC gate (IJO first: 5.2% closure on 19 articles, 210 paragraphs
       improved, 31 worse; remaining gap is 88% references, which step 3 covers)
-- [ ] 3. Reference engine: DOI / PubMed ID lookup first, then strict search, CSL styling,
-      statuses Matched / Format fixed / Query / Added by author
+- [x] 3. Reference engine for journal articles (IJO: 40% of references identical to the editor's)
+- [x] A1. Author queries as Word comments + query sheet; superscript citations (IJO overall 11.0%)
+- [ ] A2. Search-and-replace table from the pre-editing guide (units, %, ×, minus, & -> and)
+- [ ] A3. Tracked formatting changes (bold, italic, superscript)
+- [ ] A4-A7. Headings / abstract / keywords / back matter; figure and table citations; books and
+      links in references; front matter (running head, authors, affiliations, correspondence)
+- [ ] B. Copy edit: LanguageTool (self-hosted), VarCon spelling, abbreviation checker, Claude pass
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
-- [ ] 5. Query sheet and QC report outputs
+- [ ] 5. QC report output
 - [ ] 6. Editor screen: accept or reject each suggestion
 - [ ] 7. Test set from past edited manuscripts to measure accuracy

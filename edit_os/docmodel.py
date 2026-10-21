@@ -28,6 +28,7 @@ class Paragraph:
     text: str = ""
     in_table: bool = False
     numbered: bool = False  # auto-numbered list item (w:numPr)
+    superscript: list[tuple[int, int]] = field(default_factory=list)  # spans formatted as superscript
 
 
 @dataclass
@@ -69,6 +70,21 @@ def text_runs(p_el) -> list:
     return runs
 
 
+def superscript_spans(p_el) -> list[tuple[int, int]]:
+    """Text spans whose runs are formatted superscript (direct formatting), merged when adjacent."""
+    spans, pos = [], 0
+    for r in text_runs(p_el):
+        n = len(run_text(r))
+        va = r.find(f"{_RPR}/{qn('w:vertAlign')}")
+        if n and va is not None and va.get(qn("w:val")) == "superscript":
+            if spans and spans[-1][1] == pos:
+                spans[-1] = (spans[-1][0], pos + n)
+            else:
+                spans.append((pos, pos + n))
+        pos += n
+    return spans
+
+
 def paragraph_text(p_el) -> str:
     return "".join(run_text(r) for r in text_runs(p_el))
 
@@ -108,5 +124,6 @@ def load(path: str) -> Manuscript:
         ms.paragraphs.append(Paragraph(
             id=f"p{n:04d}", element=p_el, style=style,
             text=paragraph_text(p_el), in_table=in_table, numbered=numbered,
+            superscript=superscript_spans(p_el),
         ))
     return ms

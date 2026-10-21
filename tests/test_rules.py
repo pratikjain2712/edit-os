@@ -73,3 +73,27 @@ def test_qc_after_rules_only_needs_sections(manuscript, tmp_path):
     doc.save(path)
     errors = {i.check for i in qc.check(docmodel.load(str(path)), style.load("ijo")).issues if i.severity == qc.ERROR}
     assert errors == {"sections.required", "keywords.order"}
+
+
+def test_superscript_citations(tmp_path):
+    doc = Document()
+    p = doc.add_paragraph("Colorectal cancer is common worldwide.¹ Rash is frequent⁴⁻⁶, and dry skin too")
+    r = p.add_run("7,8")
+    r.font.superscript = True
+    p.add_run(". Leukocytes were 5 × 10")
+    p.add_run("9").font.superscript = True
+    p.add_run("/L in a 2 cm")
+    p.add_run("2").font.superscript = True
+    p.add_run(" area, 3 mm³ deep.")
+    for t in ["References"] + [f"{n}. Author A. Title {n}. J Test 2001;{n}:1-2." for n in range(1, 9)]:
+        doc.add_paragraph(t)
+    path = tmp_path / "s.docx"
+    doc.save(path)
+    st = style.load("ijo")
+    st.settings["references"]["lookup"] = False
+    t = apply(str(path), st, tmp_path)
+    assert t[0] == ("Colorectal cancer is common worldwide.[1] Rash is frequent,[4-6] and dry skin too.[7,8] "
+                    "Leukocytes were 5 × 109/L in a 2 cm2 area, 3 mm³ deep.")  # powers untouched
+    out = Document(tmp_path / "out.docx")
+    sup = [r.text for r in out.paragraphs[0].runs if r.font.superscript]
+    assert "".join(sup) == "[7,8]92"  # citation keeps superscript; exponents stay superscript too
