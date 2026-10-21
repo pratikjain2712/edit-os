@@ -84,6 +84,28 @@ def test_all_outputs_exist_and_proposals_wait_for_the_editor(tmp_path):
     assert ws["A3"].value == "AQ1"
 
 
+def test_clean_copy_drops_author_highlighting(tmp_path):
+    from docx.enum.text import WD_COLOR_INDEX
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    for t in TEXT:
+        doc.add_paragraph(t)
+    run_ = doc.paragraphs[2].runs[0]
+    run_.font.highlight_color = WD_COLOR_INDEX.YELLOW
+    shd = OxmlElement("w:shd")  # coloured shading, the other way authors mark text
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:fill"), "00FFFF")
+    run_._r.get_or_add_rPr().append(shd)
+    doc.save(tmp_path / "ms.docx")
+    out = pipeline.edit(str(tmp_path / "ms.docx"), offline_style(), str(tmp_path / "out"))
+
+    clean = Document(out.path("clean")).element.body
+    assert not clean.findall(".//{*}highlight") and not clean.findall(".//{*}rPr/{*}shd")
+    assert Document(out.path("tracked")).element.body.findall(".//{*}highlight")  # editors still see it
+
+
 def test_qc_report_content(tmp_path):
     out = run(tmp_path)
     rep = json.load(open(out.path("qc_json")))

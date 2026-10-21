@@ -325,6 +325,38 @@ def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, i
         anchor = p
 
 
+# Parts holding text runs: the body, headers and footers, footnotes and endnotes.
+_STORY_TYPES = ("document.main+xml", "header+xml", "footer+xml", "footnotes+xml", "endnotes+xml")
+
+
+def strip_highlighting(ms: Manuscript) -> int:
+    """Remove the author's text highlighting (Word highlight colours and coloured run shading) from
+    every story of the document; returns how many marks were removed.
+
+    For the clean copy only: authors mark revised text in yellow or cyan for the reviewers, and the
+    delivered file must not carry it. The tracked copy keeps it, so editors still see what was marked.
+    """
+    n = 0
+    for part in ms.document.part.package.iter_parts():
+        if not part.content_type.endswith(_STORY_TYPES):
+            continue
+        root = getattr(part, "_element", None)
+        parsed = root is None
+        if parsed:
+            root = etree.fromstring(part.blob)
+        for rpr in list(root.iter(qn("w:rPr"))):
+            for el in rpr.findall(qn("w:highlight")):
+                rpr.remove(el)
+                n += 1
+            for el in rpr.findall(qn("w:shd")):
+                if (el.get(qn("w:fill")) or "auto").upper() not in ("AUTO", "FFFFFF"):
+                    rpr.remove(el)
+                    n += 1
+        if parsed:
+            part._blob = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    return n
+
+
 def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=None,
            on_conflict=None) -> Manuscript:
     """Apply changes to the manuscript in place. Use a freshly loaded Manuscript per output.

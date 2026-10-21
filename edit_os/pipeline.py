@@ -302,6 +302,8 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
             queries.write_comments(ms, qs)
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
         frontmatter.render_inserts(ms, inserts, tracked=is_tracked, statuses=statuses)
+        if kind == "clean":
+            tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
         return ms
 
     render("tracked", True, tracked_statuses, True).save(paths["tracked"])
