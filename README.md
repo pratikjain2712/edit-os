@@ -22,10 +22,12 @@ accepts or rejects every suggestion.
 5. **Journal styles** (`edit_os/styles/*.yaml`, `edit_os/style.py`): a shared Medknow base plus
    per-journal overrides, written from each journal's stylesheet and tuned against real edits.
 6. **Rules** (`edit_os/rules.py`): deterministic style edits proposed as change records:
-   heading tags, citation brackets and placement, statistics spacing, and reference cleanup
-   (initials, et al., year/volume, issue, page ranges, capital after colon). Section rules
+   heading tags, citation brackets and placement (a citation closing a passage that names one study
+   moves next to the name when the reference's first author matches: "Liu et al.[17] found"), statistics
+   spacing, and reference cleanup (initials, et al., year/volume, issue, page ranges, capital after colon). Section rules
    (`edit_os/rules_sections.py`): heading renames and numbering, the abstract heading and
-   sub-headings, key words (label, order, case), and the standard back-matter sections.
+   sub-headings, body sub-headings (short own-line heads inside a section -> `<H2>` / `<H3>`), key words
+   (label, order, case), and the standard back-matter sections.
 7. **QC gate** (`edit_os/qc.py`): checks the edited file; errors block it, warnings go to the
    editor's checklist.
 8. **References engine** (`edit_os/refengine.py`, `biblio.py`, `journals.py`, `ai_refs.py`): Claude Haiku

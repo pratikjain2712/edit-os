@@ -73,8 +73,14 @@ _UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/c
 _STAT_BEFORE = re.compile(r"(?<![\w.])[pPnNrRtFzZdUHI]$")
 
 
+# A year standing alone right before the number: "Vision 2025⁹⁴", "et al., 2013⁸⁸" (table cells).
+_YEAR_BEFORE = re.compile(r"(?:^|[\s,;(])(?:19|20)\d{2}$")
+
+
 def _is_exponent(text: str, start: int) -> bool:
-    """10⁹, mm², kg/m² and the like are powers, not citations."""
+    """10⁹, mm², kg/m² and the like are powers, not citations; a year's superscript is a citation."""
+    if _YEAR_BEFORE.search(text[max(0, start - 8):start]):
+        return False
     return bool(_UNIT_BEFORE.search(text[max(0, start - 8):start]))
 
 
@@ -194,12 +200,18 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     continue  # statistics "45 (12)" or "Table (2)"-style labels, not citations
                 candidates.append((p, m, is_round))
     not_cited = _round_not_citations(ms, [(p, m) for p, m, r in candidates if r])
-    out = []
-    for p, m, is_round in candidates:
-        if is_round and (p.id, m.start()) in not_cited:
+    candidates = [(p, m, r) for p, m, r in candidates if not (r and (p.id, m.start()) in not_cited)]
+    # Adjacent bracket citations become one: "[2], [3], [5]" -> "[2,3,5]", "[3][4]" -> "[3,4]".
+    units: list[list] = []  # [paragraph, start, end, inner, punct]
+    for p, m, is_round in sorted(candidates, key=lambda x: (x[0].id, x[1].start())):
+        last = units[-1] if units else None
+        if (last is not None and last[0] is p and last[5] == is_round and m.start() == last[2]
+                and last[4] in ("", ",")):
+            last[2], last[3], last[4] = m.end(), last[3] + "," + m.group(2), m.group(3)
             continue
-        lead, inner, punct = m.group(1), m.group(2), m.group(3)
-        start = m.start()
+        units.append([p, m.start(), m.end(), m.group(2), m.group(3), is_round])
+    out = []
+    for p, start, end, inner, punct, _ in units:
         if _max_number(inner) > n_refs:
             continue
         norm = normalise_citation(inner, style)
@@ -209,17 +221,16 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
             new = f"{punct}[{norm}]"
         else:
             new = f"[{norm}]{punct}"
-        old = m.group(0)
-        if new == old:
+        if new == p.text[start:end]:
             continue
         if sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
-            out.append(_change(p, start, m.end(), punct, Layer.REFERENCES, "citations"))
-            out.append(_change(p, m.end(), m.end(), new[len(punct):], Layer.REFERENCES, "citations", sup))
+            out.append(_change(p, start, end, punct, Layer.REFERENCES, "citations"))
+            out.append(_change(p, end, end, new[len(punct):], Layer.REFERENCES, "citations", sup))
         elif sup:
-            out.append(_change(p, start, m.end() - len(punct), new[:len(new) - len(punct)],
+            out.append(_change(p, start, end - len(punct), new[:len(new) - len(punct)],
                                Layer.REFERENCES, "citations", sup))
         else:
-            out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
+            out.append(_change(p, start, end, new, Layer.REFERENCES, "citations"))
     for p in paras:
         # Superscript citations: "worldwide¹." -> "worldwide.[1]" (brackets keep the run's formatting).
         for s, e, nums in superscript_citations(p):
@@ -235,6 +246,176 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 out.append(_change(p, e, e + 1, "", Layer.REFERENCES, "citations"))  # and not after
             else:
                 out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
+    return out
+
+
+# --- citation next to the author's name --------------------------------------------------
+#
+# "Özer et al. demonstrated ... choriocapillaris.[28]" -> "Özer et al.[28] demonstrated ...": when the
+# text since the previous citation names one study ("Surname et al.", "Surname and Surname") and ends
+# a sentence with a single citation whose reference's first author is that surname, the editors put
+# the citation right after the name. Nothing moves unless the reference list confirms the author.
+
+_PARTICLES = {"van", "von", "der", "den", "de", "da", "di", "del", "la", "le", "al", "el", "du", "dos", "ten", "ter"}
+_NAME_TOKEN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿĀ-žḀ-ỿ’'\-]+\.?")
+_ET_AL_MENTION = re.compile(r"\bet\.?\s+al\b(?P<dot>\.?)(?P<comma>,?)")
+_AND_MENTION = re.compile(r"\b(?P<a>[A-ZÀ-Ý][\w’'\-]+)\s+(?:and|&)\s+(?P<b>[A-ZÀ-Ý][\w’'\-]+)\b")
+_SENTENCE_GAP = re.compile(r"[.?!]\s+(?=[A-Z])")
+
+
+def _name_key(s: str) -> str:
+    return re.sub(r"[^a-z]", "", refengine.fold(s))
+
+
+def _is_initials(tok: str) -> bool:
+    t = tok.replace(".", "").replace("-", "")
+    return 0 < len(t) <= 3 and t.isalpha() and t.isupper()
+
+
+def _surname_words_before(text: str, end: int) -> list[str]:
+    """The capitalised words (and name particles) just before `end`, initials dropped:
+    "case report by Gupta B " -> ["Gupta"]; "data by Meili Xiao " -> ["Meili", "Xiao"]."""
+    words = []
+    for tok in reversed(text[max(0, end - 60):end].split()):
+        t = tok.rstrip(",")
+        if t != tok and words:
+            break  # "However, Prakash et al.": a comma before the name ends it
+        if _NAME_TOKEN.fullmatch(t) and (t[:1].isupper() or t.lower() in _PARTICLES):
+            words.insert(0, t)
+            if t != tok:
+                break
+            if len(words) >= 4:
+                break
+        else:
+            break
+    while words and words[0].lower() in _PARTICLES:
+        words.pop(0)
+    return [w for w in words if not _is_initials(w)]
+
+
+def _author_keys(ref_text: str) -> list[str]:
+    """Surname keys of the first two authors: "El-Nimri NW, Moghimi S, ..." -> ["elnimri", "moghimi"]."""
+    out = []
+    for chunk in re.split(r"[,;]", ref_text, maxsplit=2)[:2]:
+        chunk = chunk.split(".")[0] if re.match(r"\s*[^.]{2,}\.\s", chunk) and "," not in chunk else chunk
+        words = [w for w in chunk.split() if not _is_initials(w)]
+        if not words or len(words) > 4 or not words[0][:1].isupper():
+            break
+        out.append(_name_key(" ".join(words)))
+    return out
+
+
+def _mention_matches(words: list[str], key: str) -> bool:
+    keys = {_name_key(" ".join(words[i:])) for i in range(len(words))}
+    return bool(key) and key in keys
+
+
+def _citation_spans(p: Paragraph, round_ok: list[tuple[int, int]]) -> list[tuple[int, int, list[int]]]:
+    """(start, end, numbers) for every numbered citation in `p`: square, round (when the
+    citation rule converts it) and superscript; start includes the space before it."""
+    spans = []
+    for m in _SQUARE.finditer(p.text):
+        if re.search(r"\b(table|tables|fig|figure|figures|ref|reference|no|eq|equation)\.?$",
+                     p.text[:m.start()].rstrip(), re.I):
+            continue
+        nums = renumber.expand(m.group(2))
+        if nums:
+            spans.append((m.start(), m.end() - len(m.group(3)), nums))
+    for m in _ROUND.finditer(p.text):
+        if any(s < m.end() and m.start() < e for s, e in round_ok):
+            nums = renumber.expand(m.group(2))
+            if nums:
+                spans.append((m.start(), m.end() - len(m.group(3)), nums))
+    for s, e, nums in superscript_citations(p):
+        if s == 0:
+            continue
+        lead = len(p.text[:s]) - len(p.text[:s].rstrip())
+        n = renumber.expand(nums)
+        if n:
+            spans.append((s - lead, e, n))
+    return sorted(spans)
+
+
+def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    if not style.get("citations.next_to_author", False):
+        return []
+    refs = references.extract(ms)
+    by_num = {r.number: r for r in refs if r.number is not None}
+    if not by_num:
+        return []
+    pl = renumber.plan(ms, style)
+    mapping = pl.mapping if pl.apply else {}
+    sup = rules_format.citation_format(style)
+    after_punct = style.get("citations.after_punctuation", True)
+    max_sentences = style.get("citations.next_to_author_max_sentences", 4)
+    italic = style.get("formatting.et_al_italic", True)
+    front = front_matter_ids(ms)
+    abstract = rules_sections.abstract_ids(ms)
+    round_ok: dict[str, list[tuple[int, int]]] = {}
+    for c in rule_citations(ms, style):
+        if c.old.lstrip().startswith("("):
+            round_ok.setdefault(c.para_id, []).append((c.start, c.end))
+    out = []
+    for p in body_paragraphs(ms):
+        if p.id in front or p.id in abstract or p.style.lower().startswith("heading") \
+                or rules_figures.caption_match(p) is not None:
+            continue
+        text = p.text
+        prev_end = 0
+        for s, e, nums in _citation_spans(p, round_ok.get(p.id, [])):
+            passage_start, prev_end = prev_end, e
+            if len(nums) != 1 or nums[0] not in by_num:
+                continue
+            # The citation closes a sentence: "... (P = 0.02) [17]." or "... action.[28]"
+            before, after = text[:s].rstrip(), text[e:]
+            if before.endswith((":", ",", ";")) or re.search(r"\bet\.?\s+al\.?,?$", before):
+                continue  # "as follows: [13]"; "Caroff et al. [11], who": at the name already
+            if not (re.match(r"\s*(?:[.?!]|$)", after) or re.search(r"[.?!]$", before)):
+                continue
+            passage = text[passage_start:s]
+            keys = _author_keys(by_num[nums[0]].text)
+            if not keys:
+                continue
+            mentions = []  # ("et al" match, surname words before it)
+            for m in _ET_AL_MENTION.finditer(passage):
+                words = _surname_words_before(passage, m.start())
+                mentions.append((m, words))
+            pairs = [m for m in _AND_MENTION.finditer(passage)
+                     if len(keys) >= 2 and _name_key(m.group("a")) == keys[0] and _name_key(m.group("b")) == keys[1]]
+            if len(mentions) + len(pairs) != 1:
+                continue
+            base = passage_start
+            new_cite = f"[{renumber.compress([mapping.get(nums[0], nums[0])], style)}]"
+            if mentions:
+                m, words = mentions[0]
+                if not words or not _mention_matches(words, keys[0]):
+                    continue
+                nxt = passage[m.end():]
+                if re.match(r"\s*[\[(⁰¹²³⁴⁵⁶⁷⁸⁹\d]", nxt):
+                    continue  # "Liu et al. (2019)" / already cited
+                al_end = base + m.start() + len(m.group(0)) - len(m.group("dot")) - len(m.group("comma"))
+                if m.group("dot"):
+                    point = base + m.end() if (m.group("comma") and after_punct) else base + m.end("dot")
+                    edits = []
+                else:
+                    et_start = base + m.start()
+                    fmt = {"italic": True} if italic else None
+                    edits = [_change(p, et_start, al_end, "et al.", Layer.REFERENCES, "author_citations", fmt)]
+                    point = base + m.end() if (m.group("comma") and after_punct) else al_end
+            else:
+                m = pairs[0]
+                point = base + m.end()
+                if re.match(r"\s*[\[(⁰¹²³⁴⁵⁶⁷⁸⁹\d]", text[point:]):
+                    continue
+                edits = []
+            if point >= s or not text[point:s].strip() or len(_SENTENCE_GAP.findall(text[point:s])) >= max_sentences:
+                continue
+            out += edits
+            out.append(_change(p, point, point, new_cite, Layer.REFERENCES, "author_citations", sup))
+            # Take the citation out; punctuation right after it is kept but covered, so the citation
+            # rule's bracket insertion after it ("worldwide¹." -> "worldwide.[1]") cannot come back.
+            trail = re.match(r"[.,;:]?", after).group(0)
+            out.append(_change(p, s, e + len(trail), trail, Layer.REFERENCES, "author_citations"))
     return out
 
 
@@ -420,8 +601,10 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 RULES = {
     "heading_tags": rule_heading_tags,
+    "author_citations": rule_author_citations,  # before "renumber" and "citations": it moves whole citations
     "renumber": renumber.rule_renumber,  # before "citations": renumbered citations win the overlap
     "sections_headings": rules_sections.rule_headings,
+    "subheadings": rules_sections.rule_subheadings,
     "sections_abstract": rules_sections.rule_abstract,
     "sections_keywords": rules_sections.rule_keywords,
     "sections_back_matter": rules_sections.rule_back_matter,
@@ -468,7 +651,11 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
             # Two insertions at one point clash, unless exactly one opens new paragraphs.
             same_point = any(k.para_id == c.para_id and k.start == k.end == c.start == c.end
                              and _opens_paragraph(k) == _opens_paragraph(c) for k in kept)
-            if not clash and not same_point:
+            # A citation moved to the author's name swallows insertions at the place it left.
+            moved = c.start == c.end and any(k.para_id == c.para_id and k.reason == "author_citations"
+                                             and k.start < k.end and not k.new.strip(".,;: ")
+                                             and k.start <= c.start <= k.end for k in kept)
+            if not clash and not same_point and not moved:
                 kept.append(c)
     # Formatting on text that a kept change replaces is moot (the replacement carries its own
     # format), and showing it would split one edit into two suggestions.

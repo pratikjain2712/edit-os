@@ -251,6 +251,92 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 # --- abstract ---------------------------------------------------------------------------
 
+# --- sub-headings --------------------------------------------------------------------
+#
+# "Statistical analysis" on its own line inside Methods -> "<H2>Statistical analysis". Measured on the
+# style editors' files (160 articles): a short line (at most 8 words) inside a main section, without a
+# final period, starting with a capital (or "2.1"), followed by running text, is tagged in 92% of cases
+# when it is bold or italic, and in 93% when it is plain and the next paragraph is long (>= 200 chars).
+# Statements ("Funding", "Not applicable"), legends and "ABBR: expansion" lines are left out.
+
+_SUB_SKIP = re.compile(
+    r"^(acknowledg|funding|financial|conflicts?\b|competing|authors?['’]?\s+contrib|declaration|ethic|"
+    r"availability|data availability|source of support|figure legends?|legends?\b|key\s*-?\s*words?|"
+    r"not applicable|not statistically|none\b|nil\b|consent|abbreviations?|list of abbreviations|tables?\b|"
+    r"figures?\b|statements?\b|authors?\b|text\b)", re.I)
+_SUB_NUMBER = re.compile(r"^(\d+(?:\.\d+)+)\.?\s+(?=[A-Z])")
+_RUN_IN = re.compile(r"^[A-Z][\w’'\- ]{2,40}:\s+[A-Z]")
+_ABBR_LINE = re.compile(r"^[A-Z][A-Za-z]*[A-Z]\w*\s*[:=–,-]\s")
+
+
+def _all_fmt(p: Paragraph, prop: str) -> bool:
+    from .rules_format import char_formats
+
+    letters = [f for f, c in zip(char_formats(p), p.text) if c.strip()]
+    return bool(letters) and all(f.get(prop) for f in letters)
+
+
+def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    if not style.get("headings.tag") or not style.get("headings.subheadings", False):
+        return []
+    from . import rules_figures
+
+    max_words = style.get("headings.subheading_max_words", 8)
+    min_next = style.get("headings.subheading_plain_min_next", 200)
+    main = ({n.lower() for n in style.get("headings.h1", [])} | set(_levels(style))
+            | {k.lower() for k in (_cfg(style, "headings.rename") or {})}
+            | {k.lower() for k in (_cfg(style, "headings.drop") or [])}
+            | {"introduction", "background", "materials and methods", "material and methods", "methods",
+               "results", "discussion", "case report", "case presentation", "case description"})
+    known = set(_levels(style)) | {"abstract", "references", "conclusion", "conclusions"}
+    ref_i = references.find_heading(ms)
+    paras = ms.paragraphs[:ref_i] if ref_i is not None else ms.paragraphs
+    skip = abstract_ids(ms) | {p.id for p in [layout(ms).abstract_head, layout(ms).keywords] if p}
+    found = []  # (paragraph, bold, italic, numbering, section number)
+    in_body = False
+    section = 0
+    run_in: dict[int, int] = {}  # section -> paragraphs opening with a run-in label ("Histopathology: The ...")
+    for i, p in enumerate(paras):
+        text = p.text.strip()
+        if not text or p.in_table or p.id in skip:
+            continue
+        key = _key(p.text)
+        if key in main:
+            in_body = key not in ("conclusion", "conclusions")
+            section += 1
+            continue
+        if _RUN_IN.match(text) and len(text) > 100:
+            run_in[section] = run_in.get(section, 0) + 1
+        if not in_body or key in known or len(text) > 100 or _TAG.match(text):
+            continue
+        if text.endswith((".", ",", ";")) or len(text.split()) > max_words or _SUB_SKIP.match(text) \
+                or _ABBR_LINE.match(text) or rules_figures.caption_match(p) is not None:
+            continue
+        num = _SUB_NUMBER.match(text)
+        if ":" in text[:-1] or not (text[:1].isupper() or num):  # "Comparator (C): Non-smokers"
+            continue
+        nxt = next((q for q in paras[i + 1:] if q.text.strip()), None)
+        if nxt is None or nxt.in_table or len(nxt.text) < 100:
+            continue  # a list item or a label over a table, not a heading over running text
+        bold, italic = _all_fmt(p, "bold"), _all_fmt(p, "italic")
+        if not (bold or italic) and (text.endswith(":") or len(nxt.text) < min_next):
+            continue
+        found.append((p, bold, italic, num, section))
+    has_bold = any(f[1] for f in found)
+    out = []
+    for p, bold, italic, num, sec in found:
+        if p.text.rstrip().endswith(":") and run_in.get(sec, 0) >= 2:
+            continue  # "Staging and Treatment:" among run-in labels ("Ocular examination: The ...") is one of them
+        # Italic heads under bold ones, and "2.1.1"-numbered heads, are third level.
+        level = "H3" if (italic and not bold and has_bold) or (num and num.group(1).count(".") >= 2) else "H2"
+        lead = len(p.text) - len(p.text.lstrip())
+        out.append(_change(p, lead, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
+        if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
+            k = len(p.text.rstrip()) - 1
+            out.append(_change(p, k, k + 1, "", Layer.STRUCTURE, "subheadings"))
+    return out
+
+
 def rule_abstract(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not _cfg(style, "enabled", True):
         return []

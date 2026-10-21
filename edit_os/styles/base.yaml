@@ -7,6 +7,9 @@ citations:
   multiple_delimiter: ","   # [1,2,4], no space
   range_dash: "-"           # [6–9] -> [6-9]
   two_number_range_as_list: true  # [1-2] -> [1,2]
+  next_to_author: true      # "Liu et al. found ... (P = 0.02).[17]" -> "Liu et al.[17] found ...": one citation
+                            # closing the passage that names one study, its reference's first author that name
+  next_to_author_max_sentences: 4  # at most 3 sentence breaks between the name and the citation
 
 headings:
   tag: true  # prefix headings with <H1> / <H2> for typesetting
@@ -18,6 +21,9 @@ headings:
        acknowledgements, author contribution statement, author contributions, data availability statement,
        ethical approval, ethics approval]
   strip_trailing_colon: true
+  subheadings: true          # short own-line heads inside a section -> <H2> (<H3> for italic under bold, "2.1.1")
+  subheading_max_words: 8
+  subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
 
 statistics:
   space_around_operators: true  # p=0.03 -> p = 0.03
@@ -122,6 +128,7 @@ figures:                        # figure and table citations and captions (rules
   figure_label_plural: Figures
   part_labels: lower            # Figure 1A -> Figure 1a: what the editors do (the guide says uppercase)
   part_case_query: false
+  legend_part_labels: true      # in legends "(1A)" / "(A, B)" / "a)" -> "(a)" / "(a, b)" in part_labels case (IJO, JCRT, NI editors)
   range_dash: "–"               # "Tables 1 to 3" -> "Tables 1–3"
   compress_lists: false         # "Tables 1, 2 and 3" -> "Tables 1–3"
   captions: true
