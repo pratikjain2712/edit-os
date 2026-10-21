@@ -150,3 +150,14 @@ def test_erratum_kept_and_styled(fake_pubmed):
             "Erratum in: Arch Ophthalmol. 1997 Apr;115(4):e408-e410.")
     res = refengine.resolve(text, style.load("ijo"))
     assert res.formatted.endswith("Arch Ophthalmol 1996;114:956-63. Erratum in: Arch Ophthalmol 1997;115:e408-10.")
+
+
+def test_record_title_brackets_and_all_caps():
+    from edit_os import biblio, refengine
+    rec = biblio.Record(source="pubmed", title="[Solid limbal dermoid in an elderly patient].", authors=[])
+    assert refengine._usable_title(rec, None) == "Solid limbal dermoid in an elderly patient"
+    caps = biblio.Record(source="pubmed", title="WIDE-ANGLE VIEWING SYSTEMS FOR VITREORETINAL SURGERY", authors=[])
+    assert refengine._usable_title(caps, None) == "Wide-angle viewing systems for vitreoretinal surgery"
+    p = refengine.Parsed(text="", title="Wide-angle viewing systems for vitreoretinal surgery")
+    if p is not None:
+        assert refengine._usable_title(caps, p) == p.title

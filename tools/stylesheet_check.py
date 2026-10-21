@@ -364,20 +364,33 @@ def run_article(name: str, original: bytes, editor: bytes, journal: str, zip_pat
     ed = editor_refs(editor)
     pairs = pair_refs([(r.number, r.text) for r in refs], ed)
     stats["refs_not_paired"] = sum(1 for r in refs if r.number not in pairs)
-    for r in refs:
+    def entry(r) -> str:
+        u_para = ours.get(r.para_id, "")
+        m = _LABEL.match(u_para) if r.label else None
+        return u_para[m.end():].strip() if m else u_para.strip() if r.label else u_para[r.offset:].strip()
+
+    # The tool's version of an entry: renumbering rewrites the list slot by slot, so after a reorder
+    # an entry's text lands in another reference paragraph. Pair each original entry with the tool
+    # entry sharing most words (its own slot when nothing moved).
+    tool_entry, taken = {}, set()
+    cands = sorted(((similar(r.text, entry(t)), i, j) for i, r in enumerate(refs) for j, t in enumerate(refs)),
+                   key=lambda c: (-c[0], c[1] != c[2]))
+    for score, i, j in cands:
+        if i not in tool_entry and j not in taken and (score >= 0.35 or i == j):
+            tool_entry[i] = j
+            taken.add(j)
+    for i, r in enumerate(refs):
         if r.number not in pairs:
             continue
         n = pairs[r.number]
-        # The tool's version of the entry is its own paragraph with the changes applied.
-        u_para = ours.get(r.para_id, "")
-        m = _LABEL.match(u_para) if r.label else None
-        u = u_para[m.end():].strip() if m else u_para.strip() if r.label else u_para[r.offset:].strip()
+        landed = refs[tool_entry.get(i, i)]
+        u = entry(landed)
         stats["refs_paired"] += 1
         res = records.get(r.number)
         rec = record_text(getattr(res, "record", None)) if res else ""
         if res is not None:
             rec = f"[tool lookup: {res.status}] {rec}".strip()
-        add("ref", f"ref {n}", r.text, ed[n], u, by_para.get(r.para_id, []), r.offset, rec)
+        add("ref", f"ref {n}", r.text, ed[n], u, by_para.get(landed.para_id, []), r.offset, rec)
     return {"article": name, "journal": journal, "items": items, "stats": stats, "texts": texts,
             "editor_regions": editor_regions}
 

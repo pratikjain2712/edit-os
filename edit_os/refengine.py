@@ -197,10 +197,20 @@ def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
     return names
 
 
+def _mostly_upper(title: str) -> bool:
+    letters = [c for c in title if c.isalpha()]
+    return len(letters) >= 12 and sum(c.isupper() for c in letters) > 0.6 * len(letters)
+
+
 def _usable_title(r: biblio.Record, p: Parsed | None) -> str:
     title = r.title
-    if p and p.title and r.source == "crossref" and (title.isupper() or len(title) < 0.6 * len(p.title)):
-        return p.title  # ALL-CAPS or truncated CrossRef titles: keep the author's wording
+    m = re.fullmatch(r"\s*\[(.+)\]\s*\.?\s*", title or "", re.S)
+    if m:  # PubMed brackets titles translated into English: "[Solid limbal dermoid ...]."
+        title = m.group(1).strip()
+    if p and p.title and (_mostly_upper(title) or r.source == "crossref" and len(title) < 0.6 * len(p.title)):
+        return p.title  # ALL-CAPS (PubMed or CrossRef) or truncated CrossRef titles: keep the author's wording
+    if _mostly_upper(title):  # no author title to fall back on: sentence case it, acronyms are lost
+        return title[:1] + title[1:].lower()
     return title
 
 
