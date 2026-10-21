@@ -82,6 +82,8 @@ _RPR_ORDER = [qn(f"w:{t}") for t in (
     "fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange").split()]
 _TOGGLES = {"italic": "w:i", "bold": "w:b", "small_caps": "w:smallCaps"}
 _VERT = {"superscript": "superscript", "subscript": "subscript"}
+# Properties a change clears (False): the elements removed for each.
+_CLEARED = {"size": ("w:sz", "w:szCs"), "highlight": ("w:highlight",)}
 
 
 def _rpr_insert(rpr, el) -> None:
@@ -111,6 +113,28 @@ def apply_format(rpr, fmt: dict) -> None:
                 va.set(qn("w:val"), _VERT[prop])
             elif va is not None and va.get(qn("w:val")) == _VERT[prop]:
                 rpr.remove(va)
+        elif prop == "underline":
+            for el in rpr.findall(qn("w:u")):
+                rpr.remove(el)
+            if on:
+                u = OxmlElement("w:u")
+                u.set(qn("w:val"), "single")
+                _rpr_insert(rpr, u)
+        elif prop == "color":  # False: drop the direct colour; "auto": automatic over a coloured style
+            for el in rpr.findall(qn("w:color")):
+                rpr.remove(el)
+            if on == "auto":
+                c = OxmlElement("w:color")
+                c.set(qn("w:val"), "auto")
+                _rpr_insert(rpr, c)
+        elif prop in _CLEARED:
+            for tag in _CLEARED[prop]:
+                for el in rpr.findall(qn(tag)):
+                    rpr.remove(el)
+            if prop == "highlight":  # coloured run shading looks the same as a highlight
+                for el in rpr.findall(qn("w:shd")):
+                    if (el.get(qn("w:fill")) or "auto").upper() not in ("AUTO", "FFFFFF"):
+                        rpr.remove(el)
         else:
             raise ValueError(f"unknown format property {prop!r}")
 
@@ -180,17 +204,20 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
     text = paragraph_text(p_el)
     formats = [c for c in changes if c.format_only]
     changes = [c for c in changes if not c.format_only]
-    # Text changes must not overlap each other, nor formatting changes each other; a
-    # formatting change may cover text that a text change replaces.
-    for group in (changes, formats):
-        last_end = -1
-        for c in group:
-            if text[c.start:c.end] != c.old:
-                raise ChangeConflict(
-                    f"{c.id}: expected {c.old!r} at {c.start}-{c.end} in {c.para_id}, found {text[c.start:c.end]!r}")
-            if c.start < last_end:
-                raise ChangeConflict(f"{c.id}: overlaps an earlier change in {c.para_id}")
-            last_end = c.end
+    # Text changes must not overlap each other, nor formatting changes of the same property each
+    # other; a formatting change may cover text that a text change replaces.
+    for c in changes + formats:
+        if text[c.start:c.end] != c.old:
+            raise ChangeConflict(
+                f"{c.id}: expected {c.old!r} at {c.start}-{c.end} in {c.para_id}, found {text[c.start:c.end]!r}")
+    last_end = -1
+    for c in changes:
+        if c.start < last_end:
+            raise ChangeConflict(f"{c.id}: overlaps an earlier change in {c.para_id}")
+        last_end = c.end
+    for i, c in enumerate(formats):
+        if any(d.start < c.end and c.start < d.end and set(d.format) & set(c.format) for d in formats[:i]):
+            raise ChangeConflict(f"{c.id}: overlaps an earlier formatting change in {c.para_id}")
 
     explode_runs(p_el)
     for c in formats + changes:
@@ -366,7 +393,9 @@ def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=No
     """
     from .changes import Status
     statuses = statuses or (Status.ACCEPTED,)
-    ids = _Ids()
+    # Revision ids must be unique in the document: start above any the file already holds.
+    taken = [int(v) for el in ms.document.element.body.iter() if (v := el.get(qn("w:id"))) and v.isdigit()]
+    ids = _Ids(max([9000] + taken))
     date = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     for p in ms.paragraphs:
         cs = changes.for_paragraph(p.id, statuses)

@@ -24,3 +24,6 @@ copyedit:
 # not yet automated:
 #   - affiliations numbered per author and not repeated
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  table_head_bold: false  # editors leave column heads as typed (0 of 5)

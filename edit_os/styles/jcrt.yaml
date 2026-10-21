@@ -21,3 +21,7 @@ statistics:
 #   - two corresponding authors allowed only for Chinese articles
 #   - H1 in Title case
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  table_head_bold: false  # editors bold only some column heads (59 of 135)
+  body_unbold: false  # editors keep bold in running text (0 of 17)

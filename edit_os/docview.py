@@ -79,7 +79,11 @@ def _cell(p_el, tables: dict) -> dict | None:
 
 
 def document(docx_path: str) -> dict:
-    ms = docmodel.load(docx_path)
+    return {"paragraphs": classify(docmodel.load(docx_path))}
+
+
+def classify(ms: docmodel.Manuscript) -> list[dict]:
+    """Each paragraph of a loaded manuscript with its kind, level, table cell and runs."""
     refs = {r.para_id for r in references.extract(ms)}
     ref_heading = references.find_heading(ms)
     # Front matter: what comes before the abstract / introduction (if the manuscript has one).
@@ -119,7 +123,7 @@ def document(docx_path: str) -> dict:
             d["kind"] = "list"
         d["front"] = i < front_end
         out.append(d)
-    return {"paragraphs": out}
+    return out
 
 
 # --- the editor's own edits -------------------------------------------------------------------

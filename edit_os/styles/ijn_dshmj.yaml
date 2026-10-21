@@ -29,3 +29,6 @@ references:
 copyedit:
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 8.0 per training article
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  body_unbold: false  # editors keep most bold in running text (4 of 12)

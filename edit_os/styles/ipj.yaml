@@ -25,3 +25,6 @@ references:
 #   - H1 in capitals
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - patient consent query in all case reports and in original articles with patient photographs
+
+formatting:  # measured with tools/eval_format.py against the style editors' tracked files
+  table_head_bold: false  # editors leave column heads as typed (7 of 31)
