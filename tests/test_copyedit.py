@@ -141,12 +141,13 @@ def test_schwartz_hearst():
 def test_abbreviation_queries(tmp_path):
     ms = make(tmp_path, [
         "Abstract",
-        "We measured intraocular pressure (IOP) in 20 eyes.",
+        "We measured intraocular pressure (IOP) in 20 eyes; IOP was high.",
         "Keywords: Glaucoma, pressure, eye",
         "Introduction",
         "The IOP was high and the RNFL was thin; mean SD was 2 mm.",
         "Retinal nerve fiber layer (RNFL) was imaged with optical coherence tomography (OCT).",
         "Later, optical coherence tomography (OCT) was repeated in the clinic of Armonk, NY.",
+        "OCT showed thinning.",
         "References",
         "1. Lee K. The PQRS study. Eye 2001;1:1-2.",
     ])
@@ -168,6 +169,7 @@ def test_abbreviation_changes_when_configured(tmp_path):
         "The RNFL was thin.",
         "Retinal nerve fiber layer (RNFL) was imaged with optical coherence tomography (OCT).",
         "Later, optical coherence tomography (OCT) was repeated.",
+        "OCT showed thinning.",
     ])
     st = journal(abbreviations={"redefinition": "change", "move_definition": True})
     changes, qs = abbrev.collect(ms, st)
@@ -175,8 +177,57 @@ def test_abbreviation_changes_when_configured(tmp_path):
         "The retinal nerve fiber layer (RNFL) was thin.",
         "RNFL was imaged with optical coherence tomography (OCT).",
         "Later, OCT was repeated.",
+        "OCT showed thinning.",
     ]
     assert qs == []
+
+
+def test_abbreviation_not_used_again_keeps_full_form(tmp_path):
+    # Instructions to all journals: "If a term is not used again, an abbreviation is not needed."
+    ms = make(tmp_path, [
+        "Introduction",
+        "Records came from the outpatient department (OPD) and the electronic medical records (EMRs).",
+        "Bandage contact lens (BCL) was placed.",
+        "The BCL stayed.",
+        "<H1>Methods",
+        "Patients were seen at the outpatient department.",
+    ])
+    changes, qs = abbrev.collect(ms, journal())
+    assert apply(ms, changes)[1:4] == [
+        "Records came from the outpatient department and the electronic medical records.",
+        "Bandage contact lens (BCL) was placed.",
+        "The BCL stayed.",
+    ]
+    assert qs == []
+    mode = journal(abbreviations={"unused_definition": "query"})
+    assert {q.check for q in abbrev.collect(ms, mode)[1]} == {"abbrev.unused"}
+
+
+def test_abbreviation_used_in_a_table_is_used(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Ultrasound biomicroscopy (UBM) was done.")
+    doc.add_table(rows=1, cols=1).cell(0, 0).text = "UBM findings"
+    doc.save(tmp_path / "t.docx")
+    ms = docmodel.load(str(tmp_path / "t.docx"))
+    assert abbrev.collect(ms, journal()) == ([], [])
+
+
+def test_full_form_after_definition_becomes_abbreviation(tmp_path):
+    # Stylesheets: "only abbreviation should be used thereafter". Headings keep the full form.
+    ms = make(tmp_path, [
+        "Introduction",
+        "Intraocular pressure was noted before; intraocular pressure (IOP) rose.",
+        "<H1>Intraocular pressure",
+        "Mean intraocular pressure was 12 mmHg; IOP fell. Intraocular pressures were stable.",
+    ])
+    changes, qs = abbrev.collect(ms, journal())
+    assert apply(ms, changes)[1:] == [
+        "Intraocular pressure was noted before; intraocular pressure (IOP) rose.",
+        "<H1>Intraocular pressure",
+        "Mean IOP was 12 mmHg; IOP fell. IOPs were stable.",
+    ]
+    assert {c.reason for c in changes} == {"use abbreviation after its definition"}
 
 
 def test_allowlist_and_codes_not_queried(tmp_path):

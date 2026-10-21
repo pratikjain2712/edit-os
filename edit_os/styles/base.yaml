@@ -222,6 +222,8 @@ copyedit:
     query_before_definition: true
     move_definition: false     # instead of a query, move the expansion to the first use
     redefinition: query        # full form (ABBR) again in one scope: query | change (-> "ABBR") | off
+    unused_definition: change  # "(ABBR)" never used again: change (drop it, keep the full form) | query | off
+    full_form_after_definition: change  # full form again after the definition: change (-> "ABBR") | query | off
     allow: []                  # extra abbreviations that need no expansion
   languagetool:
     enabled: true              # skipped when no server answers (python -m edit_os.copyedit languagetool start)

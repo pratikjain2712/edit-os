@@ -12,7 +12,13 @@ Output:
   * a query, or (`move_definition: true`) changes moving the expansion to the first use, for
     abbreviations used before their definition;
   * for repeated definitions in one scope, a query, or (`redefinition: change`) a change
-    "full form (ABBR)" -> "ABBR" (the copy editors make that change about half the time).
+    "full form (ABBR)" -> "ABBR" (the copy editors make that change about half the time);
+  * for a definition whose abbreviation is never used again in its scope, a change dropping the
+    "(ABBR)" (`unused_definition`; instructions to all journals: "If a term is not used again, an
+    abbreviation is not needed"). Tables and legends count as uses of the main text's definitions;
+  * for the full form written out again after its definition, a change to the abbreviation
+    (`full_form_after_definition`; stylesheets: "only abbreviation should be used thereafter").
+    Headings keep the full form.
 """
 
 from __future__ import annotations
@@ -32,6 +38,8 @@ TEXT = {
     "abbrev.undefined": "{abbr}: Kindly expand the abbreviation.",
     "abbrev.before_definition": "{abbr}: Kindly expand the abbreviation at first use.",
     "abbrev.defined_twice": "{abbr}: The abbreviation has already been expanded. Kindly check.",
+    "abbrev.unused": "{abbr}: The abbreviation is not used again in the text. Kindly check if it can be deleted.",
+    "abbrev.full_form": "{abbr}: The abbreviation has already been defined. Kindly use the abbreviation.",
 }
 
 DATA = os.path.join(os.path.dirname(__file__), "data", "common_abbreviations.txt")
@@ -209,6 +217,63 @@ def uses(p: Paragraph):
 
 # --- check -----------------------------------------------------------------------------
 
+def _outside_scopes(ms: Manuscript, scoped: set[str]) -> list[Paragraph]:
+    """Tables and the legends after the reference list: where the main text's abbreviations are
+    also used. Reference entries are left out."""
+    from .. import references
+
+    refs = {r.para_id for r in references.extract(ms)}
+    head = references.find_heading(ms)
+    head_id = ms.paragraphs[head].id if head is not None else None
+    after_refs = head is None
+    out = []
+    for p in ms.paragraphs:
+        if p.id == head_id:
+            after_refs = True
+            continue
+        if p.id in scoped or p.id in refs or not p.text.strip():
+            continue
+        if p.in_table or after_refs:
+            out.append(p)
+    return out
+
+
+def _paren_only(p: Paragraph, d: Definition) -> bool:
+    return p.text[d.paren_start:d.end] in (f"({d.short})", f"({d.short}s)")
+
+
+def _unused(ms: Manuscript, key: str, ds: list[Definition], mode: str, changes: list, queries: list) -> None:
+    """The abbreviation is never used after being defined: keep the full form, drop "(ABBR)"."""
+    for d in ds:
+        p = ms.by_id(d.para_id)
+        lf_end = d.start + len(d.long)
+        if not _paren_only(p, d) or p.text[lf_end:d.paren_start].strip():
+            continue
+        if mode == "change":
+            changes.append(change(p, lf_end, d.end, "", "abbreviations", reason="abbreviation not used again"))
+        elif mode == "query":
+            queries.append(Query(p.id, d.paren_start, d.end, TEXT["abbrev.unused"].format(abbr=key), "abbrev.unused"))
+
+
+def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, mode: str,
+                changes: list, queries: list) -> None:
+    """The full form written out again after the definition: use the abbreviation (not in headings)."""
+    pat = re.compile(r"(?<![\w\-])" + re.escape(d0.long) + r"(s?)(?![\w\-])(?!\s*\()", re.I)
+    for p in scope:
+        if order[p.id] < order[d0.para_id] or _is_heading(p):
+            continue
+        spans = [(d.start, d.end) for d in definitions(p)] + protected_spans(p.text)
+        for m in pat.finditer(p.text):
+            if p.id == d0.para_id and m.start() < d0.end or overlaps(m.start(), m.end(), spans):
+                continue
+            if mode == "change":
+                changes.append(change(p, m.start(), m.end(), key + m.group(1), "abbreviations",
+                                      reason="use abbreviation after its definition"))
+            elif mode == "query":
+                queries.append(Query(p.id, m.start(), m.end(), TEXT["abbrev.full_form"].format(abbr=key),
+                                     "abbrev.full_form"))
+
+
 def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Query]]:
     cfg = style.get("copyedit.abbreviations", {}) or {}
     if not cfg.get("enabled", True):
@@ -218,7 +283,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
     changes: list[Change] = []
     queries: list[Query] = []
     queried: set[str] = set()
-    for scope in scopes(ms):
+    all_scopes = scopes(ms)
+    outside = _outside_scopes(ms, {p.id for s in all_scopes for p in s})
+    for n_scope, scope in enumerate(all_scopes):
         defs: dict[str, list[Definition]] = {}
         for p in scope:
             for d in definitions(p):
@@ -226,16 +293,35 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         order = {p.id: i for i, p in enumerate(scope)}
         first_def = {k: (order[v[0].para_id], v[0].sf_start) for k, v in defs.items()}
         first_use: dict[str, tuple[Paragraph, int, int]] = {}
+        used: set[str] = set()  # used outside a definition (allowlisted too; before the definition counts)
         for p in scope:
             spans = [(d.start, d.end) for d in definitions(p)]
             for key, s, e in uses(p):
-                if key in allow or key.upper() in allow_upper or overlaps(s, e, spans):
+                if overlaps(s, e, spans):
+                    continue
+                used.add(key)
+                if key in allow or key.upper() in allow_upper:
                     continue
                 first_use.setdefault(key, (p, s, e))
+        if n_scope == len(all_scopes) - 1:  # the main text: its abbreviations are used in tables and legends too
+            for p in outside:
+                used.update(k for m in _USE.finditer(p.text) if (k := _abbr_key(m.group(1))))  # short cells too
+
+        unused = {k for k in defs if k not in used}
+        unused_mode = cfg.get("unused_definition", "change")
+        full_mode = cfg.get("full_form_after_definition", "change")
+        for key in unused:
+            if unused_mode != "off":
+                _unused(ms, key, defs[key], unused_mode, changes, queries)
+        for key, ds in defs.items():
+            if key not in unused and full_mode != "off":
+                _full_forms(scope, order, key, ds[0], full_mode, changes, queries)
 
         # Defined twice in one scope: shorten the later definitions to the abbreviation, or query.
         mode = cfg.get("redefinition", "query")
         for key, ds in defs.items():
+            if key in unused and unused_mode != "off":
+                continue  # its definitions lose "(ABBR)" instead
             for d in ds[1:]:
                 p = ms.by_id(d.para_id)
                 if p.text[d.paren_start:d.end] != f"({key})" or _is_heading(p):
