@@ -25,3 +25,7 @@ references:
 #   - abstract for original articles only: Introduction, Methods, Results, Conclusions; under 250 words; avoid abbreviations
 #   - no author queries about history dates
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
+
+copyedit:
+  claude:
+    close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 8.0 per training article

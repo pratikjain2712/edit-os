@@ -1,8 +1,8 @@
-"""Copy-edit checkers (B1-B3): LanguageTool, British/American spelling, abbreviations.
+"""Copy-edit checkers (B1-B4): LanguageTool, British/American spelling, abbreviations, Claude pass.
 
 Each checker proposes `Change` records (layer LANGUAGE, source RULE) and, where only the
 author can answer, `Query` records. `run_all` resolves overlaps in checker order, like
-`rules.run_all`. Settings live under `copyedit:` in the journal style.
+`rules.run_all`; the Claude pass (source AI) runs last, so rules and the deterministic checkers win. Settings live under `copyedit:` in the journal style.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from ..changes import Change, ChangeSet
 from ..docmodel import Manuscript
 from ..queries import Query
 from ..style import JournalStyle
-from . import abbrev, langtool, spelling
+from . import abbrev, claude_pass, langtool, spelling
 
 
 @dataclass
@@ -37,22 +37,29 @@ def _languagetool(ms, style, lt_client=None, **_):
     return changes, [], warnings
 
 
+def _claude(ms, style, claude_call=None, **_):
+    changes, queries = claude_pass.collect(ms, style, call=claude_call)
+    return changes, queries, []
+
+
 CHECKERS = {
     "spelling": _spelling,
     "abbreviations": _abbreviations,
     "languagetool": _languagetool,
+    "claude": _claude,  # needs EDITOS_ANTHROPIC_API_KEY and copyedit.claude.enabled; last, so it never wins an overlap
 }
 
 
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None,
-            lt_client: langtool.Client | None = None, existing: list[Change] = ()) -> Result:
+            lt_client: langtool.Client | None = None, existing: list[Change] = (),
+            claude_call=None) -> Result:
     """Run the checkers in order; drop proposals overlapping one already kept (or `existing`)."""
     res = Result()
     kept: list[Change] = list(existing)
     for name, checker in CHECKERS.items():
         if only and name not in only:
             continue
-        changes, queries, warnings = checker(ms, style, lt_client=lt_client)
+        changes, queries, warnings = checker(ms, style, lt_client=lt_client, claude_call=claude_call)
         for c in changes:
             if any(k.para_id == c.para_id and (c.start < k.end and k.start < c.end or c.start == k.start)
                    for k in kept):

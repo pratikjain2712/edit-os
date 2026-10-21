@@ -11,3 +11,7 @@ headings:
 # not yet automated:
 #   - add Data availability statement and Author Contribution if given; query if either is missing
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+copyedit:
+  claude:
+    close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 9.7 per training article

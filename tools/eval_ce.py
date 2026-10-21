@@ -14,10 +14,17 @@ their own, bring the paragraph closer to the copy editor's text. Author queries 
 when the copy editor's comments mention the abbreviation or their insertions expand it.
 
 Usage: python tools/eval_ce.py DATA_DIR JOURNAL[,JOURNAL...] [--rules] [--show-hurt]
-       [--lt-explore] [--only spelling,abbreviations,languagetool]
+       [--lt-explore] [--only spelling,abbreviations,languagetool,claude]
+       [--split train|test] [--articles A,B,...] [--model M] [--effort E]
 
 --rules        precision per LanguageTool rule ID / reason
 --lt-explore   accept every LanguageTool rule with one suggestion (for tuning the allowlist)
+--split        only articles of that split (claude_pass.is_test_article); report Claude on `test`
+--articles     only these article folders
+--model/--effort  Claude model and effort for the claude checker (EDITOS_CE_MODEL / EDITOS_CE_EFFORT)
+
+The Claude pass (paid) runs only when named in --only. Its queries count as hits when the copy
+editor left a comment anchored in the same paragraph.
 """
 
 from __future__ import annotations
@@ -38,7 +45,7 @@ from lxml import etree  # noqa: E402
 from rapidfuzz.distance import Levenshtein  # noqa: E402
 
 from edit_os import copyedit, docmodel, style as style_mod  # noqa: E402
-from edit_os.copyedit import langtool  # noqa: E402
+from edit_os.copyedit import claude_pass, langtool  # noqa: E402
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -113,6 +120,10 @@ def comments(docx_bytes: bytes) -> str:
     return "\n".join(out)
 
 
+def comment_anchors(docx_bytes: bytes) -> list[str]:
+    return [m.group(1) for m in re.finditer(r"\[(.*)\]$", comments(docx_bytes), re.M) if len(m.group(1).strip()) >= 3]
+
+
 def build_docx(paras, path: str) -> None:
     doc = Document()
     for in_table, o, _, _ in paras:
@@ -182,12 +193,18 @@ def evaluate(article_dir: str, only=None, lt_client=None, explore=False, show_hu
                 hits["checker:" + checker_of(c)] += 1
 
     # Author queries: did the copy editor ask about, or expand, the same abbreviation?
+    anchors = comment_anchors(ce)
+    o_text = {p.id: o for p, (_, o, _, _) in zip(ms.paragraphs, paras)}
     ce_comments = "\n".join(c for c in comments(ce).split("\n")
                             if re.search(r"xpand|abbrevia|defin|full form", c, re.I))
     ce_ins = " ".join(x[3] for x in paras)
     for q in res.queries:
-        abbr = q.text.split(":")[0]
         proposed["query:" + q.check] += 1
+        if q.check == "claude.query":
+            if any(a.strip() in o_text.get(q.para_id, "") for a in anchors):
+                hits["query:" + q.check] += 1
+            continue
+        abbr = q.text.split(":")[0]
         if re.search(rf"(?<!\w){re.escape(abbr)}(?!\w)", ce_comments) or f"({abbr})" in ce_ins \
                 or re.search(rf"\w+ \w+[^()]*\({re.escape(abbr)}\)", ce_ins):
             hits["query:" + q.check] += 1
@@ -195,6 +212,8 @@ def evaluate(article_dir: str, only=None, lt_client=None, explore=False, show_hu
 
 
 def checker_of(c) -> str:
+    if c.source.value == "ai":
+        return "claude"
     if c.reason.startswith("languagetool"):
         return "languagetool"
     if c.reason.startswith("spelling"):
@@ -204,9 +223,14 @@ def checker_of(c) -> str:
 
 def main(argv):
     data, journals = argv[0], argv[1].lower().split(",")
-    only = None
+    only = ["spelling", "abbreviations", "languagetool"]  # the Claude pass is paid: only on request
     if "--only" in argv:
         only = argv[argv.index("--only") + 1].split(",")
+    for flag, env in (("--model", "EDITOS_CE_MODEL"), ("--effort", "EDITOS_CE_EFFORT")):
+        if flag in argv:
+            os.environ[env] = argv[argv.index(flag) + 1]
+    split = argv[argv.index("--split") + 1] if "--split" in argv else None
+    names = argv[argv.index("--articles") + 1].split(",") if "--articles" in argv else None
     lt_client = langtool.default_client()
     if lt_client is None:
         print("(LanguageTool server not running: start it with python -m edit_os.copyedit languagetool start)")
@@ -216,6 +240,9 @@ def main(argv):
     hits, proposed = Counter(), Counter()
     for d in dirs:
         if not os.path.exists(os.path.join(d, "ce.docx")):
+            continue
+        name = os.path.basename(d)
+        if names and name not in names or split and claude_pass.is_test_article(name) != (split == "test"):
             continue
         r, h, pr = evaluate(d, only, lt_client, "--lt-explore" in argv, "--show-hurt" in argv)
         tot.update(r)
@@ -232,6 +259,11 @@ def main(argv):
         keys += [k for k in proposed if not k.startswith(("checker:", "query:"))]
     for k in sorted(keys, key=lambda k: (not k.startswith(("checker:", "query:")), -proposed[k])):
         print(f"  {k:55s} proposed {proposed[k]:5d}  precision {hits[k] / proposed[k]:6.1%}")
+    for model, u in claude_pass.USAGE.items():
+        n = max(1, tot["articles"])
+        print(f"claude {model}: {dict(u)}  cost ${claude_pass.cost(model):.4f}  per article ${claude_pass.cost(model) / n:.4f}")
+    if claude_pass.DROPS:
+        print(f"claude edits dropped by verification: {dict(claude_pass.DROPS)}")
 
 
 if __name__ == "__main__":

@@ -88,6 +88,14 @@ Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.
       manuscript; Claude Haiku only splits fields, code writes the text (`tools/eval_frontmatter.py`: 85% field
       similarity to the style editors on 160 articles, IJO 91%)
 - [ ] B. Copy edit: LanguageTool (self-hosted), VarCon spelling, abbreviation checker, Claude pass
+  - [x] B4. Claude pass (`edit_os/copyedit/claude_pass.py`, `copyedit.claude:` in base.yaml): chunks of
+        ~1,500 words, structured edits + queries, each verified in code (exact unique `old`, size limits,
+        digits / brackets / symbols / acronyms / names untouched) and trimmed to the changed words; source AI,
+        runs last so rules and checkers win overlaps. Few-shot examples are real copy edits from training
+        articles only (`EDITOS_CE_EXAMPLES`, never committed); prompt cached; answers cached by chunk text;
+        `--batch` uses the Message Batches API. Default Claude Haiku 5.5 at effort medium: on 16 held-out
+        articles 70% precision, 4.8 edits and $0.0025 per article (Sonnet 5.5 61%, $0.026; Opus 5.5 65%,
+        $0.063, twice the edits). `tools/eval_ce.py DATA all --only claude --split test --model M`.
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
 - [x] 5. QC report output (`pipeline.py`: `_qc_report.json` / `.html`)
 - [x] 6. Editor screen: accept or reject each suggestion (`server/` API, `web/` review screen)
