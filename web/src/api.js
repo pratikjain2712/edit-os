@@ -56,6 +56,8 @@ export const api = {
   edit: (id, itemId, text) => call("POST", `/api/jobs/${id}/edit`, { id: itemId, new: text }),
   render: (id, final) => call("POST", `/api/jobs/${id}/render${final ? "?final=true" : ""}`),
   qc: (id) => call("GET", `/api/jobs/${id}/qc`),
+  document: (id) => call("GET", `/api/jobs/${id}/document`),
+  directEdit: (id, body) => call("POST", `/api/jobs/${id}/changes`, body),
 };
 
 export async function download(id, kind) {

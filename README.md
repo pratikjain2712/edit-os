@@ -67,6 +67,18 @@ API (`X-API-Key`, or a job's review token for that job): `POST /api/jobs` (multi
 `POST /api/jobs/from-s3`, `GET /api/jobs[/{id}]`, `GET /api/jobs/{id}/changes` (with paragraph context),
 `GET /api/jobs/{id}/queries`, `POST /api/jobs/{id}/decisions` (ids or a whole layer), `POST
 /api/jobs/{id}/render`, `GET /api/jobs/{id}/qc`, `GET /api/jobs/{id}/files/{tracked|clean|queries|qc_report|qc_json|changes}`.
+Also `GET /api/jobs/{id}/document`
+(paragraphs in order with kind -- heading level, front matter, list, table cell, caption, reference -- and
+bold / italic / superscript / subscript runs, for the page view) and `POST /api/jobs/{id}/changes` (the editor's own
+correction of one paragraph, `{para_id, base, text}`: diffed word by word by `edit_os/docview.py` into accepted
+`Change` records, source `editor`, saved in the job's records so every render includes them; 409 when it touches an
+accepted suggestion or the paragraph changed since it was shown; overlapping pending suggestions are set aside).
+
+The review screen (`web/`, React + Vite) opens on the manuscript as a page with every suggestion inline as a tracked
+change: click one for Accept / Reject / Edit, click into any paragraph to type a correction, author queries sit in
+the margin. Keys: `j`/`k` next / previous, `a` accept, `r` reject, `u` undo, `Esc`. A List toggle keeps the card
+list for bulk work.
+
 Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.md`.
 
 ## Roadmap

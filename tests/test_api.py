@@ -195,3 +195,78 @@ def test_editor_rewords_a_suggestion(client, tmp_path):
     assert bad.status_code == 422
     two = client.post(f"/api/jobs/{job['id']}/edit", headers=KEY, json={"id": target["id"], "new": "a\nb"})
     assert two.status_code == 422
+
+
+def test_document_view(client, tmp_path):
+    created = upload(client, tmp_path).json()
+    job = wait(client, created["id"])
+    r = client.get(f"/api/jobs/{job['id']}/document", headers=KEY)
+    assert r.status_code == 200
+    doc = r.json()
+    paras = doc["paragraphs"]
+    assert [p["text"] for p in paras] == TEXT and doc["journal"].lower() == "ijo"
+    kinds = {p["text"]: (p["kind"], p["level"]) for p in paras}
+    assert kinds["Introduction"] == ("heading", 1) and kinds["References"] == ("heading", 1)
+    assert kinds[TEXT[2]][0] == "body" and kinds[TEXT[-1]][0] == "reference"
+    assert all("".join(r["text"] for r in p["runs"]) == p["text"] for p in paras)
+    # Change offsets refer to the same paragraph texts.
+    items = client.get(f"/api/jobs/{job['id']}/changes", headers=KEY).json()["items"]
+    texts = {p["id"]: p["text"] for p in paras}
+    assert all(texts[i["para_id"]][i["start"]:i["end"]] == i["old"] for i in items if i["kind"] == "change")
+    assert client.get(f"/api/jobs/{job['id']}/document").status_code == 401
+    assert client.get(f"/api/jobs/{job['id']}/document?token={created['review_token']}").status_code == 200
+
+
+def test_editor_direct_edits(client, tmp_path):
+    created = upload(client, tmp_path).json()
+    job = wait(client, created["id"])
+    jid = job["id"]
+    paras = client.get(f"/api/jobs/{jid}/document", headers=KEY).json()["paragraphs"]
+    target = next(p for p in paras if p["text"] == TEXT[2])
+    items = client.get(f"/api/jobs/{jid}/changes", headers=KEY).json()["items"]
+    colour = next(i for i in items if i["old"] == "colour")
+    client.post(f"/api/jobs/{jid}/decisions", headers=KEY, json={"ids": [colour["id"]], "status": "accepted"})
+    base = TEXT[2].replace("colour", colour["new"])
+    url = f"/api/jobs/{jid}/changes"
+
+    # Auth: no key -> 401; the job's review token works.
+    body = {"para_id": target["id"], "base": base, "text": base.replace("40", "41")}
+    assert client.post(url, json=body).status_code == 401
+    r = client.post(url, json=body, headers={"X-Review-Token": created["review_token"], "X-Editor": "te1"})
+    assert r.status_code == 201, r.text
+    [made] = r.json()["created"]
+    assert (made["old"], made["new"], made["source"], made["status"]) == ("40", "41", "editor", "accepted")
+    assert made["author"] == "te1"
+    listed = {i["id"]: i for i in client.get(url, headers=KEY).json()["items"]}
+    assert listed[made["id"]]["direct"] and listed[made["id"]]["status"] == "accepted"
+
+    # Touching the accepted suggestion -> 409 with a clear message; nothing stored.
+    base2 = base.replace("40", "41")
+    bad = client.post(url, headers=KEY, json={"para_id": target["id"], "base": base2,
+                                              "text": base2.replace(colour["new"], "hue")})
+    assert bad.status_code == 409 and "accepted suggestion" in bad.json()["detail"]
+    # Stale base -> 409; unknown paragraph / paragraph break -> 422.
+    assert client.post(url, headers=KEY, json={"para_id": target["id"], "base": TEXT[2], "text": "x"}).status_code == 409
+    assert client.post(url, headers=KEY, json={"para_id": "p9999", "base": "", "text": "x"}).status_code == 422
+    assert client.post(url, headers=KEY, json={"para_id": target["id"], "base": base2,
+                                               "text": base2 + "\nmore"}).status_code == 422
+
+    # Editing the same paragraph again replaces the earlier direct edit; overlapping pending suggestions are set aside.
+    rand = next(i for i in items if i["old"] == "randomised")
+    r = client.post(url, headers=KEY, json={"para_id": target["id"], "base": base2,
+                                            "text": base2.replace("41", "42").replace("randomised", "enrolled")})
+    assert r.status_code == 201, r.text
+    assert r.json()["replaced"] == [made["id"]] and rand["id"] in r.json()["superseded"]
+    status = {i["id"]: i["status"] for i in client.get(url, headers=KEY).json()["items"]}
+    assert status[made["id"]] == "rejected" and status[rand["id"]] == "rejected"
+
+    # Rendered into the clean copy, and the tracked copy renders without conflicts.
+    rep = client.post(f"/api/jobs/{jid}/render", headers=KEY).json()
+    assert rep["render_conflicts"] == []
+    p = tmp_path / "clean.docx"
+    p.write_bytes(client.get(f"/api/jobs/{jid}/files/clean", headers=KEY).content)
+    text = docmodel.load(str(p)).paragraphs[2].text
+    assert "color of the lesion was noted in 42 enrolled patients" in text
+    # After the render saved the merged records, the direct edits are still there exactly once.
+    again = [i for i in client.get(url, headers=KEY).json()["items"] if i.get("direct")]
+    assert len({i["id"] for i in again}) == len(again) and any(i["status"] == "accepted" for i in again)

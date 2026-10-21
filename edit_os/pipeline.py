@@ -174,13 +174,16 @@ def _unique_ids(changes: list[Change]) -> None:
 def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGES, *,
          first_page: str | None = None, xml: str | None = None, lt_client=_DEFAULT,
          copyedit_only: list[str] | None = None, rules_only: list[str] | None = None,
-         accept_all: bool = False, progress: Callable[[str], None] | None = None) -> Outputs:
+         accept_all: bool = False, progress: Callable[[str], None] | None = None,
+         counts: Callable[[dict], None] | None = None) -> Outputs:
     """Run the stages on a manuscript .docx or a submission .zip and write every output into OUTDIR.
 
     All proposals are saved as `suggested` (the editor decides) unless `accept_all` (a preview run,
-    like the `style` command). `progress(message)` is called as each step starts.
+    like the `style` command). `progress(message)` is called as each step starts, and
+    `counts({"changes": n, "queries": n, "inserts": n})` as proposals accumulate (for live progress).
     """
     say = progress or (lambda msg: None)
+    tally = counts or (lambda d: None)
     unknown = set(stages) - set(STAGES)
     if unknown:
         raise ValueError(f"unknown stage(s) {sorted(unknown)}; choose from {STAGES}")
@@ -222,6 +225,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         style_q = front.add_queries(queries.collect(ms, st), ms) if "front_matter" in ran else queries.collect(ms, st)
         changes.changes += style_changes.changes
         qs.queries += style_q.queries
+        tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         stage_info["style"] = {
             "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts),
             "queries": len(style_q.queries), "by_rule": dict(Counter(c.reason for c in style_changes.changes)),
@@ -235,6 +239,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         ce_ran = [n for n in copyedit.CHECKERS if not copyedit_only or n in copyedit_only]
         changes.changes += res.changes.changes
         qs.queries += res.queries
+        tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         warnings += [asdict(w) if hasattr(w, "__dataclass_fields__") else dict(w) for w in res.warnings]
         stage_info["copyedit"] = {
             "ran": ce_ran, "changes": len(res.changes.changes), "queries": len(res.queries),
