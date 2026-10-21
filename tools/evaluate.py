@@ -68,6 +68,24 @@ def distance(a: str, b: str) -> int:
     return Levenshtein.distance(tokens(a), tokens(b))
 
 
+def apply_text(text: str, changes) -> str:
+    """The paragraph's text with its changes applied. When a change starts new paragraphs
+    (tracked.PARAGRAPH_BREAK), the part holding most of the original text is this paragraph."""
+    chars = [(ch, True) for ch in text]
+    for c in sorted((c for c in changes if not c.format_only), key=lambda c: (c.start, c.end), reverse=True):
+        chars[c.start:c.end] = [(ch, False) for ch in c.new]
+    parts, cur = [], []
+    for ch, orig in chars:
+        if ch == tracked.PARAGRAPH_BREAK and not orig:
+            parts.append(cur)
+            cur = []
+        else:
+            cur.append((ch, orig))
+    parts.append(cur)
+    best = max(parts, key=lambda part: sum(orig for _, orig in part))
+    return "".join(ch for ch, _ in best)
+
+
 def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
     src = manuscript_from_zip(os.path.join(article_dir, "original.zip"))
     if src is None:
@@ -84,9 +102,8 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
         cs = rules.run_all(ms, st, only=only)
         for c in cs.changes:
             c.status = Status.ACCEPTED
-        out = os.path.join(tmp, "u.docx")
-        tracked.render(docmodel.load(path), cs, tracked=False).save(out)
-        ours = [p.text for p in docmodel.load(out).paragraphs]
+        tracked.render(docmodel.load(path), cs, tracked=False)  # refuses stale or overlapping changes
+        ours = [apply_text(p.text, cs.for_paragraph(p.id)) for p in ms.paragraphs]
 
     editor: dict[str, list[str]] = {}
     for before, after in tracked_pairs(te):

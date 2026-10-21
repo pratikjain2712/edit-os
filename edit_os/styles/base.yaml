@@ -42,9 +42,9 @@ keywords:
   max: 5
   alphabetical: true
 
-required_sections:
-  - {heading: Conflicts of interest, default: "There are no conflicts of interest."}
+required_sections:  # in the order the style editors add them before the references
   - {heading: Financial support and sponsorship, default: "Nil."}
+  - {heading: Conflicts of interest, default: "There are no conflicts of interest."}
 expected_h1: [conclusion]
 
 formatting:  # run formatting from the pre-editing guide, rendered as tracked formatting
@@ -56,3 +56,44 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   p_capital: false             # "p < 0.05" -> "P < 0.05": copy-edit pass (style editors leave p as typed)
   n_variable_italic: true      # "n = 34": italic n
   superscript_citations: true  # body citations [4] in superscript
+
+sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.py)
+  enabled: true
+  headings:
+    strip_numbering: true      # "1. Introduction" -> "Introduction" (recognised headings only)
+    title_minor_words: true    # "Materials And Methods" -> "Materials and Methods"
+    case: keep                 # H1 text case: keep | upper | title | sentence (editors mostly keep)
+    rename: {}                 # e.g. {materials and methods: Methods}; the guide's "Methods" ->
+                               # "Materials and Methods" is not what the editors do
+    drop: []                   # headings the journal does not print, e.g. [introduction]
+    bold: false                # bold recognised headings (most are bold already)
+  abstract:
+    heading: Abstract
+    add_heading: true            # insert "Abstract" before an abstract that has none
+    split_inline_heading: true   # "Abstract: text" -> heading paragraph + text
+    strip_heading_colon: true    # "Abstract:" -> "Abstract"
+    subheading_colon: true       # "Purpose:To" -> "Purpose: To"; "Methods" on its own line -> "Methods: "
+    subheading_case: keep        # keep | title | upper (guide: caps; stylesheets: title case)
+    subheading_bold: false
+    rename: {}                   # e.g. {materials and methods: Methods}: most stylesheets ask for it and
+                                 # the IJO / NJCP / AIAN editors do it, but ABR and JCRT editors keep it
+    citation_query: true         # citations in the abstract -> author query
+    word_limit_query: false      # stylesheets say so; the editors do not query it
+    word_limit: {structured: 250, unstructured: 150}
+    structured_case_report_query: true  # editors' query: case reports have no structured abstract
+  keywords:
+    heading: "Keywords:"         # every stylesheet; the generic guide says "Key words:"
+    fix_heading: true
+    delimiter: ", "
+    sort: true                   # with keywords.alphabetical
+    case: true                   # first keyword capitalised, others lower case unless proper nouns
+    drop_final_period: true
+    dedupe: true
+    add_missing: true            # add the "Keywords:" line after the abstract and query
+    max_query: false             # more than keywords.max: the editors keep them
+  back_matter:
+    enabled: true
+    delete_nil_statements: true  # "Funding: None" etc. go; the standard sections replace them
+    add_missing: true            # required_sections not stated -> heading + default before references
+    acknowledgement_heading: null  # e.g. Acknowledgements; editors keep the author's spelling
+    patient_consent_query: false # case report without a consent statement (editors rarely query)

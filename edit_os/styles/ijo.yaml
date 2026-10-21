@@ -13,3 +13,14 @@ statistics:
 formatting:  # the IJO style editor leaves p and n as typed (lowercase, roman)
   p_values: false
   n_variable_italic: false
+
+sections:  # IJO prints no "Introduction" heading and uses "Methods" (stylesheet and editors)
+  headings:
+    rename: {materials and methods: Methods, material and methods: Methods, materials and method: Methods,
+             subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
+             patient and methods: Methods, methodology: Methods}
+    drop: [introduction]
+  abstract:
+    rename: {materials and methods: Methods, material and methods: Methods, methodology: Methods,
+             subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
+             patient and methods: Methods, aim: Purpose, aims: Purpose}

@@ -11,7 +11,7 @@ from itertools import count
 
 import difflib
 
-from . import journals, refengine, references, rules_format
+from . import journals, refengine, references, rules_format, rules_sections
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -161,9 +161,10 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
     levels = {name: "H1" for name in style.get("headings.h1", [])}
     levels.update({name: "H2" for name in style.get("headings.h2", [])})
     out = []
+    in_abstract = rules_sections.abstract_ids(ms)  # "Results" there is an abstract sub-heading
     for p in ms.paragraphs:
         text = p.text
-        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H"):
+        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H") or p.id in in_abstract:
             continue
         core = _NUMBERING.sub("", text).strip()
         key = core.rstrip(":").strip().lower()
@@ -329,6 +330,10 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 RULES = {
     "heading_tags": rule_heading_tags,
+    "sections_headings": rules_sections.rule_headings,
+    "sections_abstract": rules_sections.rule_abstract,
+    "sections_keywords": rules_sections.rule_keywords,
+    "sections_back_matter": rules_sections.rule_back_matter,
     "citations": rule_citations,
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
