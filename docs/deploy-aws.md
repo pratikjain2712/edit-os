@@ -53,9 +53,11 @@ Edit OS never reads, copies or reuses any of those credentials.
     EDITOS_ANTHROPIC_API_KEY=... .venv/bin/python tools/deploy_aws.py
 
 Creates (or reuses) a private S3 bucket, the `edit-os/env` secret (a generated API key, the Claude key, the
-bucket), an instance role with SSM, a security group for HTTP and a `t3.large` instance that builds and runs
-both containers (`deploy/ec2-deploy.sh`). It prints the URL and the API key. Run it again to deploy the
-current `HEAD`; `--status` shows the instance. Plain HTTP on the instance's public IP is for testing only:
+bucket), an instance role with SSM, a security group for HTTP and a `t3.medium` instance (4 GB, 20 GB disk,
+2 GB swap) that builds and runs both containers (`deploy/ec2-deploy.sh`). It prints the URL and the API key.
+Run it again to deploy the current `HEAD`; `--status` shows the instance. To scale up, rerun with e.g.
+`--instance-type t3.large --disk-gb 30`: the same instance is stopped, resized and started (about a minute
+of downtime; data is kept). Disks only grow, so start small. Plain HTTP on the instance's public IP is for testing only:
 use real manuscripts only behind HTTPS (ALB + ACM, option A below).
 
 ## Option A (start here): one EC2 instance with docker compose

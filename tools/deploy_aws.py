@@ -3,6 +3,7 @@
     .venv/bin/python tools/deploy_aws.py              # first run: creates everything; later: redeploys
     .venv/bin/python tools/deploy_aws.py --status     # instance, URL and health
     .venv/bin/python tools/deploy_aws.py --dry-run    # what it would do
+    .venv/bin/python tools/deploy_aws.py --instance-type t3.large --disk-gb 30   # scale up later
 
 What it sets up (all named edit-os*, idempotent):
 - S3 bucket edit-os-<account>-<region> (private, encrypted): releases and job files
@@ -10,7 +11,9 @@ What it sets up (all named edit-os*, idempotent):
   (from this shell), EDITOS_S3_BUCKET
 - IAM role + instance profile edit-os-instance: SSM, that bucket, that secret
 - security group edit-os-web: HTTP 80 from --allow-cidr (default: anywhere; the API key protects it)
-- EC2 t3.large, Amazon Linux 2023, 30 GB gp3, IMDSv2, no SSH key (SSM Session Manager instead)
+- EC2 t3.medium (4 GB) with 20 GB gp3 to start, Amazon Linux 2023, IMDSv2, no SSH key (SSM Session
+  Manager instead). Rerun with a bigger --instance-type / --disk-gb to scale the same instance (a stop
+  and start: a minute of downtime, the data volume is kept). Disks only grow, never shrink.
 The release is `git archive HEAD` uploaded to S3; the instance builds the Docker images and runs
 deploy/ec2-deploy.sh (user data on first boot, SSM Run Command after).
 
@@ -175,7 +178,30 @@ class Deployer:
             self.s3.upload_fileobj(io.BytesIO(data), self.bucket, key, ExtraArgs={"ServerSideEncryption": "AES256"})
         return key
 
-    def launch(self, key: str, sg: str, itype: str) -> str:
+    def resize(self, inst: dict, itype: str, disk_gb: int) -> None:
+        """Scale the existing instance in place: instance type (needs a stop) and root volume (grow only)."""
+        iid = inst["InstanceId"]
+        vol_id = next(m["Ebs"]["VolumeId"] for m in inst["BlockDeviceMappings"] if m["DeviceName"] == inst["RootDeviceName"])
+        size = self.ec2.describe_volumes(VolumeIds=[vol_id])["Volumes"][0]["Size"]
+        if disk_gb < size:
+            sys.exit(f"--disk-gb {disk_gb} is smaller than the current {size} GB; EBS volumes cannot shrink.")
+        if inst["InstanceType"] == itype and disk_gb == size:
+            return
+        log(f"resize {iid}: {inst['InstanceType']} -> {itype}, {size} GB -> {disk_gb} GB (stop and start)")
+        if self.dry:
+            return
+        if disk_gb > size:  # the root partition and filesystem grow on the next boot (cloud-init growpart)
+            self.ec2.modify_volume(VolumeId=vol_id, Size=disk_gb)
+        if inst["State"]["Name"] != "stopped":
+            self.ec2.stop_instances(InstanceIds=[iid])
+            self.ec2.get_waiter("instance_stopped").wait(InstanceIds=[iid])
+        if inst["InstanceType"] != itype:
+            self.ec2.modify_instance_attribute(InstanceId=iid, InstanceType={"Value": itype})
+        self.ec2.start_instances(InstanceIds=[iid])
+        self.ec2.get_waiter("instance_running").wait(InstanceIds=[iid])
+        inst["State"]["Name"] = "running"
+
+    def launch(self, key: str, sg: str, itype: str, disk_gb: int) -> str:
         ami = self.ssm.get_parameter(Name=AMI_PARAM)["Parameter"]["Value"]
         log(f"launch {itype} ({ami})")
         if self.dry:
@@ -187,7 +213,7 @@ class Deployer:
                     ImageId=ami, InstanceType=itype, MinCount=1, MaxCount=1, SecurityGroupIds=[sg],
                     IamInstanceProfile={"Name": ROLE}, UserData=user_data,
                     MetadataOptions={"HttpTokens": "required", "HttpEndpoint": "enabled"},
-                    BlockDeviceMappings=[{"DeviceName": "/dev/xvda", "Ebs": {"VolumeSize": 30, "VolumeType": "gp3",
+                    BlockDeviceMappings=[{"DeviceName": "/dev/xvda", "Ebs": {"VolumeSize": disk_gb, "VolumeType": "gp3",
                                                                              "Encrypted": True}}],
                     TagSpecifications=[{"ResourceType": "instance", "Tags": [{"Key": "Name", "Value": NAME}]}])
                 return r["Instances"][0]["InstanceId"]
@@ -263,7 +289,8 @@ def wait_healthy(url: str, minutes: int = 25) -> bool:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--region", default=os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "ap-south-1")
-    ap.add_argument("--instance-type", default="t3.large")
+    ap.add_argument("--instance-type", default="t3.medium", help="t3.medium (4 GB) to start; t3.large (8 GB) for more load")
+    ap.add_argument("--disk-gb", type=int, default=20, help="root volume size; can grow later, never shrink")
     ap.add_argument("--allow-cidr", default="0.0.0.0/0", help="who may reach port 80")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--status", action="store_true")
@@ -286,10 +313,11 @@ def main(argv=None) -> int:
     sg = d.ensure_sg(a.allow_cidr)
     key = d.upload_release()
     if inst:
+        d.resize(inst, a.instance_type, a.disk_gb)
         d.redeploy(inst, key)
         iid = inst["InstanceId"]
     else:
-        iid = d.launch(key, sg, a.instance_type)
+        iid = d.launch(key, sg, a.instance_type, a.disk_gb)
     if a.dry_run:
         return 0
     d.ec2.get_waiter("instance_running").wait(InstanceIds=[iid])

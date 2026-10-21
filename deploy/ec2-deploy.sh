@@ -12,6 +12,13 @@ if ! command -v docker >/dev/null; then
   systemctl enable --now docker
 fi
 
+# Swap so the image builds and LanguageTool (2 GB heap) fit on a 4 GB instance.
+if ! swapon --show | grep -q /swapfile; then
+  [ -f /swapfile ] || { dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; chmod 600 /swapfile; mkswap /swapfile; }
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+fi
+
 TOKEN=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 meta() { curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
 REGION=$(meta placement/region)
