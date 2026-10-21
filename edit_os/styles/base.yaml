@@ -46,3 +46,13 @@ required_sections:
   - {heading: Conflicts of interest, default: "There are no conflicts of interest."}
   - {heading: Financial support and sponsorship, default: "Nil."}
 expected_h1: [conclusion]
+
+formatting:  # run formatting from the pre-editing guide, rendered as tracked formatting
+  enabled: true
+  et_al_italic: true           # body "et al." in italics (never in the reference list)
+  et_al_period: true           # "et al" -> "et al."
+  latin_italic: true           # in vivo, in vitro, in situ, ex vivo
+  p_values: true               # probability P in italics
+  p_capital: false             # "p < 0.05" -> "P < 0.05": copy-edit pass (style editors leave p as typed)
+  n_variable_italic: true      # "n = 34": italic n
+  superscript_citations: true  # body citations [4] in superscript

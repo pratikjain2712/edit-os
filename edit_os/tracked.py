@@ -3,6 +3,10 @@
 Formatting is kept by splitting the existing runs at change boundaries: deleted
 text stays in its original run (wrapped in <w:del>), and inserted text copies the
 formatting of the run it replaces or follows.
+
+Formatting changes (`Change.format`) are applied first, while offsets still match the
+original text: each run in the span gets the new run properties and, in tracked mode, a
+<w:rPrChange> holding its previous properties. Text changes are applied afterwards.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import copy
 from datetime import datetime, timezone
 
 from docx.oxml import OxmlElement
+from lxml import etree
 from docx.oxml.ns import qn
 
 from .changes import Change, ChangeSet
@@ -63,10 +68,85 @@ def _cut(p_el, offset: int) -> None:
             return
 
 
-def _new_run(template, text: str):
+# Child order inside <w:rPr> (CT_RPr); Word rejects out-of-order properties.
+_RPR_ORDER = [qn(f"w:{t}") for t in (
+    "rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof "
+    "snapToGrid vanish webHidden color spacing w kern position sz szCs highlight u effect bdr shd "
+    "fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange").split()]
+_TOGGLES = {"italic": "w:i", "bold": "w:b", "small_caps": "w:smallCaps"}
+_VERT = {"superscript": "superscript", "subscript": "subscript"}
+
+
+def _rpr_insert(rpr, el) -> None:
+    rank = _RPR_ORDER.index(el.tag)
+    for child in rpr:
+        if child.tag in _RPR_ORDER and _RPR_ORDER.index(child.tag) > rank:
+            child.addprevious(el)
+            return
+    rpr.append(el)
+
+
+def apply_format(rpr, fmt: dict) -> None:
+    """Set (True) or clear (False) run properties on a <w:rPr>, keeping schema order."""
+    for prop, on in fmt.items():
+        if prop in _TOGGLES:
+            tag = qn(_TOGGLES[prop])
+            for el in rpr.findall(tag):
+                rpr.remove(el)
+            if on:
+                _rpr_insert(rpr, OxmlElement(_TOGGLES[prop]))
+        elif prop in _VERT:
+            va = rpr.find(qn("w:vertAlign"))
+            if on:
+                if va is None:
+                    va = OxmlElement("w:vertAlign")
+                    _rpr_insert(rpr, va)
+                va.set(qn("w:val"), _VERT[prop])
+            elif va is not None and va.get(qn("w:val")) == _VERT[prop]:
+                rpr.remove(va)
+        else:
+            raise ValueError(f"unknown format property {prop!r}")
+
+
+def _rpr_of(run):
+    rpr = run.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        run.insert(0, rpr)
+    return rpr
+
+
+def _format_run(run, fmt: dict, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    rpr = _rpr_of(run)
+    before = copy.deepcopy(rpr)
+    for el in before.findall(qn("w:rPrChange")):
+        before.remove(el)
+    apply_format(rpr, fmt)
+    after = copy.deepcopy(rpr)
+    for el in after.findall(qn("w:rPrChange")):
+        after.remove(el)
+    if etree.tostring(after) == etree.tostring(before):
+        if not len(rpr):
+            run.remove(rpr)
+        return
+    if tracked and rpr.find(qn("w:rPrChange")) is None:  # an earlier revision keeps its baseline
+        ch = OxmlElement("w:rPrChange")
+        ch.set(qn("w:id"), ids.next())
+        ch.set(qn("w:author"), author)
+        ch.set(qn("w:date"), date)
+        ch.append(before)
+        rpr.append(ch)
+
+
+def _new_run(template, text: str, fmt: dict | None = None):
     r = OxmlElement("w:r")
     if template is not None and template.find(qn("w:rPr")) is not None:
-        r.append(copy.deepcopy(template.find(qn("w:rPr"))))
+        rpr = copy.deepcopy(template.find(qn("w:rPr")))
+        for el in rpr.findall(qn("w:rPrChange")):  # inserted text carries no format revision
+            rpr.remove(el)
+        r.append(rpr)
+    if fmt:
+        apply_format(_rpr_of(r), fmt)
     t = OxmlElement("w:t")
     t.text = text
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
@@ -91,19 +171,30 @@ def _to_deleted(run) -> None:
 
 def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date: str) -> None:
     text = paragraph_text(p_el)
-    last_end = -1
-    for c in changes:
-        if text[c.start:c.end] != c.old:
-            raise ChangeConflict(
-                f"{c.id}: expected {c.old!r} at {c.start}-{c.end} in {c.para_id}, found {text[c.start:c.end]!r}")
-        if c.start < last_end:
-            raise ChangeConflict(f"{c.id}: overlaps an earlier change in {c.para_id}")
-        last_end = c.end
+    formats = [c for c in changes if c.format_only]
+    changes = [c for c in changes if not c.format_only]
+    # Text changes must not overlap each other, nor formatting changes each other; a
+    # formatting change may cover text that a text change replaces.
+    for group in (changes, formats):
+        last_end = -1
+        for c in group:
+            if text[c.start:c.end] != c.old:
+                raise ChangeConflict(
+                    f"{c.id}: expected {c.old!r} at {c.start}-{c.end} in {c.para_id}, found {text[c.start:c.end]!r}")
+            if c.start < last_end:
+                raise ChangeConflict(f"{c.id}: overlaps an earlier change in {c.para_id}")
+            last_end = c.end
 
     explode_runs(p_el)
-    for c in changes:
+    for c in formats + changes:
         _cut(p_el, c.start)
         _cut(p_el, c.end)
+
+    # Formatting first: it does not move any offsets.
+    for c in formats:
+        for r, s, e in _spans(p_el):
+            if s >= c.start and e <= c.end and e > s:
+                _format_run(r, c.format, tracked, ids, c.author, date)
 
     # Work right to left so earlier offsets stay valid; at a shared start, the
     # replacement goes before a pure insertion so the insertion lands in front of it.
@@ -125,7 +216,7 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
 
         if not c.new:
             continue
-        ins = _new_run(template, c.new)
+        ins = _new_run(template, c.new, c.format)
         if doomed and tracked:
             anchor.addnext(ins)
         elif after:

@@ -10,6 +10,9 @@ import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
+# Run properties a change can set (True) or clear (False); see `Change.format`.
+FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps")
+
 
 class Layer(str, Enum):
     STRUCTURE = "structure"
@@ -46,6 +49,19 @@ class Change:
     reason: str = ""
     status: Status = Status.SUGGESTED
     author: str = "Edit OS"
+    # Run formatting, e.g. {"italic": True} or {"superscript": True, "bold": False}. With
+    # old == new it is a formatting-only change over start..end (Word tracked formatting);
+    # with a text change it is applied to the inserted text.
+    format: dict[str, bool] | None = None
+
+    def __post_init__(self):
+        for k in self.format or {}:
+            if k not in FORMAT_PROPERTIES:
+                raise ValueError(f"{self.id}: unknown format property {k!r}")
+
+    @property
+    def format_only(self) -> bool:
+        return bool(self.format) and self.old == self.new and self.end > self.start
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -57,6 +73,7 @@ class Change:
         d = dict(d)
         d["layer"], d["source"] = Layer(d["layer"]), Source(d["source"])
         d["status"] = Status(d.get("status", "suggested"))
+        d["format"] = d.get("format") or None
         return cls(**d)
 
 

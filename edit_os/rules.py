@@ -11,7 +11,7 @@ from itertools import count
 
 import difflib
 
-from . import journals, refengine, references
+from . import journals, refengine, references, rules_format
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -19,9 +19,10 @@ from .style import JournalStyle
 _ids = count(1)
 
 
-def _change(p: Paragraph, start: int, end: int, new: str, layer: Layer, rule: str) -> Change:
+def _change(p: Paragraph, start: int, end: int, new: str, layer: Layer, rule: str,
+            fmt: dict | None = None) -> Change:
     return Change(id=f"r{next(_ids)}", para_id=p.id, start=start, end=end, old=p.text[start:end],
-                  new=new, layer=layer, source=Source.RULE, reason=rule)
+                  new=new, layer=layer, source=Source.RULE, reason=rule, format=fmt)
 
 
 def body_paragraphs(ms: Manuscript) -> list[Paragraph]:
@@ -96,6 +97,7 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     n_refs = max((r.number or 0 for r in refs), default=len(refs)) or len(refs)
     if not n_refs:
         return []
+    sup = rules_format.citation_format(style)
     out = []
     for p in body_paragraphs(ms):
         if p.style.lower().startswith("heading"):
@@ -123,7 +125,14 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 old = m.group(0)
                 if new == old:
                     continue
-                out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
+                if sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
+                    out.append(_change(p, start, m.end(), punct, Layer.REFERENCES, "citations"))
+                    out.append(_change(p, m.end(), m.end(), new[len(punct):], Layer.REFERENCES, "citations", sup))
+                elif sup:
+                    out.append(_change(p, start, m.end() - len(punct), new[:len(new) - len(punct)],
+                                       Layer.REFERENCES, "citations", sup))
+                else:
+                    out.append(_change(p, start, m.end(), new, Layer.REFERENCES, "citations"))
         # Superscript citations: "worldwide¹." -> "worldwide.[1]" (brackets keep the run's formatting).
         for s, e, nums in superscript_citations(p):
             if s == 0 or _max_number(nums) > n_refs:
@@ -134,10 +143,10 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
             nxt = p.text[e:e + 1]
             if style.get("citations.after_punctuation", True) and nxt in ".,;:":
                 out.append(_change(p, s, s, nxt, Layer.REFERENCES, "citations"))   # punctuation before
-                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations"))
+                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
                 out.append(_change(p, e, e + 1, "", Layer.REFERENCES, "citations"))  # and not after
             else:
-                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations"))
+                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
     return out
 
 
@@ -324,6 +333,7 @@ RULES = {
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
     "references": rule_references,
+    "formatting": rules_format.rule_formatting,
 }
 
 

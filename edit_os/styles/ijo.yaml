@@ -9,3 +9,7 @@ headings:
 
 statistics:
   space_around_operators: false  # the editor does not add these for IJO
+
+formatting:  # the IJO style editor leaves p and n as typed (lowercase, roman)
+  p_values: false
+  n_variable_italic: false
