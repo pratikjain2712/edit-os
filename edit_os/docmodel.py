@@ -38,6 +38,9 @@ class Manuscript:
     path: str
     document: object  # docx.Document
     paragraphs: list[Paragraph] = field(default_factory=list)
+    # Elements a clean render removed (whole paragraphs and tables deleted by accepted changes); they leave
+    # the XML only on save, so paragraph ids stay valid anchors until then (frontmatter.render_inserts).
+    removed: list = field(default_factory=list)
 
     def by_id(self, para_id: str) -> Paragraph:
         for p in self.paragraphs:
@@ -46,6 +49,10 @@ class Manuscript:
         raise KeyError(para_id)
 
     def save(self, path: str) -> None:
+        for el in self.removed:
+            if el.getparent() is not None:
+                el.getparent().remove(el)
+        self.removed = []
         self.document.save(path)
 
 

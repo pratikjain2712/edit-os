@@ -107,8 +107,8 @@ def test_keywords_missing_added_and_queried(tmp_path):
 
 def test_headings_ijo(article):
     t, _, _ = run(article, style.load("ijo"), only=["heading_tags", "sections_headings"])
-    assert t[7] == ""  # IJO prints no Introduction heading
-    assert t[9] == "<H1>Methods" and t[11] == "<H1>Results"
+    assert "Introduction" not in t  # IJO prints no Introduction heading: the paragraph goes
+    assert t[8] == "<H1>Methods" and t[10] == "<H1>Results"
 
 
 def test_headings_base_numbering_and_minor_words(article):

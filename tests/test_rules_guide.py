@@ -117,10 +117,10 @@ def test_defaults_base(manuscript, tmp_path):
 def test_ijo_keeps_operators_unspaced(manuscript, tmp_path):
     """IJO turns statistics.space_around_operators off; the guide rule must not bring it back."""
     t = _apply(manuscript, style.load("ijo"), tmp_path)
-    assert "45.2±11.3" in t[1] and "Smith et al. found anxiety and depression in 50% " in t[1]
+    assert "45.2±11.3" in t[0] and "Smith et al. found anxiety and depression in 50% " in t[0]  # "Introduction" gone
     st = style.load("ijo")
     st.settings["guide_replace"]["operator_spacing"] = "always"
-    assert "45.2 ± 11.3" in _apply(manuscript, st, tmp_path)[1]
+    assert "45.2 ± 11.3" in _apply(manuscript, st, tmp_path)[0]
 
 
 def test_changes_carry_old_text_and_reason(manuscript):

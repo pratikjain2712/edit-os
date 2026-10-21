@@ -196,6 +196,4 @@ def test_heading_tags_replace_leading_spaces(tmp_path):
     ] + _refs("Ames JB")
     path = _save(tmp_path, paras)
     _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
-    assert t[2] == "<H1>Methods"
-    assert t[3] == "<H2>Study design"
-    assert t[5] == "<H1>Results"
+    assert t[:5] == [LONG, "<H1>Methods", "<H2>Study design", LONG, "<H1>Results"]  # IJO drops "Introduction"

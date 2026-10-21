@@ -179,7 +179,7 @@ def test_cli_edit_and_render_dir(tmp_path, monkeypatch, capsys):
     assert cli.main(["edit", src, "ijo", outdir, "--accept-all"]) == 0
     printed = capsys.readouterr().out
     assert "0 pending" in printed and "ms_tracked.docx" in printed
-    assert "color" in docmodel.load(f"{outdir}/ms_clean.docx").paragraphs[2].text
+    assert "color" in docmodel.load(f"{outdir}/ms_clean.docx").paragraphs[1].text  # "Introduction" deleted
     assert cli.main(["render", outdir, "--final"]) == 0
 
 

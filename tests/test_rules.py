@@ -40,18 +40,18 @@ def apply(path, st, tmp_path):
 
 def test_ijo_rules(manuscript, tmp_path):
     t = apply(manuscript, style.load("ijo"), tmp_path)
-    assert t[0] == "Abstract" and t[2] == ""  # IJO does not tag "Abstract" and drops "Introduction"
+    assert t[0] == "Abstract"  # IJO does not tag "Abstract" and deletes "Introduction" (paragraph and all)
     assert t[1] == "Keywords: Amblyopia, cataract, retina"
-    assert t[7:12] == ["<H1>Conclusion", "<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
+    assert t[6:11] == ["<H1>Conclusion", "<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
                        "There are no conflicts of interest."]
-    del t[8:12]
-    assert t[3] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
-    assert t[4] == "Mean age was 45 (12) years and p=0.03."  # statistics, not a citation; spacing off for IJO
-    assert t[5] == "<H1>Methods" and t[6] == "<H1>Results" and t[8] == "<H1>References"
-    assert t[9] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
-    assert t[10] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
-                     "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")
-    assert t[11] == "3. Lindqvist P, Hale R. Timing of surgery. J Med Genet 1987;24:616-20."
+    del t[7:11]
+    assert t[2] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
+    assert t[3] == "Mean age was 45 (12) years and p=0.03."  # statistics, not a citation; spacing off for IJO
+    assert t[4] == "<H1>Methods" and t[5] == "<H1>Results" and t[7] == "<H1>References"
+    assert t[8] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
+    assert t[9] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
+                    "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")
+    assert t[10] == "3. Lindqvist P, Hale R. Timing of surgery. J Med Genet 1987;24:616-20."
 
 
 def test_base_rules_space_operators_and_tag_all_h1(manuscript, tmp_path):
@@ -113,6 +113,7 @@ def _no_lookup():
     st = style.load("ijo")
     st.settings["references"]["lookup"] = False
     st.settings["sections"]["back_matter"]["add_missing"] = False
+    st.settings["sections"]["headings"]["drop"] = []  # keeps paragraph positions fixed
     return st
 
 
