@@ -364,6 +364,38 @@ def _end_period(rest: str) -> int | None:
     return len(stripped) - 1
 
 
+# Part labels inside a legend: "(A)", "(A, B)", "(C–E)", "(1A)" (its own figure's number), and bare
+# "a) ... b) ..." labels. Letters a-l only: "(R)", "(T)" in a legend are seldom part labels.
+_LEGEND_PART = re.compile(r"\((?P<num>\d{1,2})?\s*(?P<parts>[A-La-l](?:\s*(?:,|and|&|-|–|to)\s*\d{0,2}[A-La-l])*)\)")
+_BARE_LEGEND_PART = re.compile(r"(?<![\w(\[.])(?P<l>[A-La-l])\)(?=\s)")
+
+
+def _legend_parts(p: Paragraph, rest_start: int, number: int, style: JournalStyle) -> list[Change]:
+    """Part labels in a figure legend in the journal's case, in round brackets, without the
+    figure's number: "(1A)" -> "(a)", "(A, B)" -> "(a, b)", "a) ... b) ..." -> "(a) ... (b) ..."."""
+    text = p.text
+    out: list[Change] = []
+    for m in _LEGEND_PART.finditer(text, rest_start):
+        if m.group("num") and int(m.group("num")) != number:
+            continue
+        inner = m.group("parts")
+        nums = re.findall(r"\d+", inner)
+        if any(int(n) != number for n in nums):
+            continue
+        if not m.group("num") and len(inner) == 1 and inner.lower() not in "abcdefgh":
+            continue
+        new = "(" + re.sub(r"\d+", "", re.sub(r"[A-La-l]", lambda x: _case(x.group(0), style), inner)) + ")"
+        new = re.sub(r"\s*&\s*", " and ", new) if "&" in new else new
+        if new != m.group(0):
+            out += _diff(p, m.start(), m.group(0), new, "fig_captions")
+    bare = list(_BARE_LEGEND_PART.finditer(text, rest_start))
+    letters = [b.group("l").lower() for b in bare]
+    if len(bare) >= 2 and letters == [chr(ord("a") + i) for i in range(len(letters))]:
+        for b in bare:
+            out += _diff(p, b.start(), b.group(0), f"({_case(b.group('l'), style)})", "fig_captions")
+    return out
+
+
 def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.captions", True):
         return []
@@ -391,10 +423,12 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(cap.number) + r"[A-Za-z]?\s*[.:\-–]\s*", rest, re.I)
         if dup and not m.group("part"):
             rest_start += dup.end()
-        elif cap.kind == FIG:
+        elif cap.kind == FIG and not style.get("figures.legend_part_labels", True):
             lead_part = re.match(r"\(([A-Za-z])\)", rest)
             if lead_part and _case(lead_part.group(1), style) != lead_part.group(1):
                 out += _diff(p, m.start("rest") + 1, lead_part.group(1), _case(lead_part.group(1), style), "fig_captions")
+        if cap.kind == FIG and style.get("figures.legend_part_labels", True):
+            out += _legend_parts(p, m.start("rest"), cap.number, style)
         sep = style.get("figures.caption_separator", ": ")
         new_label = f"{label} {cap.number}{suffix}{sep}{new_rest_prefix}"
         if follow_on:  # "Figure 1A. ..." then "Figure 1B. ...": the second is part (b) of Figure 1
