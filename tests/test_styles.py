@@ -15,14 +15,16 @@ DOCUMENTED_NEW_KEYS: set[str] = set()
 FILES = sorted(f for f in glob.glob(os.path.join(style.STYLES_DIR, "*.yaml")) if not f.endswith("base.yaml"))
 
 
-def _paths(node, prefix=""):
-    """Dotted key paths of a mapping; lists and scalars are leaves."""
+def _paths(node, prefix="", base=None):
+    """Dotted key paths of a mapping; lists and scalars are leaves, and so are free-form maps
+    (settings whose base value is an empty mapping, such as heading rename tables)."""
     out = set()
     for k, v in node.items():
         p = f"{prefix}{k}"
         out.add(p)
-        if isinstance(v, dict):
-            out |= _paths(v, p + ".")
+        b = base.get(k) if isinstance(base, dict) else None
+        if isinstance(v, dict) and b != {}:
+            out |= _paths(v, p + ".", b)
     return out
 
 
@@ -41,13 +43,13 @@ def test_style_file(path):
         text = f.read()
     data = yaml.safe_load(text) or {}
     assert isinstance(data.get("name"), str) and data["name"].strip()
-    unknown = _paths(data) - _paths(_base()) - DOCUMENTED_NEW_KEYS
+    unknown = _paths(data, base=_base()) - _paths(_base()) - DOCUMENTED_NEW_KEYS
     assert not unknown, f"keys the code does not read: {sorted(unknown)}"
     code = os.path.basename(path)[:-5]
     st = style.load(code)
     assert st.name == data["name"]
     # Overrides keep the base value's type (a list stays a list, a flag stays a flag).
-    for key in _paths(data) - {"name"}:
+    for key in _paths(data, base=_base()) - {"name"}:
         b = st.get(key)
         node = _base()
         for part in key.split("."):

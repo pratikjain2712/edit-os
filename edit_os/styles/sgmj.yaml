@@ -8,6 +8,9 @@ headings:
        subjects and methods, results, discussion, conclusion, conclusions, references, case report,
        case reports, case presentation, review of literature]
 
+figures:
+  captions: false                # editors are inconsistent ("Table 1 Title", "Table 1.", "Figure 2:"): leave as typed
+
 references:
   journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
 
