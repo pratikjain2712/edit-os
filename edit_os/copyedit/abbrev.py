@@ -6,6 +6,11 @@ The abstract and the main text are separate scopes, as the journals expect an ab
 be expanded again in the main text. Front matter before the abstract, tables and the reference
 list are not checked, and a common-abbreviations allowlist (units, statistics, well-known
 terms; `data/common_abbreviations.txt` plus `copyedit.abbreviations.allow`) is never queried.
+Neither are a second copy of the reference list left in the text, author initials ("Weinreb RN, Aung T"),
+contribution lines ("Concept: AB, CD"), words in capitals that form a heading or label, dotted approval
+codes, a product with its model number or maker ("RESCAN 700", "(ARIETA V60, Tokyo, Japan)"), and
+abbreviations expanded after them ("DBS (deep brain stimulation)"). On 160 articles this cut the
+"Kindly expand" queries from 868 to 580 and kept all 22 that the copy editors raised.
 
 Output:
   * author queries, in the copy editors' wording, for abbreviations never expanded;
@@ -96,14 +101,16 @@ class Definition:
     paren_start: int
 
 
-_PAREN = re.compile(r"\(([^()]{1,40})\)")
+# "full form (ABBR)", and "full form [ABBR]" (one word in square brackets: not "[12]", "[Figure 1]")
+_PAREN = re.compile(r"\(([^()]{1,40})\)|\[([A-Za-z][A-Za-z0-9\-]{1,9})\]")
 
 
 def definitions(p: Paragraph) -> list[Definition]:
     out = []
     text = p.text
     for m in _PAREN.finditer(text):
-        inner = m.group(1)
+        g = 1 if m.group(1) is not None else 2
+        inner = m.group(g)
         sf = re.split(r"\s*[;,]\s*", inner.strip())[0]
         sf_plain = re.sub(r"(?<=[A-Z])s$", "", sf)  # "(RCTs)" defines RCT
         if not is_short_form(sf_plain):
@@ -126,7 +133,7 @@ def definitions(p: Paragraph) -> list[Definition]:
         lf_start = before.rfind(lf)
         if lf_start < 0:
             continue
-        out.append(Definition(p.id, sf_plain, lf, lf_start, m.start(1) + inner.find(sf), m.end(), m.start()))
+        out.append(Definition(p.id, sf_plain, lf, lf_start, m.start(g) + inner.find(sf), m.end(), m.start()))
     return out
 
 
@@ -157,7 +164,7 @@ def scopes(ms: Manuscript) -> list[list[Paragraph]]:
     matter before the abstract, tables and the reference list are left out."""
     from ..rules import body_paragraphs
 
-    paras = body_paragraphs(ms)
+    paras = _before_references(body_paragraphs(ms))
     ab = next((i for i, p in enumerate(paras) if _ABSTRACT.match(p.text)), None)
     lo = 0 if ab is None else ab + 1
     kw = next((i for i in range(lo, len(paras)) if _KEYWORDS.match(paras[i].text)), None) if ab is not None else None
@@ -173,6 +180,40 @@ def scopes(ms: Manuscript) -> list[list[Paragraph]]:
     if kw is not None and kw + 1 < main:
         return [paras[ab:kw + 1], paras[kw + 1:main], paras[main:]]
     return [paras[ab:main], paras[main:]]
+
+
+def _before_references(paras: list[Paragraph]) -> list[Paragraph]:
+    """Up to the first reference-list heading (a manuscript may hold the list twice: the last heading
+    marks the reference list for the rules), without paragraphs that read as reference entries
+    ("Quigley HA, Broman AT. The number ... 2006;90:262-7.")."""
+    from .. import references
+
+    out = []
+    for p in paras:
+        if references._HEADING.match(p.text):
+            break
+        if _reference_like(p.text) or _contributions(p.text):
+            continue
+        out.append(p)
+    return out
+
+
+def _reference_like(text: str) -> bool:
+    from .. import references
+
+    body = text[references._LABEL.match(text).end():] if references._LABEL.match(text) else text
+    return bool(references._LOOKS_LIKE_REFERENCE.match(body) and references._YEAR.search(body)
+                and len(_NAME_ITEM.findall(body)) >= 2)
+
+
+def _contributions(text: str) -> bool:
+    return len(text) < 400 and bool(_CONTRIBUTIONS.search(text)) and len(_INITIALS_LIST.findall(text)) >= 2
+
+
+_NAME_ITEM = re.compile(r"[A-Z][\w’'\-]+\s[A-Z]{1,3}(?:-[A-Z])?[,.]")  # "Quigley HA,", "CHEN B,", "MAO J-P,"
+# Who did what: "Authors' contributions: JAG, MAM, IAM", "Concept, design: GGO, ZK;", "ISS<tab>Formal analysis".
+_CONTRIBUTIONS = re.compile(r"contribut|conceptuali[sz]|formal analysis|data (?:curation|acquisition|collection)"
+                            r"|literature search|manuscript (?:preparation|editing|review)|writing|supervision", re.I)
 
 
 _USE = re.compile(r"(?<![\w\-/.])([A-Za-z0-9][A-Za-z0-9\-/&]*[A-Za-z0-9]|[A-Z])(?![\w\-/])")
@@ -198,16 +239,42 @@ def _abbr_key(tok: str) -> str | None:
 
 
 _PLACE = re.compile(r"[A-Z][a-z]+,\s*$")  # "Armonk, NY": a state or country code after a city
+# Author initials after a surname: "Weinreb RN, Aung T", "Liu JHK," (a name list has two or more).
+_INITIALS = re.compile(r"(?<![\w-])[A-Z][\w’'\-]*[a-z][\w’'\-]*\s+([A-Z]{1,3}(?:-[A-Z])?)(?=\s*[,.;]|\s+et al|\s*$)")
+# Words in capitals that are a heading or label, not abbreviations: "HUMAN OBSERVATIONAL STUDIES",
+# "MANUSCRIPT TYPE:", "(KEYWORDS: ...".
+_INITIALS_LIST = re.compile(r"(?<![\w-])[A-Z]{2,4}(?=\s*(?:[,;]|and\b|\t|$))")  # "DB, SS, RH;"
+# A product's maker or place in brackets: "(ARIETA V60, Tokyo, Japan)", "(Peschke Trade GmbH)".
+_MAKER = re.compile(r"\([^()]*\b(?:Inc|Ltd|LLC|GmbH|AG|S\.?A|Corp|Corporation|Co|Company|Meditec|Medical|Healthcare"
+                    r"|USA|U\.S\.A|UK|Japan|Germany|France|Italy|Switzerland|China|India|Korea|Netherlands|Sweden"
+                    r"|Denmark|Canada|Australia|Israel|Spain|Austria|Belgium|Finland|Ireland|Taiwan|Singapore)\b[^()]*\)")
+_MODEL = re.compile(r"\s+-?\s?\d{3,4}(?:[A-Z][A-Za-z0-9]*)?(?![\d,.%])(?!\s*(?:%|(?:mg|g|kg|mm|cm|m|ml|mL|L|µm|μm|um|nm|ms|s|min|h|Hz|kHz|MHz|kDa|IU|U|mmHg|cells|patients|eyes)\b))|\s+\d[A-Z]{1,3}\d")
+# Words in capitals that are not abbreviations: search operators, licence and label words.
+_NOT_ABBR = {"AND", "OR", "NOT", "BY", "THE", "OF", "IN", "FIGURE", "FIGURES", "TABLE", "TABLES", "GROUP", "NOTE",
+             "NOTES", "CASE", "REPORT", "NA", "NIL"}
+_CAPS_RUN = re.compile(r"(?<![\w-])[A-Z]{2,}(?:\s+[A-Z]{2,})+(?![\w-])")
+_LABEL = re.compile(r"(?:^\s*|\(\s*|[.?!]\s+)((?:[A-Z]{2,}\s+)*[A-Z]{2,})\s*:")
 
 
 def uses(p: Paragraph):
     if p.text.strip().isupper() or is_numeric(p.text):
         return  # all-caps headings and number rows
     prot = protected_spans(p.text)
+    names = list(_INITIALS.finditer(p.text))
+    if len(names) >= 2:
+        prot += [(m.start(1), m.end(1)) for m in names]
+    prot += [(m.start(), m.end()) for m in _CAPS_RUN.finditer(p.text)
+             if max(len(w) for w in m.group(0).split()) >= 5]
+    prot += [(m.start(1), m.end(1)) for m in _LABEL.finditer(p.text)]
+    prot += [(m.start(), m.end()) for m in _MAKER.finditer(p.text)]
     for m in _USE.finditer(p.text):
         key = _abbr_key(m.group(1))
-        if not key or overlaps(m.start(), m.end(), prot):
+        if not key or key in _NOT_ABBR or overlaps(m.start(), m.end(), prot):
             continue
+        if re.match(r"\.[A-Za-z0-9]", p.text[m.end():m.end() + 2]):
+            continue  # a dotted code: "IR.UMSHA.REC.1403.421"
+        if _MODEL.match(p.text, m.end()):
+            continue  # a product and its model number: "Zeiss RESCAN 700", "MKC 700 HD", "HMS -300"
         if len(key) == 2 and _PLACE.search(p.text[:m.start()]):
             continue
         if m.start() == len(p.text) - len(p.text.lstrip()) and p.text[m.end():m.end() + 1] == ":" and key.isalpha():
@@ -282,6 +349,40 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
                                  "abbrev.full_form"))
 
 
+# "ABBR (full form)": the abbreviation first, then its expansion. (Lists of abbreviations and table notes,
+# "IRB: institutional review board", do not count: the copy editors still expand those in the text.)
+_REVERSE = re.compile(r"(?<![\w\-/])(?P<sf>[A-Za-z][A-Za-z0-9\-/&]{0,11}[A-Za-z0-9])\s*\(\s*(?P<lf>[A-Za-z][^()]{2,80})\)")
+
+
+def _expands(sf: str, phrase: str) -> bool:
+    """`phrase` starts with a full form of `sf` (Schwartz-Hearst, matched from its first word)."""
+    words = phrase.split()
+    n = min(len(sf) + 5, 2 * len(sf))
+    for k in range(1, min(n, len(words)) + 1):
+        cand = " ".join(words[:k])
+        lf = best_long_form(sf, cand)
+        if lf == cand and len(lf) > len(sf) and sf.lower() not in lf.lower().split():
+            return True
+    return False
+
+
+def expanded_elsewhere(ms: Manuscript) -> set[str]:
+    """Abbreviations the text expands with the abbreviation first ("DBS (deep brain stimulation)",
+    "COMMANDO (Combined Mandibulectomy and Neck Dissection Operation)"): the copy editors do not ask for these.
+    Not tables and legends: an abbreviation their notes expand is still expanded in the text."""
+    from .. import rules_figures
+
+    out = set()
+    for p in ms.paragraphs:
+        if p.in_table or rules_figures.caption_match(p) is not None:
+            continue
+        for m in _REVERSE.finditer(p.text):
+            key = _abbr_key(m.group("sf"))
+            if key and _expands(key, m.group("lf")):
+                out.add(key)
+    return out
+
+
 def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Query]]:
     cfg = style.get("copyedit.abbreviations", {}) or {}
     if not cfg.get("enabled", True):
@@ -292,6 +393,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
     queries: list[Query] = []
     queried: set[str] = set()
     all_scopes = scopes(ms)
+    glossary = expanded_elsewhere(ms) if cfg.get("query_undefined", True) else set()
     outside = _outside_scopes(ms, {p.id for s in all_scopes for p in s})
     for n_scope, scope in enumerate(all_scopes):
         defs: dict[str, list[Definition]] = {}
@@ -362,7 +464,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                     elif cfg.get("query_before_definition", True):
                         queries.append(Query(p.id, s, e, TEXT["abbrev.before_definition"].format(abbr=key),
                                              "abbrev.before_definition"))
-            elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key):
+            elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \
+                    and key not in glossary:
                 # Codes with digits or hyphens (gene names, scales such as GDS-15) are rarely queried.
                 queried.add(key)  # once per manuscript
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))

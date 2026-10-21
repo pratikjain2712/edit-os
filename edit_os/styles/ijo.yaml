@@ -53,6 +53,11 @@ guide_replace:
 
 copyedit:
   abbreviations:
+    # Ophthalmic abbreviations the IJO editors never ask authors to expand (0 abbreviation queries in 19 te/ce files).
+    allow: [OCT, OCTA, AS-OCT, ASOCT, SD-OCT, SS-OCT, BCVA, UCVA, CDVA, UDVA, VA, IOP, IOL, RNFL, GCL, IPL, GCIPL,
+            ONH, RPE, ILM, ERM, PVR, ROP, RRD, TRD, YAG, Nd, UBM, FFA, ICGA, ERG, VEP, HFA, SITA, ETDRS, AMD, ARMD,
+            DME, DR, PDR, NPDR, CNV, CSC, CSCR, POAG, PACG, OAG, PAC, LASIK, PRK, SMILE, DALK, PK, PKP, DSAEK, DMEK,
+            DSEK, ICL, PPV, SLET, LSCD, KPro, BKPro, VEGF]
     full_form_after_definition: "off"  # IJO copy editors leave the full form (19 articles: precision 36%, closure -0.8%)
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article

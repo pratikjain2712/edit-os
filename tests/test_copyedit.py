@@ -151,7 +151,7 @@ def test_abbreviation_queries(tmp_path):
         "References",
         "1. Lee K. The PQRS study. Eye 2001;1:1-2.",
     ])
-    changes, qs = abbrev.collect(ms, journal())
+    changes, qs = abbrev.collect(ms, journal(abbreviations={"allow": []}))  # not IJO's ophthalmic allowlist
     got = sorted((q.check, q.text) for q in qs)
     assert got == [
         ("abbrev.before_definition", "RNFL: Kindly expand the abbreviation at first use."),
@@ -163,6 +163,33 @@ def test_abbreviation_queries(tmp_path):
     assert changes == []
 
 
+def test_abbreviation_queries_skip_what_editors_do_not_query(tmp_path):
+    ms = make(tmp_path, [
+        "Introduction",
+        "The XQV was raised and the ZMT score fell in the DELTA study.",                   # real: queried
+        "Patients with DBS (deep brain stimulation) were followed.",                       # expanded after it
+        "Imaging used the KRESCAN 700 system (Fabrikam Meditec, Jena, Germany).",          # model number
+        "The approval code was IR.TUMS.REC.1402.17 and the HUMAN OBSERVATIONAL STUDIES were listed.",
+        "Authors' contributions: Conceptualisation: AB, CD; writing: AB, EF.",
+        "Weinreb RN, Aung T, Medeiros FA. The pathophysiology of glaucoma. JAMA 2014;311:1901-11.",  # a stray list
+        "Searches combined glaucoma AND pressure; the XQV rose again.",
+        "References",
+        "1. Lee K. A study. Eye 2001;1:1-2.",
+        "Table 1: Results",
+        "ZMT, zonal motion test",               # a table note: copy editors still expand ZMT in the text
+    ])
+    _, qs = abbrev.collect(ms, journal(abbreviations={"allow": []}))
+    assert sorted(q.text for q in qs if q.check == "abbrev.undefined") == [
+        "DELTA: Kindly expand the abbreviation.", "XQV: Kindly expand the abbreviation.",
+        "ZMT: Kindly expand the abbreviation."]
+    assert sum(q.text.startswith("XQV") for q in qs) == 1  # one query per abbreviation
+
+
+def test_abbreviation_defined_in_square_brackets(tmp_path):
+    ms = make(tmp_path, ["Introduction", "Rhegmatogenous retinal detachment [RRD] is common.", "RRD recurs."])
+    assert abbrev.collect(ms, journal(abbreviations={"allow": []}))[1] == []
+
+
 def test_abbreviation_changes_when_configured(tmp_path):
     ms = make(tmp_path, [
         "Introduction",
@@ -171,7 +198,7 @@ def test_abbreviation_changes_when_configured(tmp_path):
         "Later, optical coherence tomography (OCT) was repeated.",
         "OCT showed thinning.",
     ])
-    st = journal(abbreviations={"redefinition": "change", "move_definition": True})
+    st = journal(abbreviations={"redefinition": "change", "move_definition": True, "allow": []})
     changes, qs = abbrev.collect(ms, st)
     assert apply(ms, changes)[1:] == [
         "The retinal nerve fiber layer (RNFL) was thin.",
