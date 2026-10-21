@@ -169,9 +169,9 @@ def test_abbreviation_queries_skip_what_editors_do_not_query(tmp_path):
         "The XQV was raised and the ZMT score fell in the DELTA study.",                   # real: queried
         "Patients with DBS (deep brain stimulation) were followed.",                       # expanded after it
         "Imaging used the KRESCAN 700 system (Fabrikam Meditec, Jena, Germany).",          # model number
-        "The approval code was IR.TUMS.REC.1402.17 and the HUMAN OBSERVATIONAL STUDIES were listed.",
+        "The approval code was IR.TUMS.REC.1402.17 and the STUDY DESIGN AND SETTING were listed.",
         "Authors' contributions: Conceptualisation: AB, CD; writing: AB, EF.",
-        "Weinreb RN, Aung T, Medeiros FA. The pathophysiology of glaucoma. JAMA 2014;311:1901-11.",  # a stray list
+        "Rao KL, Moss T, Dunn FA. A synthetic title on eyes. J Test 2014;311:1901-11.",  # a stray reference
         "Searches combined glaucoma AND pressure; the XQV rose again.",
         "References",
         "1. Lee K. A study. Eye 2001;1:1-2.",

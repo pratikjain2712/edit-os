@@ -6,9 +6,9 @@ The abstract and the main text are separate scopes, as the journals expect an ab
 be expanded again in the main text. Front matter before the abstract, tables and the reference
 list are not checked, and a common-abbreviations allowlist (units, statistics, well-known
 terms; `data/common_abbreviations.txt` plus `copyedit.abbreviations.allow`) is never queried.
-Neither are a second copy of the reference list left in the text, author initials ("Weinreb RN, Aung T"),
+Neither are a second copy of the reference list left in the text, author initials ("Rao KL, Moss T"),
 contribution lines ("Concept: AB, CD"), words in capitals that form a heading or label, dotted approval
-codes, a product with its model number or maker ("RESCAN 700", "(ARIETA V60, Tokyo, Japan)"), and
+codes, a product with its model number or maker ("SCANX 700", "(VIEWER V60, Osaka, Japan)"), and
 abbreviations expanded after them ("DBS (deep brain stimulation)"). On 160 articles this cut the
 "Kindly expand" queries from 868 to 580 and kept all 22 that the copy editors raised.
 
@@ -185,7 +185,7 @@ def scopes(ms: Manuscript) -> list[list[Paragraph]]:
 def _before_references(paras: list[Paragraph]) -> list[Paragraph]:
     """Up to the first reference-list heading (a manuscript may hold the list twice: the last heading
     marks the reference list for the rules), without paragraphs that read as reference entries
-    ("Quigley HA, Broman AT. The number ... 2006;90:262-7.")."""
+    ("Rao KL, Moss T. A title ... 2006;90:262-7.")."""
     from .. import references
 
     out = []
@@ -210,7 +210,7 @@ def _contributions(text: str) -> bool:
     return len(text) < 400 and bool(_CONTRIBUTIONS.search(text)) and len(_INITIALS_LIST.findall(text)) >= 2
 
 
-_NAME_ITEM = re.compile(r"[A-Z][\w’'\-]+\s[A-Z]{1,3}(?:-[A-Z])?[,.]")  # "Quigley HA,", "CHEN B,", "MAO J-P,"
+_NAME_ITEM = re.compile(r"[A-Z][\w’'\-]+\s[A-Z]{1,3}(?:-[A-Z])?[,.]")  # "Rao KL,", "LEE B,", "KIM J-P,"
 # Who did what: "Authors' contributions: JAG, MAM, IAM", "Concept, design: GGO, ZK;", "ISS<tab>Formal analysis".
 _CONTRIBUTIONS = re.compile(r"contribut|conceptuali[sz]|formal analysis|data (?:curation|acquisition|collection)"
                             r"|literature search|manuscript (?:preparation|editing|review)|writing|supervision", re.I)
@@ -239,12 +239,12 @@ def _abbr_key(tok: str) -> str | None:
 
 
 _PLACE = re.compile(r"[A-Z][a-z]+,\s*$")  # "Armonk, NY": a state or country code after a city
-# Author initials after a surname: "Weinreb RN, Aung T", "Liu JHK," (a name list has two or more).
+# Author initials after a surname: "Rao KL, Moss T", "Lin JHK," (a name list has two or more).
 _INITIALS = re.compile(r"(?<![\w-])[A-Z][\w’'\-]*[a-z][\w’'\-]*\s+([A-Z]{1,3}(?:-[A-Z])?)(?=\s*[,.;]|\s+et al|\s*$)")
-# Words in capitals that are a heading or label, not abbreviations: "HUMAN OBSERVATIONAL STUDIES",
+# Words in capitals that are a heading or label, not abbreviations: "STUDY DESIGN AND SETTING",
 # "MANUSCRIPT TYPE:", "(KEYWORDS: ...".
 _INITIALS_LIST = re.compile(r"(?<![\w-])[A-Z]{2,4}(?=\s*(?:[,;]|and\b|\t|$))")  # "DB, SS, RH;"
-# A product's maker or place in brackets: "(ARIETA V60, Tokyo, Japan)", "(Peschke Trade GmbH)".
+# A product's maker or place in brackets: "(VIEWER V60, Osaka, Japan)", "(Example Trade GmbH)".
 _MAKER = re.compile(r"\([^()]*\b(?:Inc|Ltd|LLC|GmbH|AG|S\.?A|Corp|Corporation|Co|Company|Meditec|Medical|Healthcare"
                     r"|USA|U\.S\.A|UK|Japan|Germany|France|Italy|Switzerland|China|India|Korea|Netherlands|Sweden"
                     r"|Denmark|Canada|Australia|Israel|Spain|Austria|Belgium|Finland|Ireland|Taiwan|Singapore)\b[^()]*\)")
@@ -272,9 +272,9 @@ def uses(p: Paragraph):
         if not key or key in _NOT_ABBR or overlaps(m.start(), m.end(), prot):
             continue
         if re.match(r"\.[A-Za-z0-9]", p.text[m.end():m.end() + 2]):
-            continue  # a dotted code: "IR.UMSHA.REC.1403.421"
+            continue  # a dotted code: "IR.XYZ.REC.1400.123"
         if _MODEL.match(p.text, m.end()):
-            continue  # a product and its model number: "Zeiss RESCAN 700", "MKC 700 HD", "HMS -300"
+            continue  # a product and its model number: "Acme SCANX 700", "QRX 700 HD", "VTS -300"
         if len(key) == 2 and _PLACE.search(p.text[:m.start()]):
             continue
         if m.start() == len(p.text) - len(p.text.lstrip()) and p.text[m.end():m.end() + 1] == ":" and key.isalpha():
@@ -368,7 +368,7 @@ def _expands(sf: str, phrase: str) -> bool:
 
 def expanded_elsewhere(ms: Manuscript) -> set[str]:
     """Abbreviations the text expands with the abbreviation first ("DBS (deep brain stimulation)",
-    "COMMANDO (Combined Mandibulectomy and Neck Dissection Operation)"): the copy editors do not ask for these.
+    "TOPAZ (Trial Of Pressure And Zinc)"): the copy editors do not ask for these.
     Not tables and legends: an abbreviation their notes expand is still expanded in the text."""
     from .. import rules_figures
 
