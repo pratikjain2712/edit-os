@@ -247,3 +247,17 @@ copyedit:
     categories: []
     disabled_rules: []
     warn_categories: []        # other matches in these categories go to the editor as warnings
+  claude:                      # B4: Claude copy-edit pass (edit_os/copyedit/claude_pass.py); off without EDITOS_ANTHROPIC_API_KEY
+    enabled: true
+    model: claude-haiku-5-5    # EDITOS_CE_MODEL (else EDITOS_MODEL) overrides. 16 held-out articles: Haiku 70% precision,
+                               # $0.0025/article; Sonnet 5.5 61%, $0.026; Opus 5.5 65%, $0.063 (tools/eval_ce.py)
+    effort: medium             # EDITOS_CE_EFFORT overrides; medium beat low on Haiku (precision 70.1% vs 67.2%, 26% more edits)
+    chunk_words: 1500          # paragraphs per request, up to about this many words
+    examples: 40               # few-shot copy-editor edits (training articles only), same journal first
+    examples_path: null        # private changes.jsonl of past edits (or EDITOS_CE_EXAMPLES); never committed
+    max_words: 6               # longest edit (words in old, after trimming to what changes)
+    max_chars: 60
+    max_queries_per_chunk: 1   # copy editors query rarely; only real ambiguity
+    min_confidence: certain    # certain | likely: keep only edits Claude marks certain
+    skip_kinds: []             # e.g. [word_choice] to turn a kind of suggestion off
+    close_prefixes: false      # close up prefixed compounds (postoperative); on where the journal's copy editors do

@@ -32,3 +32,7 @@ sections:  # IJO prints no "Introduction" heading and uses "Methods" (stylesheet
 
 guide_replace:
   multiplication: false  # the IJO editors leave "4.5x4.5 mm" as typed
+
+copyedit:
+  claude:
+    close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article

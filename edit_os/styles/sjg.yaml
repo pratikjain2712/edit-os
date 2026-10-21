@@ -19,3 +19,7 @@ headings:
 #   - H1 in ALL CAPS
 #   - no author queries for missing history dates
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+copyedit:
+  claude:
+    close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 5.2 per training article

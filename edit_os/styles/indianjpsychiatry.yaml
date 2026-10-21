@@ -15,3 +15,7 @@ statistics:
 #   - affiliations: complete affiliation per number, duplicates not grouped
 #   - structured abstract: sub-headings in separate paragraphs
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+copyedit:
+  claude:
+    close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 4.7 per training article
