@@ -352,6 +352,132 @@ def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, i
         anchor = p
 
 
+# --- whole paragraphs and tables deleted ----------------------------------------------------
+#
+# A change deleting all of a paragraph's text (start 0, end len, new "") deletes the paragraph: in the
+# tracked copy its paragraph mark is a tracked deletion (<w:pPr><w:rPr><w:del/></w:rPr></w:pPr>), so
+# accepting it leaves no empty line; in the clean copy the paragraph goes. Not a paragraph holding an image,
+# object, field or note reference, a section break, the last paragraph of a table cell or of the document,
+# nor one whose removal would join two tables. Empty paragraphs between two deleted ones go with them, and a
+# table whose every paragraph is deleted (or empty) is deleted as rows (<w:trPr><w:del/></w:trPr>).
+
+_KEEP = tuple(qn(t) for t in ("w:drawing", "w:pict", "w:object", "w:sym", "w:footnoteReference",
+                              "w:endnoteReference", "w:fldSimple", "w:fldChar", "w:tbl", "w:sectPr")) + (
+    "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent",)
+_BLOCKS = (qn("w:p"), qn("w:tbl"), qn("w:sectPr"))
+
+
+def _whole_deleted(text: str, cs: list[Change]) -> bool:
+    edits = [c for c in cs if not c.format_only]
+    return bool(text) and any(c.start == 0 and c.end == len(text) and c.new == "" for c in edits) and \
+        all(c.new == "" for c in edits)
+
+
+def _removable(el) -> bool:
+    return not any(True for x in el.iter(*_KEEP) if x is not el)
+
+
+def _neighbour(el, gone: set, step: str):
+    sib = getattr(el, step)()
+    while sib is not None and (sib in gone or sib.tag not in _BLOCKS):
+        sib = getattr(sib, step)()
+    return sib
+
+
+def _mark(parent, tag: str, ids: _Ids, author: str, date: str, first: bool) -> None:
+    mark = OxmlElement(tag)
+    mark.set(qn("w:id"), ids.next())
+    mark.set(qn("w:author"), author)
+    mark.set(qn("w:date"), date)
+    if first:  # CT_ParaRPr: w:ins, w:del come first
+        ins = parent.find(qn("w:ins"))
+        if ins is not None:
+            ins.addnext(mark)
+        else:
+            parent.insert(0, mark)
+    else:  # CT_TrPr: before w:trPrChange
+        change = parent.find(qn("w:trPrChange"))
+        if change is not None:
+            change.addprevious(mark)
+        else:
+            parent.append(mark)
+
+
+def _mark_paragraph_deleted(p_el, ids: _Ids, author: str, date: str) -> None:
+    ppr = p_el.find(_PPR)
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        p_el.insert(0, ppr)
+    rpr = ppr.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        tail = [c for c in ppr if c.tag in _PPR_TAIL[1:]]
+        if tail:
+            tail[0].addprevious(rpr)
+        else:
+            ppr.append(rpr)
+    if rpr.find(qn("w:del")) is None:
+        _mark(rpr, "w:del", ids, author, date, first=True)
+
+
+def _mark_table_deleted(tbl, ids: _Ids, author: str, date: str) -> None:
+    for tr in tbl.findall(qn("w:tr")):
+        trpr = tr.find(qn("w:trPr"))
+        if trpr is None:
+            trpr = OxmlElement("w:trPr")
+            prex = tr.find(qn("w:tblPrEx"))
+            if prex is not None:
+                prex.addnext(trpr)
+            else:
+                tr.insert(0, trpr)
+        if trpr.find(qn("w:del")) is None:
+            _mark(trpr, "w:del", ids, author, date, first=False)
+
+
+def _delete_blocks(ms: Manuscript, deleted: dict, tracked: bool, ids: _Ids, date: str) -> None:
+    """`deleted`: paragraph element -> author of the change deleting all its text."""
+    if not deleted:
+        return
+    gone: set = set()
+    by_el = {p.element: p for p in ms.paragraphs}
+    # Tables: every paragraph deleted or empty, at least one deleted, no nested table or object.
+    for tbl in ms.document.element.body.iter(qn("w:tbl")):
+        if any(a.tag == qn("w:tbl") for a in tbl.iterancestors()) or tbl.find(f".//{qn('w:tbl')}") is not None:
+            continue
+        paras = list(tbl.iter(qn("w:p")))
+        hits = [p for p in paras if p in deleted]
+        if hits and all(p in deleted or (not paragraph_text(p).strip() and _removable(p)) for p in paras) \
+                and all(_removable(p) for p in hits):
+            gone.add(tbl)
+            if tracked:
+                _mark_table_deleted(tbl, ids, deleted[hits[0]], date)
+            else:
+                ms.removed.append(tbl)
+    order = [p.element for p in ms.paragraphs]
+    for i, p_el in enumerate(order):
+        author = deleted.get(p_el)
+        if author is None and not paragraph_text(p_el).strip():
+            # An empty paragraph between two deleted ones (blank lines inside a deleted cover letter).
+            prev = _neighbour(p_el, set(), "getprevious")
+            nxt = _neighbour(p_el, set(), "getnext")
+            author = deleted.get(prev) if prev in deleted and nxt in deleted else None
+        if author is None or not _removable(p_el) or any(a in gone for a in p_el.iterancestors()):
+            continue
+        parent = p_el.getparent()
+        if parent is None or by_el.get(p_el) is None:
+            continue
+        prev, nxt = _neighbour(p_el, gone, "getprevious"), _neighbour(p_el, gone, "getnext")
+        if nxt is None or nxt.tag == qn("w:sectPr"):
+            continue  # the last paragraph of a cell or of the document
+        if prev is not None and prev.tag == qn("w:tbl") and nxt.tag == qn("w:tbl"):
+            continue  # the two tables would join
+        gone.add(p_el)
+        if tracked:
+            _mark_paragraph_deleted(p_el, ids, author, date)
+        else:
+            ms.removed.append(p_el)
+
+
 # Parts holding text runs: the body, headers and footers, footnotes and endnotes.
 _STORY_TYPES = ("document.main+xml", "header+xml", "footer+xml", "footnotes+xml", "endnotes+xml")
 
@@ -397,18 +523,25 @@ def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=No
     taken = [int(v) for el in ms.document.element.body.iter() if (v := el.get(qn("w:id"))) and v.isdigit()]
     ids = _Ids(max([9000] + taken))
     date = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    deleted = {}  # paragraphs whose whole text the changes delete -> the author of that change
     for p in ms.paragraphs:
         cs = changes.for_paragraph(p.id, statuses)
         if not cs:
             continue
+        text = paragraph_text(p.element)
+        whole = _whole_deleted(text, cs)
         if on_conflict is None:
             _apply_paragraph(p.element, cs, tracked, ids, date)
-            continue
-        backup = copy.deepcopy(p.element)
-        try:
-            _apply_paragraph(p.element, cs, tracked, ids, date)
-        except ChangeConflict as e:
-            p.element.getparent().replace(p.element, backup)
-            p.element = backup
-            on_conflict(p.id, e)
+        else:
+            backup = copy.deepcopy(p.element)
+            try:
+                _apply_paragraph(p.element, cs, tracked, ids, date)
+            except ChangeConflict as e:
+                p.element.getparent().replace(p.element, backup)
+                p.element = backup
+                on_conflict(p.id, e)
+                continue
+        if whole:
+            deleted[p.element] = next(c.author for c in cs if c.start == 0 and c.end == len(text) and not c.new)
+    _delete_blocks(ms, deleted, tracked, ids, date)
     return ms

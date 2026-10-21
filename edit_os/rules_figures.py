@@ -441,7 +441,8 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if i is not None:
                 from .rules import _change
                 k = m.start("rest") + i
-                out.append(_change(p, k, k + 1, "", Layer.TABLES_FIGURES, "fig_captions"))
+                end = len(p.text) if not p.text[k + 1:].strip() else k + 1  # "folds. " -> "folds"
+                out.append(_change(p, k, end, "", Layer.TABLES_FIGURES, "fig_captions"))
     return out
 
 

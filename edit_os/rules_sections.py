@@ -201,6 +201,12 @@ def _structured(lay: Layout) -> bool:
 
 # --- body headings ---------------------------------------------------------------------
 
+def _tag_start(text: str, s: int) -> int:
+    """Where a heading tag inserted before text[s:] starts: at the very start of the paragraph when only
+    spaces come before it (they go with it: " Methods" -> "<H1>Methods", not " <H1>Methods")."""
+    return 0 if not text[:s].strip() else s
+
+
 def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not _cfg(style, "enabled", True):
         return []
@@ -243,7 +249,8 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             level = levels.get(new.lower())
             if level and key not in levels and not tag:  # heading_tags did not know the old name
                 new = f"<{level}>{new}"
-            out.append(_change(p, core_start, core_end, new, Layer.STRUCTURE, "sections_headings"))
+            start = _tag_start(text, core_start) if new.startswith("<H") else core_start
+            out.append(_change(p, start, core_end, new, Layer.STRUCTURE, "sections_headings"))
         if _on(style, "headings.bold") and new == core:
             out.append(_change(p, core_start, core_end, core, Layer.STRUCTURE, "sections_headings", {"bold": True}))
     return out
@@ -329,11 +336,11 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             continue  # "Staging and Treatment:" among run-in labels ("Ocular examination: The ...") is one of them
         # Italic heads under bold ones, and "2.1.1"-numbered heads, are third level.
         level = "H3" if (italic and not bold and has_bold) or (num and num.group(1).count(".") >= 2) else "H2"
-        lead = len(p.text) - len(p.text.lstrip())
-        out.append(_change(p, lead, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
+        lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
+        out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
-            k = len(p.text.rstrip()) - 1
-            out.append(_change(p, k, k + 1, "", Layer.STRUCTURE, "subheadings"))
+            k = len(p.text.rstrip()) - 1  # with the spaces after it
+            out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
     return out
 
 
@@ -805,6 +812,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         new = rename or _sentence_label(label)
         if not known and tag:
             new = tag + new
+            s = _tag_start(p.text, s)
+            label = p.text[s:e]
         if new != label:
             out.append(_change(p, s, e, new, Layer.STRUCTURE, f"sections_{name}"))
         end = len(p.text.rstrip())
@@ -813,8 +822,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
     def split_inline(p: Paragraph, m, name: str, rename: str | None = None):
         """"Patient Consent: Written informed ..." -> heading paragraph + statement."""
-        s = len(p.text) - len(p.text.lstrip())
-        out.append(_change(p, s, m.end(), f"{tag}{rename or _sentence_label(m.group('label'))}{BR}", Layer.STRUCTURE,
+        out.append(_change(p, 0, m.end(), f"{tag}{rename or _sentence_label(m.group('label'))}{BR}", Layer.STRUCTURE,
                            f"sections_{name}"))
 
     for i, p in enumerate(nonempty):
@@ -944,8 +952,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         sections.append(_Section(kind, p, content_p is not None or not content.strip()))
         if content_p is None and content.strip():
             # "Funding: Eye Research Foundation grant 12." -> heading paragraph + statement
-            s = len(p.text) - len(p.text.lstrip())
-            out.append(_change(p, s, m.end(), f"{tag}{sec['heading']}{BR}", Layer.STRUCTURE, "sections_back_matter"))
+            out.append(_change(p, 0, m.end(), f"{tag}{sec['heading']}{BR}", Layer.STRUCTURE, "sections_back_matter"))
         else:
             s, e = m.start("label"), m.end("label")
             head_end = len(p.text.rstrip())
@@ -953,6 +960,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             tagged = levels.get(_key(p.text)) and not p.text.lstrip().startswith("<H")
             if label_text != sec["heading"] or (not tagged and tag and not p.text.lstrip().startswith("<H")):
                 new = sec["heading"] if tagged or p.text.lstrip().startswith("<H") else tag + sec["heading"]
+                if tag and new.startswith(tag):
+                    s = _tag_start(p.text, s)
                 out.append(_change(p, s, e, new, Layer.STRUCTURE, "sections_back_matter"))
             if not tagged and p.text[e:head_end].strip() in (":", "."):
                 out.append(_change(p, e, head_end, "", Layer.STRUCTURE, "sections_back_matter"))

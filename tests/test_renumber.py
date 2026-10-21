@@ -8,6 +8,7 @@ def _style():
     st = style.load("ijo")
     st.settings["references"]["lookup"] = False
     st.settings["sections"]["back_matter"]["add_missing"] = False  # keeps paragraph positions fixed
+    st.settings["sections"]["headings"]["drop"] = []  # so does keeping "Introduction" (IJO deletes it)
     return st
 
 
@@ -207,8 +208,8 @@ def test_citation_at_end_survives_added_back_matter(tmp_path):
     st = style.load("ijo")
     st.settings["references"]["lookup"] = False
     t = _apply(path, st, tmp_path)
-    assert t[1] == "Alpha.[1] Beta.[2,3] Six (6) weeks later.[3-5]"
-    assert t[2:6] == ["<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
+    assert t[0] == "Alpha.[1] Beta.[2,3] Six (6) weeks later.[3-5]"  # "Introduction" deleted (IJO)
+    assert t[1:5] == ["<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
                       "There are no conflicts of interest."]
 
 
