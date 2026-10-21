@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from edit_os import pipeline, style as style_mod
-from edit_os.changes import Status
+from edit_os.changes import Source, Status
 
 from . import db
 from .config import Settings
@@ -62,6 +62,12 @@ class S3Job(BaseModel):
     external_id: str = ""
     callback_url: str = ""
     stages: list[str] | None = None
+
+
+class Edit(BaseModel):
+    id: str = Field(description="change or front-matter insert id")
+    new: str = Field(description="the editor's wording; the suggestion is accepted with it")
+    editor: str = ""
 
 
 class Decision(BaseModel):
@@ -145,6 +151,13 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         for item in list(changes.changes) + list(inserts):
             if item.id in dec:
                 item.status = Status(dec[item.id]["status"])
+                own = dec[item.id].get("new_text")
+                if own is not None:  # the editor's wording replaces the suggestion's
+                    if hasattr(item, "text"):
+                        item.text = own
+                    else:
+                        item.new = own
+                        item.source = Source.EDITOR
         for q in qdicts:
             if q["key"] in dec:
                 q["status"] = dec[q["key"]]["status"]
@@ -225,15 +238,19 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         items = []
         for c in changes.changes:
             t = texts.get(c.para_id, "")
-            items.append({**c.to_dict(), "kind": "change",
+            items.append({**c.to_dict(), "kind": "change", "edited": c.source == Source.EDITOR,
                           "context": {"before": t[max(0, c.start - context):c.start], "after": t[c.end:c.end + context],
                                       "paragraph": t}})
+        first_id = next(iter(texts), None)
+        dec = store.decisions(job["id"])
         for n in inserts:
             t = texts.get(n.anchor, "")
+            position = "start" if n.anchor == first_id and n.where == "before" else n.where
             items.append({"id": n.id, "kind": "insert", "para_id": n.anchor, "start": 0, "end": 0, "old": "",
                           "new": n.text, "layer": "structure", "source": n.source.value,
                           "reason": f"front_matter: {n.role}", "status": n.status.value, "format": None,
-                          "where": n.where, "context": {"before": "", "after": "", "paragraph": t}})
+                          "where": n.where, "position": position, "edited": dec.get(n.id, {}).get("new_text") is not None,
+                          "context": {"before": "", "after": "", "paragraph": t}})
         order = {pid: i for i, pid in enumerate(texts)}
         items.sort(key=lambda d: (order.get(d["para_id"], 10 ** 9), d["start"]))
         layers: dict[str, dict[str, int]] = {}
@@ -274,6 +291,18 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             ids += [i for i in pending if i not in ids]
         n = store.decide(job["id"], [(i, kinds[i]) for i in ids], body.status, body.editor or x_editor or "")
         return {"updated": n, "ids": ids, "status": body.status}
+
+    @app.post("/api/jobs/{job_id}/edit")
+    def edit(body: Edit, job: dict = Depends(require_done), x_editor: str | None = Header(None)):
+        """Accept a suggestion with the editor's own wording (the original text it replaces stays the same)."""
+        _, _, changes, inserts, _ = merged(job["id"])
+        kinds = {c.id: "change" for c in changes.changes} | {n.id: "insert" for n in inserts}
+        if body.id not in kinds:
+            raise HTTPException(422, f"Unknown id {body.id!r}")
+        if "\u2029" in body.new or (kinds[body.id] == "change" and "\n" in body.new):
+            raise HTTPException(422, "The new text must stay within one paragraph")
+        store.edit(job["id"], body.id, kinds[body.id], body.new, body.editor or x_editor or "")
+        return {"id": body.id, "status": "accepted", "new": body.new}
 
     @app.post("/api/jobs/{job_id}/render")
     def rerender(job: dict = Depends(require_done), final: bool = False):

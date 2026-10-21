@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     status TEXT NOT NULL,        -- suggested | accepted | rejected
     editor TEXT,
     decided_at TEXT NOT NULL,
+    new_text TEXT,               -- the editor's own wording for an accepted suggestion
     PRIMARY KEY (job_id, item_id)
 );
 """
@@ -57,6 +58,9 @@ class JobStore:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with self._conn() as c:
             c.executescript(_SCHEMA)
+            cols = {r[1] for r in c.execute("PRAGMA table_info(decisions)")}
+            if "new_text" not in cols:  # databases created before editor edits existed
+                c.execute("ALTER TABLE decisions ADD COLUMN new_text TEXT")
 
     @contextmanager
     def _conn(self):
@@ -125,6 +129,14 @@ class JobStore:
                           " editor=excluded.editor, decided_at=excluded.decided_at",
                           [(job_id, i, k, status, editor or None, t) for i, k in items])
         return len(items)
+
+    def edit(self, job_id: str, item_id: str, kind: str, new_text: str, editor: str = "") -> None:
+        """Accept a suggestion with the editor's own wording."""
+        with self._conn() as c:
+            c.execute("INSERT INTO decisions (job_id, item_id, kind, status, editor, decided_at, new_text)"
+                      " VALUES (?,?,?,'accepted',?,?,?) ON CONFLICT(job_id, item_id) DO UPDATE SET"
+                      " status='accepted', editor=excluded.editor, decided_at=excluded.decided_at,"
+                      " new_text=excluded.new_text", (job_id, item_id, kind, editor or None, now(), new_text))
 
     def decisions(self, job_id: str) -> dict[str, dict]:
         with self._conn() as c:

@@ -90,3 +90,9 @@ span.layer.l-references, span.layer.l-structure, span.layer.l-language, span.lay
   .layers { position: static; }
   .jobs th:nth-child(6), .jobs td:nth-child(6) { display: none; }
 }
+
+.change .edit { display: grid; gap: 6px; margin-top: 8px; }
+.change .edit textarea {
+  width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px;
+  border: 1px solid var(--line, #cfd5e1); border-radius: 6px; background: var(--bg, #fff); color: inherit; resize: vertical;
+}

@@ -53,6 +53,7 @@ export const api = {
   changes: (id) => call("GET", `/api/jobs/${id}/changes`),
   queries: (id) => call("GET", `/api/jobs/${id}/queries`),
   decide: (id, body) => call("POST", `/api/jobs/${id}/decisions`, body),
+  edit: (id, itemId, text) => call("POST", `/api/jobs/${id}/edit`, { id: itemId, new: text }),
   render: (id, final) => call("POST", `/api/jobs/${id}/render${final ? "?final=true" : ""}`),
   qc: (id) => call("GET", `/api/jobs/${id}/qc`),
 };

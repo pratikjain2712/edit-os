@@ -13,8 +13,43 @@ const LAYERS = {
 const STEPS = ["reading manuscript", "style rules and front matter", "author queries", "copy-edit checkers", "rendering outputs"];
 const DOWNLOADS = [["tracked", "Tracked .docx"], ["clean", "Clean .docx"], ["queries", "Query sheet"], ["qc_report", "QC report"]];
 
+// Plain names for the rule that made a suggestion (the raw rule id stays in the tooltip).
+const RULE_LABELS = {
+  ref_lookup: "Reference checked in PubMed / CrossRef",
+  ref_other: "Reference format (book, website, report)",
+  ref_journal: "Journal abbreviation (NLM)",
+  ref_initials: "Author initials", ref_et_al: "et al. in references", ref_pages: "Page range",
+  ref_year: "Year and volume", ref_issue: "Issue number", ref_title_case: "Reference title case",
+  citations: "Citation style", renumber: "Reference renumbering",
+  fig_citations: "Figure / table citation", fig_captions: "Figure / table caption",
+  heading_tags: "Heading tag", sections_headings: "Heading", sections_abstract: "Abstract",
+  sections_keywords: "Keywords", sections_back_matter: "Back matter",
+  statistics: "Statistics spacing", guide_replace: "Style guide fix",
+  spelling: "Spelling (British / American)", langtool: "Grammar and typography", abbrev: "Abbreviation",
+};
+const FRONT = {
+  running_head: "Running head", article_type: "Article type", title: "Title", authors: "Author names",
+  affiliations: "Affiliations", affiliation: "Affiliations", correspondence: "Correspondence",
+  dates: "History dates", cite: "How to cite", label: "Label",
+};
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
+function ruleLabel(reason) {
+  const r = reason || "";
+  let m = r.match(/^front_matter:\s*(\w+)/);
+  if (m) return `Front matter · ${FRONT[m[1]] || cap(m[1])}`;
+  m = r.match(/^claude\.(\w+)\s*(?:\((.*)\))?/);
+  if (m) return m[2] ? `${cap(m[1])}: ${m[2]}` : cap(m[1]);
+  const key = Object.keys(RULE_LABELS).find((k) => r === k || r.startsWith(k + "_") || r.startsWith(k + "."));
+  if (key) return RULE_LABELS[key];
+  if (r.startsWith("fmt_") || r.startsWith("formatting")) return `Formatting · ${cap(r.replace(/^fmt_|^formatting\.?/, ""))}`;
+  if (r.startsWith("guide_")) return `Style guide · ${cap(r.slice(6))}`;
+  return cap(r);
+}
+const FMT_NAMES = { italic: "italic", bold: "bold", superscript: "superscript", subscript: "subscript", small_caps: "small caps" };
+
 const show = (s) => (s || "").replace(new RegExp("\\u2029", "g"), "¶ ").replace(/\t/g, "⇥");
-const fmtLabel = (f) => Object.entries(f || {}).map(([k, v]) => `${k} ${v ? "on" : "off"}`).join(", ");
+const fmtLabel = (f) => Object.entries(f || {}).filter(([, v]) => v).map(([k]) => FMT_NAMES[k] || k).join(", ") ||
+  Object.keys(f || {}).map((k) => `no ${FMT_NAMES[k] || k}`).join(", ");
 
 function Progress({ job }) {
   const i = STEPS.indexOf(job.stage);
@@ -36,7 +71,10 @@ function Diff({ item, expanded }) {
   if (item.kind === "insert") {
     return (
       <div className="diff">
-        <div className="muted small">New paragraph {item.where} “{show(item.context.paragraph).slice(0, 80)}”</div>
+        <div className="muted small">
+          {item.position === "start" ? "New line at the start of the article"
+            : `New paragraph ${item.where} “${show(item.context.paragraph).slice(0, 60)}…”`}
+        </div>
         <ins>{show(item.new)}</ins>
       </div>
     );
@@ -62,8 +100,10 @@ function Diff({ item, expanded }) {
 
 const formatOnly = (c) => c.format && c.old === c.new;
 
-function ChangeCard({ item, selected, onSelect, onDecide }) {
+function ChangeCard({ item, selected, onSelect, onDecide, onEdit }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.new);
   const ref = useRef(null);
   useEffect(() => {
     if (selected && ref.current) ref.current.scrollIntoView({ block: "nearest" });
@@ -72,19 +112,33 @@ function ChangeCard({ item, selected, onSelect, onDecide }) {
     <article ref={ref} className={`change ${item.status} ${selected ? "selected" : ""}`} onClick={onSelect}>
       <div className="meta">
         <span className={`layer l-${item.layer}`}>{LAYERS[item.layer] || item.layer}</span>
-        <span className="reason">{item.reason}</span>
+        <span className="reason" title={`${item.reason} · ${item.para_id}`}>{ruleLabel(item.reason)}</span>
         {item.format && <span className="tag">{fmtLabel(item.format)}</span>}
-        {item.source !== "rule" && <span className="tag">{item.source}</span>}
-        <span className="muted small">{item.para_id}</span>
+        {item.source === "ai" && <span className="tag">AI suggestion</span>}
+        {item.edited && <span className="tag">edited</span>}
         <span className="spacer" />
         <span className={`pill ${item.status}`}>{item.status === "suggested" ? "pending" : item.status}</span>
       </div>
       <Diff item={item} expanded={expanded} />
+      {editing && (
+        <form className="edit" onClick={(e) => e.stopPropagation()}
+          onSubmit={(e) => { e.preventDefault(); onEdit(draft); setEditing(false); }}>
+          <label className="small muted">{item.old ? <>Replace “{show(item.old)}” with</> : "Insert"}</label>
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(6, 1 + Math.ceil(draft.length / 90))} autoFocus />
+          <div className="actions">
+            <button className="btn ok small" type="submit">Save and accept</button>
+            <button className="btn small" type="button" onClick={() => { setDraft(item.new); setEditing(false); }}>Cancel</button>
+          </div>
+        </form>
+      )}
       <div className="actions">
         <button className="btn ok small" onClick={(e) => { e.stopPropagation(); onDecide("accepted"); }} title="Accept (a)">Accept</button>
         <button className="btn no small" onClick={(e) => { e.stopPropagation(); onDecide("rejected"); }} title="Reject (r)">Reject</button>
         {item.status !== "suggested" && (
           <button className="btn small" onClick={(e) => { e.stopPropagation(); onDecide("suggested"); }} title="Undo (u)">Undo</button>
+        )}
+        {!formatOnly(item) && !editing && (
+          <button className="btn small" onClick={(e) => { e.stopPropagation(); setDraft(item.new); setEditing(true); }} title="Change the wording">Edit</button>
         )}
         {item.kind !== "insert" && (
           <button className="link small" onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}>
@@ -104,8 +158,7 @@ function Queries({ items, onDecide }) {
         <article key={q.key} className={`query ${q.status}`}>
           <div className="meta">
             <b>{q.id || "—"}</b>
-            <span className="reason">{q.check}</span>
-            <span className="muted small">{q.para_id}</span>
+            <span className="reason" title={`${q.check} · ${q.para_id}`}>{ruleLabel(q.check.split(".")[0])}</span>
             <span className="spacer" />
             <span className={`pill ${q.status}`}>{q.status === "rejected" ? "dropped" : q.status === "accepted" ? "kept" : "pending"}</span>
           </div>
@@ -213,6 +266,16 @@ export default function Review({ id }) {
     setData((d) => ({ ...d, items: d.items.map((i) => (ids.includes(i.id) ? { ...i, status } : i)) }));
     try {
       await api.decide(id, { ids, status });
+    } catch (e) {
+      setError(e.message);
+      loadAll();
+    }
+  }, [id, loadAll]);
+
+  const editItem = useCallback(async (itemId, text) => {
+    setData((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, new: text, status: "accepted", edited: true } : i)) }));
+    try {
+      await api.edit(id, itemId, text);
     } catch (e) {
       setError(e.message);
       loadAll();
@@ -334,7 +397,8 @@ export default function Review({ id }) {
                 {visible.length === 0 && <p className="muted">Nothing {onlyPending ? "pending" : ""} here.</p>}
                 {visible.map((item, k) => (
                   <ChangeCard key={item.id} item={item} selected={k === sel} onSelect={() => setSel(k)}
-                    onDecide={(s) => { setSel(k); decide([item.id], s); }} />
+                    onDecide={(s) => { setSel(k); decide([item.id], s); }}
+                    onEdit={(t) => { setSel(k); editItem(item.id, t); }} />
                 ))}
               </section>
             </div>

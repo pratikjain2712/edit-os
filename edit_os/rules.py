@@ -377,4 +377,9 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
                              and _opens_paragraph(k) == _opens_paragraph(c) for k in kept)
             if not clash and not same_point:
                 kept.append(c)
+    # Formatting on text that a kept change replaces is moot (the replacement carries its own
+    # format), and showing it would split one edit into two suggestions.
+    replaced = [k for k in kept if not k.format_only and k.end > k.start]
+    kept = [c for c in kept if not (c.format_only and any(
+        t.para_id == c.para_id and t.start <= c.start and c.end <= t.end for t in replaced))]
     return ChangeSet(kept)

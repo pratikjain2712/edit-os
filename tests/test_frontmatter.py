@@ -217,3 +217,10 @@ def test_no_sources_no_proposals(tmp_path, ijo):
     ms = docmodel.load(make(tmp_path, ["Some title", "Abstract", "Body."]))
     assert fm.plan(ms, ijo).changes == [] and fm.plan(ms, ijo).inserts == []
     assert isinstance(rules.run_all(ms, ijo), ChangeSet)
+
+
+def test_clean_article_type():
+    assert fm.clean_article_type("Case Report (for IJO Case Reports)") == "Case Report"
+    assert fm.clean_article_type("ORIGINAL ARTICLE") == "Original Article"
+    assert fm.clean_article_type("Letter to the editor") == "Letter to the Editor"
+    assert fm.clean_article_type("Case reports") == "Case Report"

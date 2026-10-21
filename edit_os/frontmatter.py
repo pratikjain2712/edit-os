@@ -794,7 +794,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     first, second = (f.article_type, meta.article_type) if cfg.get("type_source") == "text" else (meta.article_type, f.article_type)
     atype = first or second
     if atype:
-        atype = recase(re.sub(r"\s+", " ", atype).strip(" .:"), "title", [])
+        atype = clean_article_type(atype)
     elif _imrad(ms):
         atype = "Original Article"
         qs.append(("front.confirm_type", {}))
@@ -1132,6 +1132,26 @@ def _rewrite(p: Paragraph, runs: list[Run], layer: Layer) -> list[Change] | None
             hi = lo + 1 if k < len(segs) - 1 else i2
             mk(starts[lo], starts[hi], t, f or None)
     return out
+
+
+ARTICLE_TYPES = [
+    "Original Article", "Case Report", "Case Series", "Review Article", "Systematic Review", "Meta-Analysis",
+    "Letter to the Editor", "Short Communication", "Brief Communication", "Brief Report", "Research Letter",
+    "Editorial", "Guest Editorial", "Commentary", "Perspective", "Viewpoint", "Photo Essay", "Surgical Technique",
+    "Ophthalmic Images", "Images in Clinical Practice", "Book Review", "Correspondence", "Special Article",
+]
+
+
+def clean_article_type(raw: str) -> str:
+    """Submission systems add qualifiers ("Case Report (for IJO Case Reports)"); the printed type
+    is the plain name. Known types get their standard spelling."""
+    t = re.sub(r"\([^)]*\)", " ", raw)
+    t = re.split(r"\s+(?:for|-|–|:)\s+", t, maxsplit=1)[0]
+    t = re.sub(r"\s+", " ", t).strip(" .:-–")
+    for known in ARTICLE_TYPES:
+        if t.lower() == known.lower() or t.lower().rstrip("s") == known.lower():
+            return known
+    return recase(t, "title", []) if t else raw.strip()
 
 
 def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Plan:

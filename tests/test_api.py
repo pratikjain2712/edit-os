@@ -175,3 +175,23 @@ def test_s3_storage_round_trip(tmp_path):
     s2 = S3Storage(str(tmp_path / "b"), "bucket", "eo/", client=fake)
     assert s2.restore("j1") and os.path.exists(s2.job_dir("j1") + "/out/x.json")
     assert not s2.restore("missing")
+
+
+def test_editor_rewords_a_suggestion(client, tmp_path):
+    job = wait(client, upload(client, tmp_path).json()["id"])
+    items = client.get(f"/api/jobs/{job['id']}/changes", headers=KEY).json()["items"]
+    target = next(i for i in items if i["kind"] == "change" and not (i["format"] and i["old"] == i["new"]))
+    r = client.post(f"/api/jobs/{job['id']}/edit", headers=KEY, json={"id": target["id"], "new": "EDITOR TEXT"})
+    assert r.status_code == 200
+    after = {i["id"]: i for i in client.get(f"/api/jobs/{job['id']}/changes", headers=KEY).json()["items"]}
+    assert after[target["id"]]["new"] == "EDITOR TEXT" and after[target["id"]]["status"] == "accepted"
+    assert after[target["id"]]["edited"] and after[target["id"]]["source"] == "editor"
+    assert client.post(f"/api/jobs/{job['id']}/render?final=true", headers=KEY).status_code == 200
+    from docx import Document
+    import io
+    clean = client.get(f"/api/jobs/{job['id']}/files/clean", headers=KEY).content
+    assert "EDITOR TEXT" in "\n".join(p.text for p in Document(io.BytesIO(clean)).paragraphs)
+    bad = client.post(f"/api/jobs/{job['id']}/edit", headers=KEY, json={"id": "nope", "new": "x"})
+    assert bad.status_code == 422
+    two = client.post(f"/api/jobs/{job['id']}/edit", headers=KEY, json={"id": target["id"], "new": "a\nb"})
+    assert two.status_code == 422

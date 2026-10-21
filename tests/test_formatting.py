@@ -302,3 +302,13 @@ def test_style_run_end_to_end(tmp_path):
     i = [p.text for p in docmodel.load(str(out)).paragraphs].index("Smith et al. found p < 0.05 in vitro.[1]")
     assert formatted_text(out, "w:i", para=i) == "et al.pin vitro"
     assert formatted_text(out, "w:vertAlign", "superscript", para=i) == "[1]"
+
+
+def test_citation_move_is_one_suggestion(tmp_path):
+    """A citation moved after the full stop carries its superscript itself: no separate
+    formatting suggestion on the text it replaces."""
+    path = make(tmp_path, ["Rates were low [1]. Others agree [2]."] + REFS)
+    cs = rules.run_all(docmodel.load(path), base())
+    para = [c for c in cs.changes if c.para_id == "p0001"]
+    assert para and not any(c.format_only for c in para)
+    assert all((c.format or {}).get("superscript") for c in para if "[" in c.new)
