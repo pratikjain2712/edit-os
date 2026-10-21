@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from docx.text.paragraph import Paragraph as DocxParagraph
 from docx.text.run import Run
 
-from . import refengine, references
+from . import refengine, references, refs_other
 from .docmodel import Manuscript
 from .style import JournalStyle
 
@@ -28,6 +28,15 @@ TEXT = {
     "references.wrong_id": "The {what} given points to a different article. Kindly check the reference.",
     "references.no_volume": "Kindly provide volume and page numbers.",
     "references.book_et_al": "Kindly provide minimum 6 author names before et al.",
+    "references.link_dead": "Link is not working. Kindly check.",
+    "references.link_redirect": "The link now opens a different page ({url}). Kindly check and provide the correct URL.",
+    "references.access_date": "Kindly provide last accessed date.",
+    "references.link_broken": "The URL is broken by spaces. Kindly check and provide the complete URL.",
+    "references.publisher_name": "Kindly provide publisher name and location.",
+    "references.publisher_location": "Kindly provide publisher location.",
+    "references.book_year": "Kindly check the year of publication; the book is listed with {years}.",
+    "references.book_unverified": "This book could not be verified. Kindly check the authors, title, edition, publisher, city and year.",
+    "references.unverified": "This reference could not be verified. Kindly check and confirm the details.",
     "keywords.missing": "Kindly provide key words.",
     "keywords.too_few": "Kindly provide minimum three key words.",
     "sections.conclusion": "Kindly provide the conclusion.",
@@ -130,9 +139,11 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
                 qs.add(ref.para_id, "references.not_found_et_al", **span)
             else:
                 qs.add(ref.para_id, "references.not_found", **span)
-        elif res.status == refengine.NOT_JOURNAL and res.parsed.kind in ("book", "book_chapter") \
+        elif res.status in refs_other.STATUSES and refs_other.classify(ref.text, res.parsed.kind) in ("book", "book_chapter") \
                 and has_et_al and few_authors:
             qs.add(ref.para_id, "references.book_et_al", **span)
+        for check, fmt in res.queries:  # books, links, reports (refs_other)
+            qs.add(ref.para_id, check, **fmt, **span)
 
     # Key words.
     kw = next((p for p in ms.paragraphs if re.match(r"^\s*(?:<H\d>)?\s*key\s*-?words?\b", p.text, re.I)), None)
