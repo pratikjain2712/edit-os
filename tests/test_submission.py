@@ -203,3 +203,20 @@ def test_title_page_file_without_cover_letter():
              "Covering letter", "To", "The Editor-in-Chief", "Dear Sir/Madam,",
              "We are pleased to submit our manuscript entitled “Lens dislocation”.", "Sincerely,\nDr. Ravi Pillai"]
     assert submission.texts_without_parts(first) == first[:3]
+
+
+def test_paragraph_with_an_image_is_never_deleted(tmp_path):
+    import base64
+    png = tmp_path / "dot.png"
+    png.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="))
+    path = merged(tmp_path)
+    doc = Document(path)
+    target = next(p for p in doc.paragraphs if p.text == LETTER[2])
+    target.add_run().add_picture(str(png))
+    doc.save(path)
+    ms = docmodel.load(path)
+    cs = rules.run_all(ms, style.load("ijo"), only=["submission"])
+    pid = next(p.id for p in ms.paragraphs if p.text.startswith(LETTER[2][:30]))
+    assert pid not in {c.para_id for c in cs.changes}
+    assert any(w["para_id"] == pid and "image" in w["message"] for w in submission.warnings(ms, style.load("ijo")))

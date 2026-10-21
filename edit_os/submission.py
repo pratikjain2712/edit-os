@@ -401,12 +401,23 @@ def notice_names(ms: Manuscript) -> list[tuple[str, str]]:
     return []
 
 
+_MEDIA = ("drawing", "pict", "object")
+
+
+def has_media(p: Paragraph) -> bool:
+    """The paragraph holds an image, chart or embedded object (never deleted as submission material)."""
+    return any(el.tag.rpartition("}")[2] in _MEDIA for el in p.element.iter())
+
+
 def rule_submission(ms: Manuscript, style: JournalStyle) -> list[Change]:
-    """Tracked deletions of the submission-only parts; "AQ: " before the portal's copyright notice."""
+    """Tracked deletions of the submission-only parts; "AQ: " before the portal's copyright notice.
+    Paragraphs holding an image or object are left for the editor (see `warnings`)."""
     out: list[Change] = []
     for n, part in enumerate(detect(ms, style).parts, 1):
         for p in part.paras:
             if not p.text.strip():
+                continue
+            if part.action == DELETE and has_media(p):
                 continue
             if part.action == DELETE:
                 out.append(Change(id=f"sub{n}_{p.id}", para_id=p.id, start=0, end=len(p.text), old=p.text, new="",
@@ -425,6 +436,12 @@ def warnings(ms: Manuscript, style: JournalStyle) -> list[dict]:
         p = part.paras[0]
         out.append({"para_id": p.id, "rule": f"submission_{part.kind}",
                     "message": f"{part.kind.replace('_', ' ')} not deleted ({part.note}): {p.text.strip()[:80]!r}"})
+    for part in detect(ms, style).parts:
+        for p in part.paras:
+            if part.action == DELETE and has_media(p):
+                out.append({"para_id": p.id, "rule": f"submission_{part.kind}",
+                            "message": f"{part.kind.replace('_', ' ')}: paragraph with an image or object kept; "
+                                       f"delete it by hand if it is not part of the article"})
     return out
 
 
