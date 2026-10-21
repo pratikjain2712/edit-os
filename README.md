@@ -43,6 +43,8 @@ accepts or rejects every suggestion.
     .venv/bin/python -m edit_os render manuscript.docx changes.json out/
     .venv/bin/python -m edit_os style manuscript.docx ijo out/     # tracked + clean + query sheet + QC
     .venv/bin/python tools/evaluate.py DATA_DIR ijo --per-rule
+    .venv/bin/python -m edit_os style original.zip ijo out/          # with front matter from the zip
+    .venv/bin/python tools/eval_frontmatter.py DATA_DIR all --by-journal
 
 ## Roadmap
 
@@ -55,6 +57,10 @@ accepts or rejects every suggestion.
 - [ ] A3. Tracked formatting changes (bold, italic, superscript)
 - [ ] A4-A7. Headings / abstract / keywords / back matter; figure and table citations; books and
       links in references; front matter (running head, authors, affiliations, correspondence)
+- [x] A7. Front matter (`edit_os/frontmatter.py`): running head, type, title, authors, affiliations,
+      correspondence, history dates, cite line, rebuilt from the title-page file, the submission XML and the
+      manuscript; Claude Haiku only splits fields, code writes the text (`tools/eval_frontmatter.py`: 85% field
+      similarity to the style editors on 160 articles, IJO 91%)
 - [ ] B. Copy edit: LanguageTool (self-hosted), VarCon spelling, abbreviation checker, Claude pass
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
 - [ ] 5. QC report output

@@ -336,6 +336,10 @@ RULES = {
     "formatting": rules_format.rule_formatting,
 }
 
+# Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
+from . import frontmatter  # noqa: E402  (frontmatter imports nothing from this module)
+RULES = {"front_matter": frontmatter.rule_front_matter, **RULES}
+
 
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) -> ChangeSet:
     """Run rules in order; drop any proposal that overlaps one already kept."""
