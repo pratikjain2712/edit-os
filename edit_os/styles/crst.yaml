@@ -1,0 +1,10 @@
+# Cancer Research, Statistics, and Treatment (StyleSheet_CRST.docx); only the settings that differ from base.yaml.
+name: Cancer Research, Statistics, and Treatment
+
+# not yet automated:
+#   - no 'Correspondence' article type: change to Case Report
+#   - structured abstract: Background, Objective, Materials and Methods, Results, Conclusion (+ trial registration)
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+#   - H1 in Title case; required body order: Introduction, Putting in perspective (boxed), Materials and Methods, Results, Discussion, Conclusion, Author contributions, Data sharing statement
+#   - supplementary appendices only at the end of the manuscript
+#   - Graph/Chart/Diagram/Video citations -> 'Figure X'

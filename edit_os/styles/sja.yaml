@@ -1,0 +1,7 @@
+# Saudi Journal of Anaesthesia (StyleSheet_Sample_SJA.docx); only the settings that differ from base.yaml.
+name: Saudi Journal of Anaesthesia
+
+# not yet automated:
+#   - 'ABSTRACT' heading in capitals
+#   - no author queries for missing history dates
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

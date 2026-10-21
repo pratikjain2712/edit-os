@@ -1,0 +1,7 @@
+# TJOSR (StyleSheet_Sample_TJOSR_Updated.docx); only the settings that differ from base.yaml.
+name: TJOSR
+
+# not yet automated:
+#   - journal title not given in the stylesheet
+#   - structured abstract: sub-headings in separate paragraphs
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

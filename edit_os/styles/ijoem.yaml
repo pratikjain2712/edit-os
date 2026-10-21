@@ -1,0 +1,8 @@
+# Indian Journal of Occupational and Environmental Medicine (StyleSheet_Sample_IJOEM.docx); only the settings that differ from base.yaml.
+name: Indian Journal of Occupational and Environmental Medicine
+
+# not yet automated:
+#   - article title in Title Case
+#   - H1 in Small Caps
+#   - structured abstract run-on
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

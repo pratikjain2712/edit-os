@@ -1,0 +1,6 @@
+# Kerala Journal of Ophthalmology (StyleSheet_KJO_new updates.docx); only the settings that differ from base.yaml.
+name: Kerala Journal of Ophthalmology
+
+# not yet automated:
+#   - the sheet only lists updates: authors bottom of the right column; history dates before 'Access this article online'
+#   - structured abstract run-on; H1 in ALL CAPS

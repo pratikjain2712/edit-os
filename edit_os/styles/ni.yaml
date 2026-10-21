@@ -1,0 +1,14 @@
+# Neurology India (StyleSheet_Sample_NI_New.docx); only the settings that differ from base.yaml.
+# Tuned against 13 style-edited articles: closure 16.7% (hurt 34) -> 16.9% (hurt 29) (base only -> this file).
+name: Neurology India
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+
+# not yet automated:
+#   - Key Messages after Keywords in original, review, case report and brief articles (query if missing)
+#   - article title in Title Case
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

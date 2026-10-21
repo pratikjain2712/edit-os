@@ -1,0 +1,6 @@
+# Journal of Education and Health Promotion (StyleSheet_Sample_JEHP.docx); only the settings that differ from base.yaml.
+name: Journal of Education and Health Promotion
+
+# not yet automated:
+#   - affiliations: each linked affiliation written out in full
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

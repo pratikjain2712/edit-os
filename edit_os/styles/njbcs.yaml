@@ -1,0 +1,8 @@
+# Nigerian Journal of Basic and Clinical Sciences (StyleSheet_Sample_NJBCS_Updated.docx); only the settings that differ from base.yaml.
+name: Nigerian Journal of Basic and Clinical Sciences
+
+# not yet automated:
+#   - American spelling
+#   - article title centred
+#   - structured abstract run-on
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

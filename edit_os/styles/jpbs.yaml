@@ -1,0 +1,11 @@
+# Journal of Pharmacy and Bioallied Sciences (StyleSheet_JPBS_New.docx); only the settings that differ from base.yaml.
+name: Journal of Pharmacy and Bioallied Sciences
+
+# not yet automated:
+#   - American spelling
+#   - article title in Title Case, prepositions also capitalized
+#   - author names in italics
+#   - H1 in Small Caps
+#   - supplement articles ('Recent Advances in Dental and Biorelated Sciences') keep the submitted abstract
+#   - structured abstract: Introduction/Background and Objective, Materials and Methods, Results, Conclusion
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

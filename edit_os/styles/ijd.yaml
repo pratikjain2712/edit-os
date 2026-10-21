@@ -1,0 +1,7 @@
+# Indian Journal of Dermatology (StyleSheet_Sample_IJD.docx); only the settings that differ from base.yaml.
+name: Indian Journal of Dermatology
+
+# not yet automated:
+#   - correspondence articles open with 'Dear Editor'
+#   - article title in Title Case
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

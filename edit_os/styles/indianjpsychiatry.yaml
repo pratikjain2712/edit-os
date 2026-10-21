@@ -1,0 +1,17 @@
+# Indian Journal of Psychiatry (StyleSheet_Indianjpsychiatry.docx); only the settings that differ from base.yaml.
+# Tuned against 7 style-edited articles: closure 7.0% (hurt 59) -> 7.2% (hurt 38) (base only -> this file).
+name: Indian Journal of Psychiatry
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+
+statistics:
+  space_around_operators: false  # the editor leaves p=0.03 as typed
+
+# not yet automated:
+#   - affiliations: complete affiliation per number, duplicates not grouped
+#   - structured abstract: sub-headings in separate paragraphs
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

@@ -1,0 +1,7 @@
+# National Journal of Maxillofacial Surgery (StyleSheet_NJMS.docx); only the settings that differ from base.yaml.
+name: National Journal of Maxillofacial Surgery
+
+# not yet automated:
+#   - ethical clearance query in every original article
+#   - 'ABSTRACT' heading in capitals; H1 in capitals
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

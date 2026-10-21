@@ -1,0 +1,28 @@
+# Annals of Indian Academy of Neurology (StyleSheet_Sample_AIAN_New.docx); only the settings that differ from base.yaml.
+# Tuned against 10 style-edited articles: closure 16.8% (hurt 13) -> 17.3% (hurt 8) (base only -> this file).
+name: Annals of Indian Academy of Neurology
+
+headings:
+  # base list without 'abstract': the editor does not tag the Abstract heading
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references, case report,
+       case reports, case presentation, review of literature]
+  # base list + statistical analysis, limitations, data collection (the editor tags these <H2>)
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions,
+       data availability statement, ethical approval, ethics approval, statistical analysis,
+       limitations, data collection]
+
+statistics:
+  space_around_operators: false  # the editor leaves p=0.03 as typed
+
+keywords:
+  alphabetical: false  # the sheet has no alphabetical-order rule; the editor keeps the author's order
+
+# not yet automated:
+#   - article title in Title Case
+#   - serial comma: yes; double quotes; punctuation inside quotes
+#   - references: delete DOIs if added
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+#   - Graph/Chart/Diagram/Video citations -> 'Figure X'

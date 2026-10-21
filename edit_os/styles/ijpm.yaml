@@ -1,0 +1,8 @@
+# Indian Journal of Pathology and Microbiology (StyleSheet_Sample_IJPM.docx); only the settings that differ from base.yaml.
+name: Indian Journal of Pathology and Microbiology
+
+# not yet automated:
+#   - American spelling
+#   - 'ABSTRACT' and 'KEYWORDS:' headings in capitals; H1 in ALL CAPS
+#   - editorials: Editor-in-Chief affiliation with degrees and e-mail
+#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

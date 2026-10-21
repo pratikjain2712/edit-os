@@ -1,0 +1,8 @@
+# Journal of Dr. NTR University of Health Sciences (StyleSheet_jdrntruhs.docx); only the settings that differ from base.yaml.
+# Checked against 3 style-edited articles: no override beat base.yaml.
+name: Journal of Dr. NTR University of Health Sciences
+
+# not yet automated:
+#   - structured abstract with four headings (query if missing)
+#   - no author queries about history dates
+#   - affiliations: 'Departments of X and 1Y'
