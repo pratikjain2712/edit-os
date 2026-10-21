@@ -11,7 +11,7 @@ from itertools import count
 
 import difflib
 
-from . import journals, refengine, references
+from . import journals, refengine, references, renumber, rules_figures
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -320,7 +320,10 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 RULES = {
     "heading_tags": rule_heading_tags,
+    "renumber": renumber.rule_renumber,  # before "citations": renumbered citations win the overlap
     "citations": rule_citations,
+    "fig_citations": rules_figures.rule_citations,
+    "fig_captions": rules_figures.rule_captions,
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
     "references": rule_references,
