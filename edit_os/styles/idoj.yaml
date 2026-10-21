@@ -17,3 +17,6 @@ sections:
     contributions:  # editors copy the title page's "Authors' Contributions:" statement (2 of 2 given as text)
       heading: "Authors’ contributions"
       from_sources: true
+
+text:
+  number_words: {enabled: true}  # copy editors: "three months" -> "3 months" (rules_text.py): 12 proposed, 100%

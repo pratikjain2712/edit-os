@@ -218,12 +218,14 @@ def checker_of(c) -> str:
         return "languagetool"
     if c.reason.startswith("spelling"):
         return "spelling"
+    if c.reason.startswith("text."):
+        return "text"
     return "abbreviations"
 
 
 def main(argv):
     data, journals = argv[0], argv[1].lower().split(",")
-    only = ["spelling", "abbreviations", "languagetool"]  # the Claude pass is paid: only on request
+    only = ["spelling", "text", "abbreviations", "languagetool"]  # the Claude pass is paid: only on request
     if "--only" in argv:
         only = argv[argv.index("--only") + 1].split(",")
     for flag, env in (("--model", "EDITOS_CE_MODEL"), ("--effort", "EDITOS_CE_EFFORT")):

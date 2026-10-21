@@ -32,3 +32,6 @@ copyedit:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   body_unbold: false  # editors keep most bold in running text (4 of 12)
+
+text:
+  prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 27 proposed, 81%

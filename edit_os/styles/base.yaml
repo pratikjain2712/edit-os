@@ -44,6 +44,27 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   p_value_capital: false      # "p = 0.03" -> "P = 0.03" (copy editors, sometimes)
   include_tables: false
 
+text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit checkers; body text, not references
+  # Measured on 158 articles against the copy editors' text (tools/eval_ce.py; proposed, precision): the style
+  # editors make none of these edits in running text. Off unless the journal's copy editors do it.
+  enabled: true
+  include_tables: false
+  ranges: {enabled: true}          # "between 61–70 years" -> "between 61 and 70", "from 18-81" -> "from 18 to 81"
+                                   # (27, 78%; IJO 6 of 6)
+  prefixes:                        # "non-invasive" -> "noninvasive", "post operatively" -> "postoperatively",
+    enabled: false                 # "intraarterial" -> "intra-arterial"; hyphen kept before capitals, numbers,
+    spaced: true                   # the same vowel, -ly adverbs and (post-, pre-) nouns. All journals 441, 55%;
+    same_vowel_hyphen: true        # IJO 98, 93%. Keep consistent with copyedit.claude.close_prefixes.
+  number_words: {enabled: false}   # "three months" -> "3 months" (time units; not at a sentence start). All 233,
+                                   # 52%; IJO 61, 77%; Indian J Psychiatry 21, 95%; IDOJ 12, 100%; ABR 22, 5%
+  stat_semicolons: {enabled: false}  # "(p = 0.065), at 3 months ... (p = 0.165)" -> "(p = 0.065); at 3 months":
+                                     # IJO 2 of 2; rare (25 comma -> semicolon edits in the corpus, most not stats)
+  lowercase:                       # "Retinal Detachment", "Computed Tomography (CT)" mid-sentence -> lower case.
+    enabled: false                 # Off: editors keep capitals as often as they lower them (483, 33%;
+    expansions: true               # IJO 56, 46%; full forms before an abbreviation 126, 24%)
+    running_text: true
+    min_lower: 2                   # a single capitalised word: the author writes it in lower case this often
+
 references:
   lookup: true                 # rebuild entries from PubMed / CrossRef when they match strictly
   ai_parse: true               # Claude splits entries into fields first (needs ANTHROPIC_API_KEY)
@@ -258,6 +279,8 @@ copyedit:
     max_level: 70              # VarCon/SCOWL word level; rarer clusters hold odd forms ("colourectal")
     journals: {}               # journal code -> convention; prefer copyedit.spelling.convention in styles/<journal>.yaml
     skip: [acknowledgement, acknowledgements]  # never converted (guide: "Acknowledgement" heading in UK spelling)
+    extra:                     # conversions VarCon does not make (it lists "analogue" as American too, in the
+      american: {analogue: analog, analogues: analogs}  # "analogous" sense); "visual analogue scale" is kept
   abbreviations:
     enabled: true
     query_undefined: true      # "ABBR: Kindly expand the abbreviation."
