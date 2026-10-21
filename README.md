@@ -45,6 +45,8 @@ accepts or rejects every suggestion.
     .venv/bin/python -m edit_os render manuscript.docx changes.json out/
     .venv/bin/python -m edit_os style manuscript.docx ijo out/     # tracked + clean + query sheet + QC
     .venv/bin/python tools/evaluate.py DATA_DIR ijo --per-rule
+    .venv/bin/python -m edit_os style original.zip ijo out/          # with front matter from the zip
+    .venv/bin/python tools/eval_frontmatter.py DATA_DIR all --by-journal
 
 ## Roadmap
 
@@ -55,11 +57,15 @@ accepts or rejects every suggestion.
 - [x] A1. Author queries as Word comments + query sheet; superscript citations (IJO overall 11.0%)
 - [x] A2. Search-and-replace table from the pre-editing guide (`rules_guide.py`, `guide_replace:` in
       base.yaml; defaults set from how often editors make each edit)
-- [ ] A3. Tracked formatting changes (bold, italic, superscript)
 - [x] A4. Headings / abstract / key words / back matter (`edit_os/rules_sections.py`, settings under
       `sections:`); inserted text can start new paragraphs (`tracked.PARAGRAPH_BREAK`) (IJO 11.6%)
-- [ ] A5-A7. Figure and table citations; books and links in references; front matter (running head,
-      authors, affiliations, correspondence)
+- [x] A3. Tracked formatting changes (`Change.format`, `edit_os/rules_format.py`)
+- [x] A5. Figure and table citations, captions, duplicate references, renumbering (`rules_figures.py`, `renumber.py`)
+- [x] A6. Books, links and conference references (`edit_os/refs_other.py`)
+- [x] A7. Front matter (`edit_os/frontmatter.py`): running head, type, title, authors, affiliations,
+      correspondence, history dates, cite line, rebuilt from the title-page file, the submission XML and the
+      manuscript; Claude Haiku only splits fields, code writes the text (`tools/eval_frontmatter.py`: 85% field
+      similarity to the style editors on 160 articles, IJO 91%)
 - [ ] B. Copy edit: LanguageTool (self-hosted), VarCon spelling, abbreviation checker, Claude pass
 - [ ] 4. Copy edit and style edit suggestions from Claude (structured, anchored to exact text)
 - [ ] 5. QC report output

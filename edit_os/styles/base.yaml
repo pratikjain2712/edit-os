@@ -144,3 +144,66 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     add_missing: true            # required_sections not stated -> heading + default before references
     acknowledgement_heading: null  # e.g. Acknowledgements; editors keep the author's spelling
     patient_consent_query: false # case report without a consent statement (editors rarely query)
+
+front_matter:  # title page: running head, type, title, authors, affiliations, correspondence, history
+  enabled: true
+  ai_split: true                 # Claude Haiku splits the title page into fields (needs the API key)
+  title_case: sentence           # sentence | title | as_is (article title; the running head is always sentence case)
+  capital_after_colon: true      # "dermoids: A comprehensive review"
+  initial_period: true           # "Anjum S. K. Joad" (false: "Anjum S K Joad")
+  abbreviate_middle_names: true  # guide and editors: "Anjum Syed Khan Joad" -> "Anjum S. K. Joad"
+  affiliation_first_unnumbered: true  # "Asha Kumar, Ravi Rao1": the first affiliation has no number
+  letters_at_end: true           # letters: author group to cite line after the letter, before the references
+  correspondence_label: "Address for correspondence:"
+  email_label: "E-mail:"
+  pin_spaced: true               # Indian PIN after the city: "Chennai - 600 006"
+  dates:
+    labels: [Received, Revised, Accepted]
+    keys: [received, revised, accepted]  # which XML dates, in order
+    format: "%d-%m-%Y"           # 16-09-2026
+    one_line: false              # true: one paragraph, tab-separated
+    missing: "???"
+  cite_label: "How to cite this article:"
+  cite_journal: ""               # NLM abbreviation for the cite line; per journal below
+  cite_max_authors: 6
+  ltr_no_running_head_query: false
+  # Per-journal settings (merged over the above by journal code), from the stylesheets and the editors' files.
+  journals:
+    ijo: {title_case: sentence, initial_period: false, correspondence_label: "Correspondence to:",
+          dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y", one_line: true},
+          cite_label: "Cite this article as:", cite_journal: Indian J Ophthalmol,
+          cite_journal_case_reports: Indian J Ophthalmol Case Rep, ltr_no_running_head_query: true}
+    dshmj: {cite_journal: Dr Sulaiman Al Habib Med J}
+    neurol: {title_case: title, cite_journal: Neurol India}
+    joacc: {title_case: title, cite_journal: J Obstet Anaesth Crit Care}
+    abr: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Adv Biomed Res, dates: {labels: [Submitted, Revised, Accepted]}}
+    aca: {title_case: title, cite_journal: Ann Card Anaesth}
+    aian: {initial_period: false, title_case: title, cite_journal: Ann Indian Acad Neurol}
+    aomd: {affiliation_first_unnumbered: false, cite_journal: Ann Mov Disord}
+    crst: {cite_journal: Cancer Res Stat Treat}
+    idoj: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Indian Dermatol Online J}
+    ija: {title_case: as_is, cite_journal: Indian J Anaesth}
+    ijc: {cite_journal: Indian J Cancer, correspondence_label: "Correspondence to:"}
+    ijcm: {cite_journal: Indian J Community Med}
+    ijd: {title_case: title, cite_journal: Indian J Dermatol}
+    ijdr: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Indian J Dent Res}
+    ijnmr: {title_case: title, cite_journal: Iran J Nurs Midwifery Res}
+    ijpm: {cite_journal: Indian J Pathol Microbiol}
+    ijpvm: {title_case: title, cite_journal: Int J Prev Med}
+    indianjpsychiatry: {cite_journal: Indian J Psychiatry}
+    ipj: {cite_journal: Ind Psychiatry J}
+    jcrt: {cite_journal: J Cancer Res Ther}
+    jdrntruhs: {cite_journal: J NTR Univ Health Sci}
+    jehp: {cite_journal: J Educ Health Promot}
+    jfmpc: {affiliation_first_unnumbered: false, cite_journal: J Family Med Prim Care}
+    jomfp: {cite_journal: J Oral Maxillofac Pathol}
+    jpgm: {cite_journal: J Postgrad Med}
+    lungindia: {affiliation_first_unnumbered: false, cite_journal: Lung India}
+    mjdrdypu: {cite_journal: Med J DY Patil Univ}
+    njcp: {title_case: title, cite_journal: Niger J Clin Pract}
+    njms: {cite_journal: Natl J Maxillofac Surg}
+    sja: {cite_journal: Saudi J Anaesth}
+    sjg: {affiliation_first_unnumbered: false, cite_journal: Saudi J Gastroenterol}
+    smj: {cite_journal: Singapore Med J, correspondence_label: "Correspondence:", capital_after_colon: false,
+          dates: {labels: [Received, Accepted], keys: [received, accepted], format: "%d %b %Y", one_line: true}}
+    wjcs: {cite_journal: World J Colorectal Surg}

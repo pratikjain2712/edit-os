@@ -348,6 +348,10 @@ RULES = {
     "guide_replace": rules_guide.rule_guide,
 }
 
+# Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
+from . import frontmatter  # noqa: E402  (frontmatter imports nothing from this module)
+RULES = {"front_matter": frontmatter.rule_front_matter, **RULES}
+
 
 def _opens_paragraph(c: Change) -> bool:
     from .tracked import PARAGRAPH_BREAK

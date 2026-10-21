@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from lxml import etree  # noqa: E402
 from rapidfuzz.distance import Levenshtein  # noqa: E402
 
-from edit_os import docmodel, references, rules, style as style_mod, tracked  # noqa: E402
+from edit_os import docmodel, frontmatter, references, rules, style as style_mod, tracked  # noqa: E402
 from edit_os.changes import Status  # noqa: E402
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -98,6 +98,7 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
         with open(path, "wb") as f:
             f.write(src)
         ms = docmodel.load(path)
+        ms.front_sources = frontmatter.sources_from_zip(os.path.join(article_dir, "original.zip"))
         originals = [p.text for p in ms.paragraphs]
         # Reference entries are scored by eval_refs.py, which pairs them by number: editors often
         # move or retype them, so pairing paragraphs by their original text would mislead.
