@@ -7,6 +7,7 @@ accordingly. Responses are cached in SQLite so re-running a manuscript costs not
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import sqlite3
@@ -40,6 +41,8 @@ class Record:
     pmid: str = ""
     doi: str = ""
     issn: list[str] = field(default_factory=list)
+    other_years: list[str] = field(default_factory=list)  # online / issued years besides `year`
+    journal_full: str = ""  # CrossRef: the full container title ("Interactive Technology and Smart Education")
 
 
 class _Http:
@@ -140,8 +143,9 @@ def pubmed_fetch(pmids: list[str]) -> list[Record]:
                 authors.append((au.findtext("LastName").strip(), initials))
         ji = a.find("Journal/JournalIssue")
         year = (ji.findtext("PubDate/Year") or (ji.findtext("PubDate/MedlineDate") or "")[:4]) if ji is not None else ""
+        online = a.findtext("ArticleDate/Year") or ""
         if not year:
-            year = a.findtext("ArticleDate/Year") or ""
+            year = online
         doi = ""
         for aid in art.findall("PubmedData/ArticleIdList/ArticleId"):
             if aid.get("IdType") == "doi":
@@ -159,17 +163,28 @@ def pubmed_fetch(pmids: list[str]) -> list[Record]:
             issue=(ji.findtext("Issue") or "").strip() if ji is not None else "",
             pages=pages.strip(), pmid=mc.findtext("PMID") or "", doi=doi,
             issn=[i.text for i in a.findall("Journal/ISSN") if i.text],
+            other_years=[online.strip()] if online.strip() and online.strip() != year.strip() else [],
         ))
     return out
 
 
+def _with_subtitle(item: dict) -> str:
+    """CrossRef keeps a subtitle apart ("Effectiveness of intelligent tutoring systems" + "A meta-analytic
+    review"): the title as printed, joined by a colon, unless the title already holds it."""
+    title = (item.get("title") or [""])[0].strip()
+    sub = (item.get("subtitle") or [""])[0].strip()
+    if sub and title and sub.lower() not in title.lower():
+        return f"{title.rstrip(':')}: {sub}"
+    return title
+
+
 def _crossref_record(item: dict) -> Record:
-    year = ""
+    years = []
     for k in ("published-print", "published-online", "issued"):
         parts = item.get(k, {}).get("date-parts") or [[None]]
         if parts and parts[0] and parts[0][0]:
-            year = str(parts[0][0])
-            break
+            years.append(str(parts[0][0]))
+    year = years[0] if years else ""
     authors = []
     for au in item.get("author", []):
         if au.get("family"):
@@ -178,11 +193,12 @@ def _crossref_record(item: dict) -> Record:
         elif au.get("name"):
             authors.append((au["name"], ""))
     container = item.get("short-container-title") or item.get("container-title") or [""]
+    full = html.unescape((item.get("container-title") or [""])[0])
     return Record(
-        source="crossref", title=(item.get("title") or [""])[0], authors=authors, journal=container[0],
+        source="crossref", title=_with_subtitle(item), authors=authors, journal=container[0],
         year=year, volume=item.get("volume", ""), issue=item.get("issue", ""),
         pages=item.get("page", "") or item.get("article-number", ""), doi=item.get("DOI", ""),
-        issn=item.get("ISSN", []),
+        issn=item.get("ISSN", []), other_years=sorted(set(years) - {year}), journal_full=full,
     )
 
 
@@ -329,7 +345,8 @@ def fallback_candidates(title: str, first_author: str, year: str, text: str = ""
         else:
             yield fetch(pubmed_search(f'"{known.doi}"[aid]', retmax=1))
     surname = first_author_surname(first_author)
-    term = partial_title_query(title, surname, year, journal_hint(text, title) if text else "")
+    hint = journal_hint(text, title) if text and title else ""
+    term = partial_title_query(title, surname, year, hint)
     if term and left >= 2:
         left -= 1
         yield fetch(pubmed_best_match(term))
@@ -337,3 +354,6 @@ def fallback_candidates(title: str, first_author: str, year: str, text: str = ""
         left -= 1
         flat = re.sub(r"\s*[:.]\s+", ": ", title.strip().rstrip("."))  # title and subtitle as one
         yield crossref_search(" ".join(x for x in (flat, surname, year) if x))
+        if hint and left >= 1:  # with the journal: journals outside PubMed (APA lists: "Computers in Human Behavior")
+            left -= 1
+            yield crossref_search(" ".join(x for x in (flat, surname, year, hint) if x))

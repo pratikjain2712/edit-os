@@ -475,7 +475,7 @@ def _surname_in(surname: str, names: list[str]) -> bool:
     return bool(s) and any(s in refengine.fold(n).split() for n in names)
 
 
-def verify_book(title: str, surnames: list[str], year: str, chapter: str = "") -> BookCheck:
+def verify_book(title: str, surnames: list[str], year: str, chapter: str = "", text: str = "") -> BookCheck:
     """Find the book in CrossRef (book / chapter records) or Open Library: title and an author or
     editor surname must agree. Years, publishers and places of the matched record are returned so
     the caller can confirm the author's data; nothing is copied into the entry."""
@@ -501,9 +501,15 @@ def verify_book(title: str, surnames: list[str], year: str, chapter: str = "") -
             out = BookCheck(True, "crossref", t, [str(parts[0])] if parts and parts[0] else [],
                             [it.get("publisher", "")], [it.get("publisher-location", "")] if it.get("publisher-location") else [])
             break
-    if not out.verified:
+    main, _, sub = title.partition(":")
+    # Open Library matches its "title" field, which holds the main title only: "Self-efficacy: The exercise
+    # of control" is found as "Self-efficacy". Then the main title, the subtitle when the record has one,
+    # an author and the year must all agree.
+    for query in [title] + ([main.strip()] if sub.strip() and len(main.strip()) >= 5 else []):
+        if out.verified:
+            break
         url = "https://openlibrary.org/search.json?" + urllib.parse.urlencode({
-            "title": title[:200], "author": surnames[0], "limit": 5,
+            "title": query[:200], "author": surnames[0], "limit": 5,
             "fields": "title,subtitle,author_name,publisher,publish_place,publish_year,isbn"})
         body = biblio.http().get(url, 0.5)
         try:
@@ -512,16 +518,53 @@ def verify_book(title: str, surnames: list[str], year: str, chapter: str = "") -
             docs = []
         for d in docs:
             full = d.get("title", "") + (": " + d["subtitle"] if d.get("subtitle") else "")
-            if max(_similar(title, d.get("title", "")), _similar(title, full)) >= 90 \
-                    and any(_surname_in(s, d.get("author_name", [])) for s in surnames):
-                out = BookCheck(True, "openlibrary", full, [str(y) for y in d.get("publish_year", [])],
-                                d.get("publisher", []), d.get("publish_place", []))
+            years = [str(y) for y in d.get("publish_year", [])]
+            if not any(_surname_in(s, d.get("author_name", [])) for s in surnames):
+                continue
+            whole = max(_similar(title, d.get("title", "")), _similar(title, full)) >= 90
+            by_main = query != title and _similar(main, d.get("title", "")) >= 95 and bool(year) and year in years \
+                and (_similar(sub, d["subtitle"]) >= 80 if d.get("subtitle") else _publisher_in(d.get("publisher", []), text))
+            if whole or by_main:
+                out = BookCheck(True, "openlibrary", full, years, d.get("publisher", []), d.get("publish_place", []))
                 break
     if out.verified:
         out.confirmed = ["title", "author"]
         if year and year in out.years:
             out.confirmed.append("year")
     return out
+
+
+def verify_paper(title: str, surnames: list[str], year: str) -> str:
+    """A conference paper in CrossRef's proceedings: title, an author's surname and the year must all agree.
+    Returns the record's title, or "" when not found."""
+    if not title or not surnames or not year:
+        return ""
+    url = biblio.CROSSREF + "?" + urllib.parse.urlencode({
+        "query.bibliographic": " ".join((title, surnames[0], year))[:300], "rows": 5,
+        "filter": "type:proceedings-article"})
+    body = biblio.http().get(url, 0.1)
+    try:
+        items = json.loads(body)["message"]["items"] if body else []
+    except (ValueError, KeyError):
+        items = []
+    for it in items:
+        r = biblio._crossref_record(it)
+        names = [a for a, _ in r.authors]
+        years = {y[:4] for y in [r.year] + r.other_years}
+        if _similar(title, r.title) >= 90 and year in years and any(_surname_in(x, names) for x in surnames):
+            return r.title
+    return ""
+
+
+def _publisher_in(publishers: list[str], text: str) -> bool:
+    """One of the record's publishers is named in the entry ("W.H. Freeman", "Harvard University Press")."""
+    words = set(refengine.fold(text).split())
+    skip = {"press", "publishers", "publisher", "publishing", "inc", "ltd", "co", "company", "the", "and", "of", "books", "group"}
+    for pub in publishers:
+        core = [w for w in refengine.fold(pub).split() if w not in skip and len(w) > 1]
+        if core and all(w in words for w in core):
+            return True
+    return False
 
 
 # --- resolution ------------------------------------------------------------------------------
@@ -606,7 +649,7 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
                 notes.append(f"chapter found in {bc.source}: {bc.title[:80]}")
         if not verified and cfg("verify_books"):
             bc = verify_book(parts["book"] or p.title, _surnames(p, parts), parts["year"] or p.year,
-                             parts["chapter"] if kind == CHAPTER else "")
+                             parts["chapter"] if kind == CHAPTER else "", text)
             if bc.verified:
                 verified = True
                 notes.append(f"book found in {bc.source}: {bc.title[:80]}; confirms {', '.join(bc.confirmed)}")
@@ -619,7 +662,12 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
                 res.queries.append(("references.publisher_location", {}))
         if not verified and not fixed.url:
             res.queries.append(("references.book_unverified", {}))
-    elif kind in (CONFERENCE, REPORT, THESIS) and not verified and cfg("query_unverified"):
+    elif kind == CONFERENCE and not verified and cfg("verify_books") and p.title:
+        found = verify_paper(p.title, _surnames(p, {}), p.year)
+        if found:
+            verified = True
+            notes.append(f"paper found in crossref: {found[:80]}; confirms title, author, year")
+    if kind in (CONFERENCE, REPORT, THESIS) and not verified and cfg("query_unverified"):
         res.queries.append(("references.unverified", {}))
 
     res.status = OTHER_VERIFIED if verified else OTHER_FIXED if res.formatted else refengine.NOT_JOURNAL

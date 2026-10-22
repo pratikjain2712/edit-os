@@ -11,9 +11,11 @@ Gy, cGy, mGy, Sv, mSv, Bq, MBq, GBq, mCi, Ci, dB, s, sec, ms, min, h, hr, hrs, d
 # Statistics
 P, p, SD, SE, SEM, CI, OR, aOR, HR, aHR, RR, IQR, ANOVA, ANCOVA, AUC, ROC, AUROC, ICC, df, DF, NS
 NPV, PPV, LR, SPSS, SAS, GLM, GEE, PCA, CV, MANOVA, VIF, R2, Q1, Q3, USD, INR, Rs, EUR, GBP, SE
+# model fit and validity indices reported like P and CI (structural equation models, questionnaire validation)
+CFI, TLI, GFI, AGFI, NFI, NNFI, IFI, RMSEA, SRMR, CVI, CVR, AVE, HTMT
 
 # Terms in general use
-DNA, RNA, mRNA, cDNA, miRNA, PCR, RT-PCR, qPCR, HIV, AIDS, WHO, UK, USA, US, UAE, EU, UN, UNICEF
+DNA, RNA, mRNA, cDNA, miRNA, rRNA, tRNA, siRNA, PCR, RT-PCR, qPCR, HIV, AIDS, WHO, UK, USA, US, UAE, EU, UN, UNICEF
 COVID, COVID-19, SARS-CoV-2, SARS, MERS, ICMR, CDC, NIH, FDA, NHS, ICD, ICD-10, ICD-11, DSM, DSM-5, DSM-IV
 CONSORT, STROBE, PRISMA, CARE, STARD, GRADE, PROSPERO, PubMed, MEDLINE, EMBASE, CINAHL, ORCID, DOI, ISBN, ISSN
 ID, IDs, OK, TV, PC, AM, PM, a.m., p.m., e.g., i.e., vs, etc, AQ, OD, OS, OU, Fig, Figs, No, Nos, Ltd, Inc, LLC, Co
@@ -23,6 +25,8 @@ OPD, KOH
 
 # Degrees, ethics committees, databases and software (none queried by the copy editors in 160 articles)
 MBBS, MD, MS, PhD, FRCP, FRCS, FRCR, DNB, MCh, SCOPUS, Scopus, ChatGPT, iOS
+JAMOVI, MAXQDA, NVivo, AMOS, LISREL, ERIC, CENTRAL, LILACS, SmartPLS, PsycINFO, GRADEpro, CRediT, MBChB, MMed
+OpenAI, RESTful  # company names, web terms
 
 # Company and software names, places
 IBM, SPSS, GE, NCSS, STATA, Stata, GraphPad, SAS, NY  # state codes after a city ("Armonk, NY") are skipped by rule

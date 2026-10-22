@@ -11,6 +11,12 @@ contribution lines ("Concept: AB, CD"), words in capitals that form a heading or
 codes, a product with its model number or maker ("SCANX 700", "(VIEWER V60, Osaka, Japan)"), and
 abbreviations expanded after them ("DBS (deep brain stimulation)"). On 160 articles this cut the
 "Kindly expand" queries from 868 to 580 and kept all 22 that the copy editors raised.
+Back-matter statements (contributions, funding, conflicts, the use of AI tools), key words, titles, degrees
+("MD, DM") and named tools ("the TREND statement") are not queried either; abbreviation lists and table notes
+are never a second definition. With `defined_in_article` (JEHP: "Look for undefined acronyms"), an acronym
+the article expands anywhere -- the abstract, an abbreviation list or table note, "(SCOFF)" after its
+description -- is not undefined, and the lists themselves and institution names are not queried
+(17 JEHP articles: 92 -> 16 "Kindly expand" queries).
 
 Output:
   * author queries, in the copy editors' wording, for abbreviations never expanded;
@@ -188,14 +194,28 @@ def _before_references(paras: list[Paragraph]) -> list[Paragraph]:
     ("Rao KL, Moss T. A title ... 2006;90:262-7.")."""
     from .. import references
 
-    out = []
+    out, back = [], False
     for p in paras:
         if references._HEADING.match(p.text):
             break
-        if _reference_like(p.text) or _contributions(p.text):
+        if _is_heading(p):
+            back = bool(_BACK_MATTER.match(p.text))
+        if back or _BACK_MATTER_LABEL.match(p.text) or _reference_like(p.text) or _contributions(p.text):
             continue
         out.append(p)
     return out
+
+
+# Back-matter statements after the main text: who did what, funding, conflicts, the use of AI tools. Their
+# initials ("SM contributed to ..."), company and tool names ("ChatGPT (OpenAI)") are not queried.
+_BACK_WORDS = (r"acknowledge?ments?|authors?['’]?s?['’]?\s+contributions?|contributions?\s+of\s+(?:the\s+)?authors|contributors"
+               r"|conflicts?\s+of\s+interests?|competing\s+interests?|declaration\s+of\s+(?:competing|conflicting)"
+               r"|financial\s+support|funding|sources?\s+of\s+(?:funding|support)|sponsorship"
+               r"|(?:use|usage)\s+of\s+(?:generative\s+)?(?:ai|artificial\s+intelligence)\b.*|ai\s+(?:policy|use|tools?|statement)"
+               r"|(?:compliance\s+with\s+)?\w*\s*ai\s+policy.*|declaration\s+of\s+(?:generative\s+)?ai\b.*|using\s+ai|disclosure"
+               r"|generative\s+ai.*|data\s+availability(?:\s+statement)?|availability\s+of\s+data.*")
+_BACK_MATTER = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?(?:" + _BACK_WORDS + r")\s*:?\s*$", re.I)
+_BACK_MATTER_LABEL = re.compile(r"^\s*(?:<H\d>)?\s*(?:" + _BACK_WORDS.replace(".*", "[^:]{0,40}") + r")\s*[:.\-–]\s", re.I)
 
 
 def _reference_like(text: str) -> bool:
@@ -223,7 +243,7 @@ def _abbr_key(tok: str) -> str | None:
     """The abbreviation a token stands for ("RCTs" -> "RCT", "post-COVID" -> "COVID"), or None
     if it is not one (ordinary words, Roman numerals, codes such as "C6-T4" or "PM2", approval
     numbers such as "IEC/0078/2022")."""
-    tok = re.sub(r"^(?:[a-z]+-)+", "", tok.rstrip("-"))  # lowercase prefixes: post-, non-, anti-
+    tok = re.sub(r"^(?:[a-z]{2,}-)+", "", tok.rstrip("-"))  # lowercase prefixes: post-, non-, anti- (not "t-SNE")
     base = re.sub(r"(?<=[A-Z0-9])s$", "", tok)
     if len(base) < 2 or len(base) > 12 or base.isdigit():
         return None
@@ -251,12 +271,21 @@ _MAKER = re.compile(r"\([^()]*\b(?:Inc|Ltd|LLC|GmbH|AG|S\.?A|Corp|Corporation|Co
 _MODEL = re.compile(r"\s+-?\s?\d{3,4}(?:[A-Z][A-Za-z0-9]*)?(?![\d,.%])(?!\s*(?:%|(?:mg|g|kg|mm|cm|m|ml|mL|L|µm|μm|um|nm|ms|s|min|h|Hz|kHz|MHz|kDa|IU|U|mmHg|cells|patients|eyes)\b))|\s+\d[A-Z]{1,3}\d")
 # Words in capitals that are not abbreviations: search operators, licence and label words.
 _NOT_ABBR = {"AND", "OR", "NOT", "BY", "THE", "OF", "IN", "FIGURE", "FIGURES", "TABLE", "TABLES", "GROUP", "NOTE",
-             "NOTES", "CASE", "REPORT", "NA", "NIL"}
+             "NOTES", "CASE", "REPORT", "NA", "NIL", "ONLY", "ALL", "NONE", "MUST", "NEVER", "ALWAYS", "BOTH", "EACH",
+             "ANY", "ALSO", "VERY", "YES", "ONE", "TWO"}
+# Two or more degrees after a name: "Ajay Kumar Jha, MD, DM" (DM alone is diabetes mellitus).
+_DEGREE = r"(?:MBBS|MD|MS|DM|MCh|M\.Ch|PhD|DNB|MPH|MSc|BSc|MDS|BDS|FRCS|FRCP|FRCOG|MRCP|MRCOG|FACS|DCH|DGO|DO|RN|BSN|MSN|DrPH|MA|BA)"
+_DEGREES = re.compile(r"(?<![\w-])" + _DEGREE + r"(?:\s*,\s*" + _DEGREE + r")+(?![\w-])")
+# What follows a name that is not an abbreviation to expand: a reporting statement, program, software or database
+# ("the TREND statement", "MAXQDA software"); with `defined_in_article`, an institution ("SRM Medical College":
+# other journals' copy editors expanded "GMERS Medical College" once in 4).
+_NAMED = re.compile(r"\s+(?:statement|program|programme|software|package|database|platform)\b")
+_INSTITUTION = re.compile(r"\s+(?:[A-Z][a-z]+\s+){0,2}(?:College|University|Hospital|Institute|Foundation|Trust|Corporation)\b")
 _CAPS_RUN = re.compile(r"(?<![\w-])[A-Z]{2,}(?:\s+[A-Z]{2,})+(?![\w-])")
 _LABEL = re.compile(r"(?:^\s*|\(\s*|[.?!]\s+)((?:[A-Z]{2,}\s+)*[A-Z]{2,})\s*:")
 
 
-def uses(p: Paragraph):
+def uses(p: Paragraph, lenient: bool = False):
     if p.text.strip().isupper() or is_numeric(p.text):
         return  # all-caps headings and number rows
     prot = protected_spans(p.text)
@@ -267,6 +296,7 @@ def uses(p: Paragraph):
              if max(len(w) for w in m.group(0).split()) >= 5]
     prot += [(m.start(1), m.end(1)) for m in _LABEL.finditer(p.text)]
     prot += [(m.start(), m.end()) for m in _MAKER.finditer(p.text)]
+    prot += [(m.start(), m.end()) for m in _DEGREES.finditer(p.text)]
     for m in _USE.finditer(p.text):
         key = _abbr_key(m.group(1))
         if not key or key in _NOT_ABBR or overlaps(m.start(), m.end(), prot):
@@ -275,8 +305,10 @@ def uses(p: Paragraph):
             continue  # a dotted code: "IR.XYZ.REC.1400.123"
         if _MODEL.match(p.text, m.end()):
             continue  # a product and its model number: "Acme SCANX 700", "QRX 700 HD", "VTS -300"
-        if len(key) == 2 and _PLACE.search(p.text[:m.start()]):
-            continue
+        if len(key.replace("&", "")) == 2 and _PLACE.search(p.text[:m.start()]):
+            continue  # "Armonk, NY", "Jammu, J&K"
+        if _NAMED.match(p.text, m.end()) or lenient and _INSTITUTION.match(p.text, m.end()):
+            continue  # a named tool ("the COACH program"), an institution ("SRM Medical College")
         if m.start() == len(p.text) - len(p.text.lstrip()) and p.text[m.end():m.end() + 1] == ":" and key.isalpha():
             continue  # "KEYWORDS:" label
         yield key, m.start(1), m.end(1)
@@ -383,6 +415,52 @@ def expanded_elsewhere(ms: Manuscript) -> set[str]:
     return out
 
 
+# An abbreviation list or table note: "Abbreviations: CI, confidence interval; SD: standard deviation",
+# "Note. CE = Concrete Experience; RO = Reflective Observation".
+_GLOSS_LABEL = re.compile(r"^\s*(?:<H\d>)?\s*(?:list\s+of\s+)?(?:abbreviations?|acronyms?|notes?)\b\s*(?:used)?\s*[:.\-–]?", re.I)
+_GLOSS_PAIR = re.compile(r"(?<![\w\-/])(?P<sf>[A-Za-z][A-Za-z0-9\-/&]{0,11}[A-Za-z0-9]|[A-Z])\s*[:=,\u202f]\s*\u202f?"
+                         r"(?P<lf>[A-Za-z][^;:=,\u202f]{2,100})")
+
+
+def glossary(p: Paragraph) -> dict[str, tuple[int, int]]:
+    """Abbreviations a list or table note defines ("CFI, Comparative Fit Index"; "CE = Concrete Experience"),
+    with the span of each; {} for a paragraph that is not such a list (a label, or two such pairs at least)."""
+    out = {}
+    label = _GLOSS_LABEL.match(p.text)
+    for m in _GLOSS_PAIR.finditer(p.text, label.end() if label else 0):
+        key = _abbr_key(m.group("sf"))
+        # the full form runs to the next comma, or (after ":" / "=") to the next semicolon or colon:
+        # "KAP: Knowledge, Attitude and Practice; IEC: ..."
+        wide = re.match(r"[^;:=\u202f]{2,100}", p.text[m.start("lf"):])
+        lf = wide.group(0) if wide else m.group("lf")
+        if key and (_expands(key, m.group("lf")) or _expands(key, lf) or lf.split()[0].lower() == key.lower()):
+            out.setdefault(key, (m.start("sf"), m.end("sf")))
+    labelled = label is not None
+    if labelled and re.match(r"\s*(?:<H\d>)?\s*(?:list\s+of\s+)?(?:abbreviations?|acronyms?)", p.text, re.I):
+        for d in definitions(p):  # "Abbreviations: Reproductive Tract Infections (RTI), AOR (Adjusted Odds Ratio)"
+            out.setdefault(d.short, (d.sf_start, d.sf_start + len(d.short)))
+        for m in _REVERSE.finditer(p.text):
+            if (key := _abbr_key(m.group("sf"))) and _expands(key, m.group("lf")):
+                out.setdefault(key, (m.start("sf"), m.end("sf")))
+    return out if out and (len(out) >= 2 or labelled) else {}
+
+
+# "(SCOFF)" right after two or more words that describe it: the author's name for the thing, given in context.
+_NAMED_IN_BRACKETS = re.compile(r"(?<=[A-Za-z]{3})\s+\(([A-Za-z][A-Za-z0-9\-/&]{0,11}[A-Za-z0-9])\)")
+
+
+def _title_like(p: Paragraph) -> bool:
+    """A title or running title in the abstract page ("Uric Acid-to-HDL Ratio in ACS"): short, no final
+    full stop, most words capitalised."""
+    text = re.sub(r"^\s*<H\d>", "", p.text).strip()
+    words = [w for w in re.findall(r"[A-Za-z][\w\-]*", text) if w.lower() not in _MINOR]
+    return 0 < len(text) < 150 and not text.endswith(".") and len(words) >= 3 \
+        and sum(w[0].isupper() for w in words) >= 0.8 * len(words)
+
+
+_MINOR = {"a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for", "with", "by", "from", "vs", "versus", "among"}
+
+
 def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Query]]:
     cfg = style.get("copyedit.abbreviations", {}) or {}
     if not cfg.get("enabled", True):
@@ -393,11 +471,26 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
     queries: list[Query] = []
     queried: set[str] = set()
     all_scopes = scopes(ms)
-    glossary = expanded_elsewhere(ms) if cfg.get("query_undefined", True) else set()
+    expanded = expanded_elsewhere(ms) if cfg.get("query_undefined", True) else set()
     outside = _outside_scopes(ms, {p.id for s in all_scopes for p in s})
+    lists = {p.id: g for p in ms.paragraphs if (g := glossary(p))}  # abbreviation lists, table notes
+    # Defined somewhere in the article, for the "undefined" query (JEHP S: "Look for undefined acronyms"):
+    # in another scope (the abstract), an abbreviation list or table note, or named in brackets after its
+    # description ("risk of eating disorders (SCOFF)", "maximum likelihood method (FIML)").
+    known: set[str] = set()
+    lenient = bool(cfg.get("defined_in_article"))
+    if lenient:
+        for p in ms.paragraphs:
+            known.update(d.short for d in definitions(p))
+            known.update(lists.get(p.id, {}))
+            for m in _NAMED_IN_BRACKETS.finditer(p.text):
+                if (k := _abbr_key(m.group(1))):
+                    known.add(k)
     for n_scope, scope in enumerate(all_scopes):
         defs: dict[str, list[Definition]] = {}
         for p in scope:
+            if p.id in lists or _KEYWORDS.match(p.text):
+                continue  # "Abbreviations: Reproductive Tract Infections (RTI), ...", "Keywords: ... (RTI)"
             for d in definitions(p):
                 defs.setdefault(d.short, []).append(d)
         order = {p.id: i for i, p in enumerate(scope)}
@@ -407,7 +500,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         n_uses: dict[str, int] = {}  # uses after the definition
         for p in scope:
             spans = [(d.start, d.end) for d in definitions(p)]
-            for key, s, e in uses(p):
+            for key, s, e in uses(p, lenient):
                 if overlaps(s, e, spans):
                     continue
                 used.add(key)
@@ -415,6 +508,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                     n_uses[key] = n_uses.get(key, 0) + 1
                 if key in allow or key.upper() in allow_upper:
                     continue
+                if _KEYWORDS.match(p.text) or _title_like(p) or lenient and p.id in lists:
+                    continue  # key words, titles; with `defined_in_article` the list itself ("CFI, Comparative Fit
+                    # Index; GFI, ..."; other journals' copy editors expand such list items in the text)
                 first_use.setdefault(key, (p, s, e))
         if n_scope == len(all_scopes) - 1:  # the main text: its abbreviations are used in tables and legends too
             for p in outside:
@@ -465,7 +561,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                         queries.append(Query(p.id, s, e, TEXT["abbrev.before_definition"].format(abbr=key),
                                              "abbrev.before_definition"))
             elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \
-                    and key not in glossary:
+                    and key not in expanded and key not in known:
                 # Codes with digits or hyphens (gene names, scales such as GDS-15) are rarely queried.
                 queried.add(key)  # once per manuscript
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))

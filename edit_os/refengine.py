@@ -58,12 +58,35 @@ def fold(s: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", s).split())
 
 
+# APA: "Pekrun, R., Goetz, T., & Perry, R. P. (2002). Title. Journal, 37(2), 91–105."
+APA_HEAD = re.compile(r"^\s*(?P<authors>[^()]{2,600}?)\s*\((?P<year>(?:19|20)\d{2})[a-z]?(?:,[^)]*)?\)\.\s*(?P<rest>.+)$", re.S)
+APA_NAME = re.compile(r"(?:^|,\s*|&\s*|\band\s+)(?:&\s*)?(?P<surname>[^\W\d][^,&()]*?),\s*(?P<initials>(?:[A-Z][a-z]?\.\s*-?\s*)+)(?=,|\s*&|\s*$|\s*\(|\s+and\b)")
+
+
+def apa_authors(head: str) -> list[str]:
+    """"Mu, T., Wang, F., & Xu, Y." -> ["Mu T", "Wang F", "Xu Y"]; [] when it is not such a list."""
+    head = re.sub(r",?\s*et al\.?", "", head).strip().rstrip(",")
+    out, pos = [], 0
+    for m in APA_NAME.finditer(head):
+        if head[pos:m.start()].strip(" ,&"):
+            return []
+        out.append(m.group("surname").strip() + " " + re.sub(r"[^A-Z-]", "", m.group("initials")).strip("-"))
+        pos = m.end()
+    return out if out and not head[pos:].strip(" ,.&") else []
+
+
 def parse(text: str) -> Parsed:
     p = Parsed(text=text)
     if m := DOI.search(text):
         p.doi = m.group(1).rstrip(".,;")
     if m := PMID.search(text):
         p.pmid = m.group(1)
+    apa = APA_HEAD.match(text)
+    if apa and (names := apa_authors(apa.group("authors"))):
+        p.authors, p.year = names, apa.group("year")
+        t = re.match(r"(.+?[.?!])\s+(?=[A-Z])", apa.group("rest"))
+        p.title = (t.group(1) if t else apa.group("rest")).strip().rstrip(".")
+        return p
     if m := AUTHORS_END.search(text):
         p.authors = [a.strip() for a in text[:m.start()].split(",") if a.strip() and "et al" not in a]
         rest = text[m.end():]
@@ -103,7 +126,7 @@ def from_fields(text: str, f: dict) -> Parsed:
 def looks_like_journal_article(text: str) -> bool:
     if re.search(r"\b(ed\.|edition|editors?|publishers?|press|available from|accessed|thesis|dissertation)\b", text, re.I):
         return False
-    return bool(YEAR_VOL.search(text)) or bool(DOI.search(text) or PMID.search(text))
+    return bool(citation(text)) or bool(DOI.search(text) or PMID.search(text))
 
 
 _PARTICLES = frozenset("van von der den de del della di da dos das du la le ten ter al el bin ben st".split())
@@ -193,8 +216,10 @@ def author_agrees(p: Parsed, r: biblio.Record) -> bool:
 
 
 def year_close(p: Parsed, r: biblio.Record) -> bool:
-    """Same year, or one year apart (published online one year, in an issue the next)."""
-    return bool(p.year and r.year[:4].isdigit()) and abs(int(p.year) - int(r.year[:4])) <= 1
+    """Same year, or one year apart (published online one year, in an issue the next), against the
+    record's print year or any of its other dates (online first: "2024" for a 2026 issue)."""
+    years = [y[:4] for y in [r.year] + list(r.other_years) if y[:4].isdigit()]
+    return bool(p.year) and any(abs(int(p.year) - int(y)) <= 1 for y in years)
 
 
 def journal_agrees(text: str, r: biblio.Record) -> bool:
@@ -233,15 +258,33 @@ def _first_page(pages: str) -> str:
     return m.group(1) if m else ""
 
 
+# APA: "(2002). Title. Educational Psychologist, 37(2), 91–105." / "Information Sciences, 622, 178–210."
+APA_CITE = re.compile(r"\(((?:19|20)\d{2})[a-z]?(?:,[^)]*)?\)\..*?,\s*(\d+)\s*(?:\(([^)]*)\))?\s*,\s*"
+                      r"(?:pp?\.\s*)?([A-Za-z]?\d+[A-Za-z]?(?:\s*[-–]\s*[A-Za-z]?\d+[A-Za-z]?)?)(?![\d/])")
+# EndNote "Numbered": "Journal of Research and Health, 2020. 10(1): p. 59-66."
+ENDNOTE_CITE = re.compile(r"\b((?:19|20)\d{2})\.\s*(\d+)\s*(?:\(([^)]*)\))?\s*:\s*(?:pp?\.\s*)?"
+                          r"([A-Za-z]?\d+[A-Za-z]?(?:\s*[-–]\s*[A-Za-z]?\d+[A-Za-z]?)?)")
+
+
+def citation(text: str) -> tuple[str, str, str, str] | None:
+    """(year, volume, issue, pages) as the entry gives them: Vancouver "2002;37(2):91-105", APA
+    "(2002). ... Journal, 37(2), 91–105" or EndNote "Journal, 2002. 37(2): p. 91-105"."""
+    for rx in (YEAR_VOL, APA_CITE, ENDNOTE_CITE):
+        m = rx.search(text)
+        if m:
+            return m.group(1), m.group(2), m.group(3) or "", m.group(4)
+    return None
+
+
 def citation_conflicts(text: str, r: biblio.Record) -> bool:
     """The entry's own volume and first page both differ from the record's ("Lancet 2012;380:1419"
     against "Semin Reprod Med 2012;30:432"): the same title in another journal, a reply, a reprint.
     One of the two differing is the author's slip and no conflict."""
-    m = YEAR_VOL.search(text)
+    c = citation(text)
     vol, page = re.sub(r"\D.*", "", r.volume or ""), _first_page(r.pages)
-    if not m or not vol or not page:
+    if not c or not vol or not page:
         return False
-    return m.group(2).lstrip("0") != vol.lstrip("0") and _first_page(m.group(4)) != page
+    return c[1].lstrip("0") != vol.lstrip("0") and _first_page(c[3]) != page
 
 
 def _record_journal(r: biblio.Record):
@@ -266,9 +309,9 @@ def journal_conflicts(p: Parsed, r: biblio.Record) -> bool:
 def same_citation(text: str, r: biblio.Record) -> bool:
     """The entry's own volume and first page are the record's: the same paper, whatever the journal
     name the author wrote ("J Mens Health 2025;25:1150" for BMC Public Health 2025;25:1150)."""
-    m = YEAR_VOL.search(text)
+    c = citation(text)
     vol, page = re.sub(r"\D.*", "", r.volume or ""), _first_page(r.pages)
-    return bool(m and vol and page) and m.group(2).lstrip("0") == vol.lstrip("0") and _first_page(m.group(4)) == page
+    return bool(c and vol and page) and c[1].lstrip("0") == vol.lstrip("0") and _first_page(c[3]) == page
 
 
 def score(p: Parsed, r: biblio.Record) -> tuple[float, bool, bool]:
@@ -301,12 +344,62 @@ def accept(p: Parsed, r: biblio.Record, by_id: bool = False) -> bool:
         return t >= 70 and (near or not p.year)
     if not p.year:
         return t >= 95 and journal_agrees(p.text, r)
-    return t >= 90 and year or t >= 95 and near
+    return t >= 90 and year or t >= 95 and near or identified(p, r)
+
+
+_WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
+
+
+def title_extends(short: str, long: str) -> bool:
+    """`short` is `long` without its subtitle or last words: "Academic emotions in students'
+    self-regulated learning and achievement" for "...: A program of qualitative and quantitative research".
+    At least four words; the rest of `long` starts a subtitle (":", ",", "-", "?", "(") or is at most
+    a third of it."""
+    sw = [fold(w) for w in _WORD.findall(short)]
+    lw = list(_WORD.finditer(long))
+    if len(sw) < 4 or len(lw) <= len(sw) or [fold(m.group(0)) for m in lw[:len(sw)]] != sw:
+        return False
+    rest = long[lw[len(sw) - 1].end():].lstrip()
+    return rest[:1] in (":", ",", "-", "–", "—", "?", "(", ".", ";") or len(lw) - len(sw) <= len(lw) / 3
+
+
+def same_volume(text: str, r: biblio.Record) -> bool:
+    c = citation(text)
+    vol = re.sub(r"\D.*", "", r.volume or "")
+    return bool(c and vol) and c[1].lstrip("0") == vol.lstrip("0")
+
+
+def identified(p: Parsed, r: biblio.Record) -> bool:
+    """Accepted on more than the title: the first author and the year, the journal named in the entry,
+    and either the entry's title is the record's without its subtitle (same volume), or the entry's
+    own volume and first page are the record's and every word of the entry's title is in the record's
+    ("environmental health monitoring" for "environmental health/accessibility monitoring services")."""
+    t, author, year = score(p, r)
+    if not (author and year and p.title and journal_agrees(p.text, r)) or journal_conflicts(p, r):
+        return False
+    if same_volume(p.text, r) and (title_extends(p.title, r.title) or title_extends(r.title, p.title)):
+        return True
+    return same_citation(p.text, r) and _words_within(p.title, r.title)
+
+
+def _stem(w: str) -> str:
+    return re.sub(r"(?<=[a-z]{3})(?:ies|es|s)$", "", w)
+
+
+def _words_within(short: str, long: str) -> bool:
+    """Every word of `short` (four at least) is in `long`: the author dropped words of the title, changed
+    none ("health monitoring" for "health/accessibility monitoring services"). "Effects of intermittent
+    tendon pressure" is not within "Effect of tendon pressure": another paper."""
+    sw = [_stem(w) for w in fold(short).split()]
+    lw = {_stem(w) for w in fold(long).split()}
+    return len(sw) >= 4 and all(w in lw for w in sw)
 
 
 def _best(p: Parsed, records: list[biblio.Record]) -> biblio.Record | None:
     ok = [r for r in records if accept(p, r)]
-    return max(ok, key=lambda r: score(p, r)[0]) if ok else None
+    # The best title; among equal ones, the record of the entry's year and with a volume (the article, not
+    # a dataset or preprint of it dated by another year: "PsycTESTS Dataset 2011" for a 1988 paper).
+    return max(ok, key=lambda r: (score(p, r)[0], score(p, r)[2], bool(r.volume))) if ok else None
 
 
 def _usable(r: biblio.Record | None) -> bool:
@@ -318,7 +411,7 @@ def _confirmed(p: Parsed, r: biblio.Record) -> bool:
     author and have its title written in the entry itself: a title that only matches Claude's split
     of the entry, or a shorter title contained in the author's, is not enough."""
     _, author, _ = score(p, r)
-    return author and fuzz.partial_ratio(fold(r.title), fold(p.text)) >= 90
+    return author and (fuzz.partial_ratio(fold(r.title), fold(p.text)) >= 90 or identified(p, r))
 
 
 def find(p: Parsed) -> tuple[biblio.Record | None, str]:
@@ -398,6 +491,9 @@ def format_pages(pages: str, style: JournalStyle) -> str:
 
 
 def journal_name(r: biblio.Record, style: JournalStyle) -> str:
+    """PubMed's MedlineTA; for a CrossRef record, NLM's abbreviation when NLM lists the journal, else
+    (`references.non_indexed_journal: full`; stylesheets: "Use complete name of the journal for non-indexed
+    journals") the full title rather than CrossRef's short one ("ITSE")."""
     name = r.journal
     if r.source == "crossref" and journals.directory():
         j = None
@@ -405,9 +501,14 @@ def journal_name(r: biblio.Record, style: JournalStyle) -> str:
             j = journals.directory().lookup(issn)
             if j:
                 break
-        j = j or journals.directory().lookup(name)
+        j = j or journals.directory().lookup(name) or (r.journal_full and journals.directory().lookup(r.journal_full))
         if j:
             name = j.med_abbr
+        elif style.get("references.non_indexed_journal", "full") == "full" and r.journal_full:
+            name = r.journal_full
+            if name.isupper() and len(name) > 6:  # "JOURNAL OF SUSTAINABILITY SCIENCE" -> "Journal of Sustainability Science"
+                name = " ".join(w.lower() if k and w.lower() in _MINOR_WORDS else w.capitalize()
+                                for k, w in enumerate(name.split()))
     if style.get("references.journal_drop_qualifier", True):
         name = re.sub(r"\s*\([^)]*\)$", "", name)
     return name.replace(".", "")
@@ -434,8 +535,23 @@ def malformed_authors(r: biblio.Record) -> bool:
     return any(_bad_name(s, i) for s, i in r.authors)
 
 
+def _surname_case(surname: str, initials: str, p: Parsed | None) -> str:
+    """A surname CrossRef gives in capitals ("BLOOM", "VanLEHN"): as the entry writes it when it is the same
+    name, else capitalised (all capitals only). Group names and short ones ("WHO") stay."""
+    odd = bool(re.search(r"[a-z][A-Z]{3,}", surname))  # "VanLEHN"
+    if not initials or not (surname.isupper() or odd) or len(surname) < 3:
+        return surname
+    for a in (p.authors if p else []):
+        written = re.sub(r"\s+(?:[A-Z]\.?-?){1,4}$", "", a.strip())  # "Van Lehn K" -> "Van Lehn"
+        if not written.isupper() and fold_name(written).replace(" ", "") == fold_name(surname).replace(" ", ""):
+            return written
+    if odd:
+        return surname
+    return " ".join("-".join(x.capitalize() for x in w.split("-")) for w in surname.split())
+
+
 def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
-    names = [f"{s} {i}".strip() for s, i in r.authors]
+    names = [f"{_surname_case(s, i, p)} {i}".strip() for s, i in r.authors]
     if p and p.authors and (malformed_authors(r) or not r.authors):
         return p.authors  # the record's list is broken: keep the author's names (and query them)
     if p and r.source == "crossref" and len(names) < min(len(p.authors), 6):
