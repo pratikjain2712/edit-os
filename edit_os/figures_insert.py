@@ -91,19 +91,22 @@ class FigureInsert(NewParagraph):
     """A new paragraph holding the picture(s) of one figure, placed before its legend."""
     images: list[dict] = field(default_factory=list)  # {"file": rel path, "name": zip name, "width": emu, "height": emu}
     figure: int = 0
+    legend: str = ""  # the manuscript has no legend for this figure: "Figure N: ???" goes under the picture
 
     @property
     def text(self) -> str:  # what the review screen lists for this suggestion
-        return f"[Figure {self.figure} image: " + ", ".join(os.path.basename(i["name"]) for i in self.images) + "]"
+        pics = f"[Figure {self.figure} image: " + ", ".join(os.path.basename(i["name"]) for i in self.images) + "]"
+        return f"{pics} {self.legend}" if self.legend else pics
 
     def to_dict(self) -> dict:
-        return {**super().to_dict(), "images": self.images, "figure": self.figure}
+        return {**super().to_dict(), "images": self.images, "figure": self.figure, "legend": self.legend}
 
     @classmethod
     def from_dict(cls, d: dict) -> "FigureInsert":
         return cls(id=d["id"], anchor=d["anchor"], where=d.get("where", "before"), runs=[], role=d.get("role", "figure"),
                    status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
                    reason=d.get("reason", REASON), images=list(d.get("images") or []), figure=int(d.get("figure", 0)),
+                   legend=d.get("legend", ""),
                    provenance=d.get("provenance") or None)
 
 
@@ -116,6 +119,7 @@ class Plan:
     inserts: list[FigureInsert] = field(default_factory=list)
     warnings: list[dict] = field(default_factory=list)
     files: list[FigureFile] = field(default_factory=list)
+    queries: list[tuple[str, str, dict]] = field(default_factory=list)  # (para_id, queries.TEXT key, format values)
 
 
 def settings(style: JournalStyle) -> dict:
@@ -183,6 +187,21 @@ def _legends(ms: Manuscript) -> dict[int, list[int]]:
         if c.kind == rules_figures.FIG and c.number and not ms.paragraphs[i].in_table:
             out.setdefault(c.number, []).append(i)
     return out
+
+
+def _end_slot(ms: Manuscript) -> tuple[str, str]:
+    """Where figures with no legend go: before the first table caption after the reference list (G195: tables at
+    the end, after the figure captions), else after the last paragraph with text."""
+    from . import references
+    index = {p.id: i for i, p in enumerate(ms.paragraphs)}
+    refs = [index[r.para_id] for r in references.extract(ms) if r.para_id in index]
+    after = max(refs) if refs else -1
+    tables = sorted(index[c.para_id] for c in rules_figures.captions(ms)
+                    if c.kind != rules_figures.FIG and c.para_id in index and index[c.para_id] > after)
+    if tables:
+        return ms.paragraphs[tables[0]].id, "before"
+    last = max((i for i, p in enumerate(ms.paragraphs) if p.text.strip() or has_picture(p.element)), default=0)
+    return ms.paragraphs[last].id, "after"
 
 
 def _neighbours(ms: Manuscript, i: int, pictures: set[int]) -> list[int]:
@@ -331,7 +350,8 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
     for num, fs in sorted(by_num.items()):
         if num in covered:
             continue  # the manuscript already shows it: never touched
-        if num not in legends:
+        no_legend = num not in legends
+        if no_legend and not cfg.get("without_legend", True):
             out.warnings.append(_warn("", f"Figure file(s) {names(fs)} not inserted: the manuscript has no "
                                           f"legend for Figure {num}."))
             continue
@@ -376,10 +396,17 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
                                                       f"readable picture size."))
             continue
         below = cfg.get("position", "above") == "below"
-        first, last = block(num)
+        legend = ""
+        if no_legend:  # picture, then "Figure N: ???" (S/G266: image first, its caption below), query the author
+            anchor, where = _end_slot(ms)
+            legend = f"Figure {num}: ???"
+            out.queries.append((anchor, "figures.legend_missing", {"n": num}))
+        else:
+            first, last = block(num)
+            anchor, where = ms.paragraphs[last if below else first].id, "after" if below else "before"
         out.inserts.append(FigureInsert(
-            id=f"fig_ins{next(n_ins)}", anchor=ms.paragraphs[last if below else first].id,
-            where="after" if below else "before", runs=[], role="figure", reason=REASON, images=images, figure=num,
+            id=f"fig_ins{next(n_ins)}", anchor=anchor, legend=legend,
+            where=where, runs=[], role="figure", reason=REASON, images=images, figure=num,
             provenance=provenance.make("figure_file", "Figure file", ", ".join(os.path.basename(i["name"]) for i in images),
                                        files=[os.path.basename(i["name"]) for i in images])))
     return out
@@ -404,6 +431,7 @@ def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuse
     taken = [int(v) for el in ms.document.element.body.iter() if (v := el.get(qn("w:id"))) and v.isdigit()]
     ids = count(max([7000] + taken) + 1)
     placed = 0
+    tail: dict[str, object] = {}
     for n in inserts:
         if not is_figure_insert(n) or n.status not in statuses:
             continue
@@ -442,12 +470,44 @@ def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuse
             drawing.append(inline)
             r.append(drawing)
             p.append(_wrap(r, tracked, ids, author, date))
+        block = [p]
+        if n.legend:
+            block.append(_legend_paragraph(n.legend, tracked, ids, author, date))
         if n.where == "after":
-            anchor.addnext(p)
+            prev = tail.get(n.anchor, anchor)  # several figures after one paragraph keep their order
+            for el in block:
+                prev.addnext(el)
+                prev = el
+            tail[n.anchor] = prev
         else:
-            anchor.addprevious(p)
+            for el in block:
+                anchor.addprevious(el)
         placed += 1
     return placed
+
+
+def _legend_paragraph(text: str, tracked: bool, ids, author: str, date: str):
+    """"Figure N: ???" under a picture whose legend the manuscript lacks; the label bold (G260)."""
+    p = OxmlElement("w:p")
+    if tracked:
+        ppr = OxmlElement("w:pPr")
+        prpr = OxmlElement("w:rPr")
+        prpr.append(_mark(OxmlElement("w:ins"), ids, author, date))
+        ppr.append(prpr)
+        p.append(ppr)
+    label, _, rest = text.partition(":")
+    for part, bold in ((label + ":", True), (rest, False)):
+        r = OxmlElement("w:r")
+        if bold:
+            rpr = OxmlElement("w:rPr")
+            rpr.append(OxmlElement("w:b"))
+            r.append(rpr)
+        t = OxmlElement("w:t")
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        t.text = part
+        r.append(t)
+        p.append(_wrap(r, tracked, ids, author, date))
+    return p
 
 
 def _wrap(run, tracked: bool, ids, author: str, date: str):

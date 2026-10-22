@@ -185,9 +185,9 @@ def test_a_picture_no_legend_accounts_for_stops_insertion(tmp_path):
 def test_several_candidates_and_missing_legends_are_warnings(tmp_path):
     out = run(tmp_path, {"Figure 1.jpg": picture("JPEG"), "Fig 1.png": picture(seed=5),
                          "Figure 7.png": picture(seed=6)})
-    assert out.summary["figure_inserts"]["total"] == 0
+    assert out.summary["figure_inserts"]["total"] == 1  # Figure 7: no legend -> picture + "Figure 7: ???"
     msgs = " | ".join(w["message"] for w in out.summary["editor_warnings"])
-    assert "several files match" in msgs and "no legend for Figure 7" in msgs
+    assert "several files match" in msgs and "no legend for Figure 7" not in msgs
 
 
 def test_parts_of_one_figure_go_in_one_paragraph(tmp_path):
@@ -214,14 +214,15 @@ def test_position_below_puts_the_picture_under_its_legend(tmp_path):
     assert text(paras[i - 1]).startswith("Figure 1:")
 
 
-def test_off_by_default_and_for_plain_docx_input(tmp_path):
+def test_on_by_default_per_stylesheet_and_nothing_for_plain_docx_input(tmp_path):
+    # S (41 of 42 sheets) and G266: "Image should be present first and below it the respective caption".
+    for code in ("ijo", "mjdrdypu", "kjo", "idoj"):
+        assert style.load(code).get("figures.insert.enabled"), code
     st = style.load("ijo")
     st.settings["references"]["lookup"] = False
-    assert not st.get("figures.insert.enabled")
-    z = make_zip(tmp_path, {"Figure 1.jpg": picture("JPEG")})
-    out = pipeline.edit(z, st, str(tmp_path / "out"), stages=("style",))
+    src = make_docx(tmp_path / "ms.docx", ["Intro text here [Figure 1].", "Figure 1: Legend text."])
+    out = pipeline.edit(src, st, str(tmp_path / "out"), stages=("style",))  # a .docx: no figure files to place
     assert out.summary["figure_inserts"]["total"] == 0 and pictures(out.path("tracked")) == []
-    assert style.load("idoj").get("figures.insert.enabled")
 
 
 # --- pictures already in the manuscript survive every renderer -------------------------------------
@@ -269,3 +270,17 @@ def test_insert_records_round_trip():
     back = pipeline.insert_from_dict(d)
     assert isinstance(back, figures_insert.FigureInsert) and back.to_dict() == n.to_dict()
     assert back.text == "[Figure 1 image: Figure 1.jpg]"
+
+
+def test_figure_without_legend_goes_in_with_placeholder_and_query(tmp_path):
+    st = style.load("mjdrdypu")
+    st.settings["references"]["lookup"] = False
+    z = make_zip(tmp_path, {"Figure-1.jpeg": picture("JPEG"), "Figure-2.jpg": picture("JPEG", seed=3)},
+                 texts=["Introduction", "Results are shown in [Figure 1] and [Figure 2].", "Discussion text."])
+    out = pipeline.edit(z, st, str(tmp_path / "out"), stages=("style",))
+    assert out.summary["figure_inserts"]["total"] == 2
+    ms = docmodel.load(out.path("tracked"))
+    pics = [i for i, p in enumerate(ms.paragraphs) if docmodel.has_picture(p.element)]
+    after = [next(q.text for q in ms.paragraphs[i + 1:] if q.text.strip()) for i in pics]
+    assert after == ["Figure 1: ???", "Figure 2: ???"]
+    assert out.summary["queries"]["by_check"].get("figures.legend_missing") == 2

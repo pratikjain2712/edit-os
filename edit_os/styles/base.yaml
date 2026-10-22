@@ -169,8 +169,11 @@ figures:                        # figure and table citations and captions (rules
                                 # order". Editors: 8 of 16 such articles renumbered, 8 queried (owner's list); only when
                                 # safe (each cited number has one caption, all cited), else the guide's query (G8)
   insert:                       # figures sent as separate files in the zip -> picture above its legend (figures_insert.py)
-    enabled: false              # off: of 58 edited articles with figure files in the zip and no picture in the
-                                # manuscript, editors inserted them in 4 (IDOJ 3 of 3; NJCP 1, legends missing)
+    enabled: true               # S (41 of 42 sheets) and G266: "Image should be present first and below it the respective
+                                # caption"; KJO's sheet is silent, so the guide applies. Editors often skip it (13 of 57
+                                # articles with separate figure files; MJDRDYPU 5 of 8): an editor miss (CLAUDE.md)
+    without_legend: true        # a figure file with no legend in the manuscript: picture + "Figure N: ???" + query,
+                                # before the end tables (G195) or at the end (as editors do, e.g. MJDRDYPU 831)
     position: above             # above the legend (stylesheets: "Image should be present first and below it the
                                 # respective caption"); below: under it
     max_height: 0.85            # share of the page's text height a picture may take (width: the text width)

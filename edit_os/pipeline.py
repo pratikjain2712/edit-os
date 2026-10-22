@@ -241,6 +241,8 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         figs = figures_insert.plan(ms, st, zip_path, outdir)  # figures sent as separate files
         inserts += figs.inserts
         warnings += figs.warnings
+        for pid, key, fmt in figs.queries:  # a supplied figure with no legend in the manuscript
+            qs.add(pid, key, **fmt)
         tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         stage_info["style"] = {
             "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts), "figures": len(figs.inserts),

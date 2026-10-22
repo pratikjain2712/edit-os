@@ -42,6 +42,7 @@ TEXT = {
     "keywords.missing": "Kindly provide key words.",
     "keywords.too_few": "Kindly provide minimum three key words.",
     "sections.conclusion": "Kindly provide the conclusion.",
+    "figures.legend_missing": "Kindly provide the legend for Figure {n}.",
 }
 
 
