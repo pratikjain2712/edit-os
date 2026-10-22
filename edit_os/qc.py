@@ -31,6 +31,8 @@ CHECKS = {
     "sections.required": "Required back-matter sections present",
     "sections.expected": "Expected main headings present",
     "statistics.spacing": "Spaces around statistical operators",
+    "signoff.name": "The technical editing sign-off carries the editor's name",
+    "figures.order": "Tables and figures are cited in numerical order",
 }
 
 
@@ -156,6 +158,26 @@ def check(ms: Manuscript, style: JournalStyle) -> Report:
     for h in style.get("expected_h1", []):
         if h not in headings and f"{h}s" not in headings:
             issues.append(Issue(WARNING, "sections.expected", f"No '{h.title()}' heading (query the author)"))
+
+    # The sign-off at the top (header.py): the placeholder stands until the editor is known.
+    from . import header, rules_figures
+
+    pid = header.has_placeholder(ms)
+    if pid is not None:
+        issues.append(Issue(ERROR, "signoff.name", "The technical editing sign-off has no editor name", pid))
+
+    # Tables and figures in order of first citation (renumbered by the rules, or queried).
+    for kind in (rules_figures.TABLE, rules_figures.FIG):
+        seen: list[int] = []
+        for c in rules_figures.citations(ms):
+            if c.kind != kind:
+                continue
+            new = [n for n in c.numbers if n not in seen]
+            if seen and any(n < max(seen) for n in new):
+                issues.append(Issue(WARNING, "figures.order", f"{kind} {min(new)} is cited after {kind} {max(seen)}"
+                                    " (renumber or query)", c.para_id))
+                break
+            seen += new
 
     # Statistics spacing.
     if style.get("statistics.space_around_operators"):

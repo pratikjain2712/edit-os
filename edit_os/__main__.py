@@ -4,11 +4,13 @@
   refs IN.docx                             list the reference entries found
   render IN.docx CHANGES.json OUTDIR       write tracked and clean copies from accepted changes; with
         [--queries Q.json] [--front-matter F.json]  author queries as comments and front-matter paragraphs
-  render OUTDIR [--final]                  re-render an `edit` output folder from its records' statuses
+  render OUTDIR [--final] [--editor NAME]  re-render an `edit` output folder from its records' statuses
+                                           (NAME signs the technical editing at the top of the file)
   edit IN.docx|IN.zip JOURNAL OUTDIR       full run: front matter + style rules + copy-edit checkers ->
         [--stages style,copyedit]          changes.json, tracked (queries as comments) and clean copies,
         [--accept-all]                     query sheet, QC report (.json + .html); proposals stay
-        [--first-page FP.docx] [--xml M.xml]  "suggested" unless --accept-all
+        [--first-page FP.docx] [--xml M.xml]  "suggested" unless --accept-all; --editor NAME signs it
+        [--editor NAME]
   style IN.docx JOURNAL OUTDIR             run the journal's rules; write tracked (with author queries as
         [--first-page FP.docx] [--xml M.xml]  comments) and clean copies, the query sheet and QC; the title-page
   style original.zip JOURNAL OUTDIR        file and XML feed the front matter (a zip supplies all three)
@@ -79,8 +81,9 @@ def main(argv: list[str]) -> int:
         for r in references.extract(docmodel.load(path)):
             print(f"{r.para_id}\t{r.number if r.number is not None else '-'}\t{r.text}")
     elif cmd == "render" and os.path.isdir(path):
-        pos, _, flags = _options(argv[1:], ("--final",))
-        _print_summary(pipeline.render_outputs(pos[0], include_pending="--final" not in flags))
+        pos, opts, flags = _options(argv[1:], ("--final",))
+        _print_summary(pipeline.render_outputs(pos[0], include_pending="--final" not in flags,
+                                               editor=opts.get("--editor")))
     elif cmd == "render" and len(argv) >= 4:
         pos, opts, _ = _options(argv[1:])
         path, changes_path, outdir = pos[:3]
@@ -116,7 +119,7 @@ def main(argv: list[str]) -> int:
         stages = tuple(opts.get("--stages", ",".join(pipeline.STAGES)).split(","))
         out = pipeline.edit(path, journal, outdir, stages, first_page=opts.get("--first-page"),
                             xml=opts.get("--xml"), accept_all="--accept-all" in flags,
-                            progress=lambda m: print(f"... {m}", file=sys.stderr))
+                            progress=lambda m: print(f"... {m}", file=sys.stderr), editor=opts.get("--editor"))
         _print_summary(out)
     elif cmd == "style" and len(argv) >= 4 and len(argv) % 2 == 0:
         st = style.load(argv[2])

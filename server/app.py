@@ -409,21 +409,24 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         return {"para_id": body.para_id, "created": [c.to_dict() for c in plan.changes],
                 "replaced": sorted(gone), "superseded": [c.id for c in plan.superseded]}
 
-    def _render(job_id: str, final: bool = False) -> dict:
-        """Render with the current decisions; call under the job's lock."""
+    def _render(job_id: str, final: bool = False, editor: str | None = None) -> dict:
+        """Render with the current decisions; call under the job's lock. `editor` (else whoever decided last,
+        autopilot aside) signs the technical editing at the top of the file."""
         outdir, _, changes, inserts, qdicts = merged(job_id)
         pipeline.save_records(outdir, changes, inserts, qdicts)
-        out = pipeline.render_outputs(outdir, include_pending=not final)
+        editor = editor or store.last_editor(job_id, skip=(autopilot.EDITOR,)) or None
+        out = pipeline.render_outputs(outdir, include_pending=not final, editor=editor)
         storage.save(job_id)
         store.update(job_id, summary=compact_summary(out.summary))
         return out.summary
 
     @app.post("/api/jobs/{job_id}/render")
-    def rerender(job: dict = Depends(require_done), final: bool = False):
+    def rerender(job: dict = Depends(require_done), final: bool = False, x_editor: str | None = Header(None)):
         """Render tracked/clean copies, query sheet and QC report with the current decisions.
-        `final=true` leaves undecided suggestions out of the tracked copy too."""
+        `final=true` leaves undecided suggestions out of the tracked copy too. The editor (X-Editor, else the
+        last one to decide) signs the technical editing at the top of the file."""
         with job_lock(job["id"]):
-            return _render(job["id"], final)
+            return _render(job["id"], final, x_editor)
 
     def _autopilot_path(job_id: str) -> str:
         return os.path.join(out_dir(storage, job_id), "_autopilot_report.json")

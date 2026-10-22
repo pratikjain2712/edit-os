@@ -26,6 +26,7 @@ sections:
     acknowledgement_heading: null  # G149: 'If heading "Acknowledgements" is present then please do not delete "s"'
 
 figures:
+  renumber: false  # the sheet has no "chronological order" line: G8 "figure/table citations are not in order" -> query
   table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it
 
 front_matter:

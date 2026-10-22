@@ -415,6 +415,8 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     pl = plan(ms, style)
     if not pl.refs:
         return
+    if pl.apply and style.get("header.renumber.enabled", True):
+        return  # the query and the old -> new table go at the top of the file (header.py), as the editors put them
     by_num = {r.number: r for r in pl.refs}
     for kept, dup in pl.duplicates:
         r = by_num[dup]

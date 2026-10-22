@@ -557,6 +557,7 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     queries.TEXT.update({k: v for k, v in QUERY_TEXT.items() if k not in queries.TEXT})
     cits = citations(ms)
     caps = [c for c in captions(ms)]
+    renumbered = renumber_plan(ms, style)
     for kind in (FIG, TABLE):
         kc = [c for c in cits if c.kind == kind]
         cap_nums = {c.number for c in caps if c.kind == kind}
@@ -564,7 +565,7 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         seen: list[int] = []
         for c in kc:
             new = [n for n in c.numbers if n not in seen]
-            if any(seen and n < max(seen) for n in new):
+            if any(seen and n < max(seen) for n in new) and kind not in renumbered:  # renumbered: header.py
                 qs.add(c.para_id, "figures.order", c.start, c.end, kind=kind)
                 break
             seen += new
@@ -591,3 +592,153 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
                        for it in seg.items):
                     qs.add(p.id, "figures.part_case", g.start, g.end)
                     return
+
+
+# --- renumbering by first citation ----------------------------------------------------
+
+# Every stylesheet: "All the reference, figure and table citations are to be cited in square bracket and in
+# chronological order". Tables and figures first cited out of order are renumbered in the citations and the
+# captions (and the tables / legends are put in the new order when the file is rendered: header.py), as the
+# references are (pre-editing guide E.g. 4). Only when it is safe: every cited number has exactly one caption,
+# every caption is cited, numbers run 1..n and every citation can be rewritten; otherwise the guide's query
+# ("Figure/table citation not in order") goes instead.
+
+_DIGITS = re.compile(r"\d{1,2}(?!\d)")
+
+
+@dataclass
+class Renumbering:
+    kind: str
+    mapping: dict[int, int]  # old number -> new number
+    captions: dict[int, str]  # old number -> caption paragraph id
+
+    @property
+    def applies(self) -> bool:
+        return any(k != v for k, v in self.mapping.items())
+
+
+def _all_citation_groups(ms: Manuscript):
+    """(paragraph, group) for every figure / table citation outside the reference list and outside the caption
+    labels: the body, table cells and notes, legends."""
+    from . import references
+
+    refs = {r.para_id for r in references.extract(ms)}
+    for r in references.extract(ms):
+        refs.update(pid for pid, _ in r.continuation)
+    for p in ms.paragraphs:
+        if p.id in refs or not p.text.strip():
+            continue
+        m = caption_match(p)
+        start = m.start("rest") if m else 0
+        for g in parse_groups(p.text, anycase=True):
+            if g.start >= start:
+                yield p, g
+
+
+def _rewrite_group(text: str, g: Group, kind: str, mapping: dict[int, int]) -> list[tuple[int, int, str]] | None:
+    """(start, end, new number) for the number tokens of `kind` in the group; None when it cannot be rewritten
+    safely (Roman numerals, a range that would no longer be a range)."""
+    toks = list(_DIGITS.finditer(text, g.start, g.end))
+    expected = sum((it.num is not None) + (it.to_num is not None) for seg in g.segments for it in seg.items)
+    if len(toks) != expected:
+        return None
+    out: list[tuple[int, int, str]] = []
+    k = 0
+    for seg in g.segments:
+        mine = []
+        for it in seg.items:
+            if it.num is None:
+                continue
+            a = toks[k]
+            b = toks[k + 1] if it.to_num is not None else None
+            k += 1 + (b is not None)
+            mine.append((it, a, b))
+        if seg.kind != kind or seg.supp:
+            continue
+        if any(it.num not in mapping or (it.to_num is not None and it.to_num not in mapping) for it, _, _ in mine):
+            return None
+        simple = all(not it.part and not it.to_part and it.to_num is None for it, _, _ in mine)
+        if simple:  # "Tables 3 and 4" stays "Tables 3 and 4" when 3 and 4 swap
+            new = sorted(mapping[it.num] for it, _, _ in mine)
+            out += [(a.start(), a.end(), str(n)) for (_, a, _), n in zip(mine, new)]
+            continue
+        for it, a, b in mine:
+            if b is None:
+                out.append((a.start(), a.end(), str(mapping[it.num])))
+            elif it.to_num == it.num:  # "1a to 1d"
+                out += [(a.start(), a.end(), str(mapping[it.num])), (b.start(), b.end(), str(mapping[it.num]))]
+            else:
+                got = sorted(mapping[n] for n in range(it.num, it.to_num + 1))
+                if got != list(range(got[0], got[-1] + 1)) or it.part or it.to_part:
+                    return None
+                out += [(a.start(), a.end(), str(got[0])), (b.start(), b.end(), str(got[-1]))]
+    return [(s, e, n) for s, e, n in out if text[s:e] != n]
+
+
+def renumber_plan(ms: Manuscript, style: JournalStyle) -> dict[str, Renumbering]:
+    """kind -> the renumbering of tables / figures that applies (kinds that need none, or where it is not safe,
+    are left out). Cached on the manuscript."""
+    cached = getattr(ms, "_fig_renumber", None)
+    if cached is not None:
+        return cached
+    out: dict[str, Renumbering] = {}
+    ms._fig_renumber = out
+    if not style.get("figures.renumber", True):
+        return out
+    cits = citations(ms)
+    caps = captions(ms)
+    groups = list(_all_citation_groups(ms))
+    for kind in (TABLE, FIG):
+        nums = [c.number for c in caps if c.kind == kind]
+        if not nums or len(nums) != len(set(nums)) or sorted(nums) != list(range(1, len(nums) + 1)):
+            continue
+        if any(c.kind == kind and c.match.group("part") for c in caps):
+            continue
+        order: list[int] = []
+        for c in cits:
+            if c.kind == kind:
+                order += [n for n in c.numbers if n not in order]
+        if sorted(order) != sorted(nums):
+            continue  # a caption never cited, or a citation with no caption: query, do not renumber
+        mapping = {n: i for i, n in enumerate(order, 1)}
+        if all(k == v for k, v in mapping.items()):
+            continue
+        if any(_rewrite_group(p.text, g, kind, mapping) is None for p, g in groups
+               if any(s.kind == kind and not s.supp for s in g.segments)):
+            continue
+        out[kind] = Renumbering(kind, mapping, {c.number: c.para_id for c in caps if c.kind == kind})
+    return out
+
+
+def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """Renumbered table / figure citations and caption labels (registered before fig_citations / fig_captions:
+    where they touch the same number, the renumbering wins)."""
+    from . import provenance
+    from .rules import _change
+
+    plans = renumber_plan(ms, style)
+    out: list[Change] = []
+    if not plans:
+        return out
+    for p, g in _all_citation_groups(ms):
+        for kind, pl in plans.items():
+            for s, e, new in _rewrite_group(p.text, g, kind, pl.mapping) or []:
+                c = _change(p, s, e, new, Layer.TABLES_FIGURES, "fig_renumber")
+                c.provenance = provenance.make("renumber", f"{kind} {p.text[s:e]} → {new}",
+                                               f"{kind.lower()}s renumbered in order of first citation in the text",
+                                               figure_kind=kind, old=[int(p.text[s:e])], new=[int(new)])
+                out.append(c)
+    for cap in captions(ms):
+        pl = plans.get(cap.kind)
+        if pl is None:
+            continue
+        m = cap.match
+        new = str(pl.mapping[cap.number])
+        if m.group("num") != new:
+            p = ms.by_id(cap.para_id)
+            c = _change(p, m.start("num"), m.end("num"), new, Layer.TABLES_FIGURES, "fig_renumber")
+            c.provenance = provenance.make("renumber", f"{cap.kind} {cap.number} → {new}",
+                                           f"{cap.kind.lower()}s renumbered in order of first citation in the text",
+                                           figure_kind=cap.kind, old=[cap.number], new=[int(new)], caption=True)
+            out.append(c)
+    return out

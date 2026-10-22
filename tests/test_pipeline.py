@@ -1,7 +1,10 @@
 """pipeline.edit / render_outputs and the `edit` / `render` commands, offline on a synthetic manuscript."""
 
 import json
+import re
 import zipfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from docx import Document
@@ -76,8 +79,12 @@ def test_all_outputs_exist_and_proposals_wait_for_the_editor(tmp_path):
     assert {Layer.LANGUAGE.value} < set(out.summary["changes"]["by_layer"]) and len(out.summary["changes"]["by_layer"]) > 1
 
     # Clean copy: nothing accepted yet, so the text is unchanged; tracked copy shows the suggestions.
-    clean = [p.text for p in docmodel.load(out.path("clean")).paragraphs]
+    clean = _body(out.path("clean"))
     assert "colour" in clean[2]
+    head = [p.text for p in docmodel.load(out.path("clean")).paragraphs][:2]
+    assert head == [f"Technical Editing done on {datetime.now(ZoneInfo('Asia/Kolkata')):%d-%B-%Y}:- ???",
+                    f"Copyediting done on {datetime.now(ZoneInfo('Asia/Kolkata')):%d-%m-%y}"]
+    assert "signoff.name" in {i["check"] for i in out.summary["qc"]["issues"]}  # no editor: QC blocks delivery
     body = Document(out.path("tracked")).element.body
     assert body.findall(".//{*}ins") and body.findall(".//{*}commentRangeStart")
     ws = load_workbook(out.path("queries")).active
@@ -139,7 +146,7 @@ def test_rerender_reflects_decisions(tmp_path):
     pipeline.save_records(outdir, changes, inserts, qdicts)
 
     out2 = pipeline.render_outputs(outdir, style=offline_style())
-    text = docmodel.load(out2.path("clean")).paragraphs[2].text
+    text = _body(out2.path("clean"))[2]
     assert "color of the lesion" in text and "randomised" in text
     assert out2.summary["changes"]["pending"] == 0 and out2.summary["qc"]["basis"].startswith("clean")
     assert out2.summary["queries"]["rejected"] == 1
@@ -179,7 +186,7 @@ def test_cli_edit_and_render_dir(tmp_path, monkeypatch, capsys):
     assert cli.main(["edit", src, "ijo", outdir, "--accept-all"]) == 0
     printed = capsys.readouterr().out
     assert "0 pending" in printed and "ms_tracked.docx" in printed
-    assert "color" in docmodel.load(f"{outdir}/ms_clean.docx").paragraphs[1].text  # "Introduction" deleted
+    assert "color" in _body(f"{outdir}/ms_clean.docx")[1]  # "Introduction" deleted
     assert cli.main(["render", outdir, "--final"]) == 0
 
 
@@ -205,3 +212,11 @@ def test_cli_render_with_queries_and_format_changes(tmp_path):
     clean = docmodel.load(str(out / "ms_clean.docx")).paragraphs
     assert clean[2].text.startswith("The color") and clean[4].text.startswith("We")
     assert (out / "ms_queries.xlsx").exists()
+
+
+def _body(path):
+    """Paragraph texts of an output after the sign-off lines at the top (header.py)."""
+    texts = [p.text for p in docmodel.load(str(path)).paragraphs]
+    while texts and re.match(r"(?:Technical Editing|Copyediting) done on", texts[0]):
+        texts.pop(0)
+    return texts

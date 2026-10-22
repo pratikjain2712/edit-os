@@ -148,3 +148,12 @@ class JobStore:
         with self._conn() as c:
             return [(r[0], r[1]) for r in c.execute("SELECT item_id, kind FROM decisions WHERE job_id = ? AND editor = ?"
                                             " AND status = ?", (job_id, editor, status)).fetchall()]
+
+    def last_editor(self, job_id: str, skip: tuple[str, ...] = ()) -> str:
+        """The editor who decided on the job most recently (people only: names in `skip` are left out)."""
+        with self._conn() as c:
+            for r in c.execute("SELECT editor FROM decisions WHERE job_id = ? AND editor IS NOT NULL AND editor != ''"
+                               " ORDER BY decided_at DESC", (job_id,)).fetchall():
+                if r[0] not in skip:
+                    return r[0]
+        return ""

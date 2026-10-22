@@ -2,6 +2,7 @@
 
 import io
 import os
+import re
 import time
 import zipfile
 
@@ -109,13 +110,16 @@ def test_job_flow(client, tmp_path):
     assert {i["status"] for i in ch["items"]} == {"accepted", "rejected"}
 
     # Re-render reflects the decisions.
-    rep = client.post(f"/api/jobs/{job_id}/render", headers=KEY).json()
+    rep = client.post(f"/api/jobs/{job_id}/render", headers={**KEY, "X-Editor": "Asha R."}).json()
     assert rep["queries"]["rejected"] == 1
     r = client.get(f"/api/jobs/{job_id}/files/clean", headers=KEY)
     assert r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxml")
     p = tmp_path / "clean.docx"
     p.write_bytes(r.content)
-    text = docmodel.load(str(p)).paragraphs[2].text
+    first = docmodel.load(str(p)).paragraphs[0].text
+    assert first.startswith("Technical Editing done on ") and first.endswith(":- Asha R.")  # the editor signs
+    assert "signoff.name" not in {c["check"] for c in rep["qc"]["checks"] if not c["passed"]}
+    text = _body(p)[2]
     assert "color of the lesion" in text and "randomised" in text
     comments = zipfile.ZipFile(io.BytesIO(client.get(f"/api/jobs/{job_id}/files/tracked", headers=KEY).content)) \
         .read("word/comments.xml").decode()
@@ -265,8 +269,16 @@ def test_editor_direct_edits(client, tmp_path):
     assert rep["render_conflicts"] == []
     p = tmp_path / "clean.docx"
     p.write_bytes(client.get(f"/api/jobs/{jid}/files/clean", headers=KEY).content)
-    text = docmodel.load(str(p)).paragraphs[2].text
+    text = _body(p)[2]
     assert "color of the lesion was noted in 42 enrolled patients" in text
     # After the render saved the merged records, the direct edits are still there exactly once.
     again = [i for i in client.get(url, headers=KEY).json()["items"] if i.get("direct")]
     assert len({i["id"] for i in again}) == len(again) and any(i["status"] == "accepted" for i in again)
+
+
+def _body(path):
+    """Paragraph texts of an output after the sign-off lines at the top (header.py)."""
+    texts = [p.text for p in docmodel.load(str(path)).paragraphs]
+    while texts and re.match(r"(?:Technical Editing|Copyediting) done on", texts[0]):
+        texts.pop(0)
+    return texts

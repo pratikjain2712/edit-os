@@ -1,7 +1,9 @@
 from docx import Document
 
-from edit_os import biblio, docmodel, queries, refengine, renumber, rules, style, tracked
-from edit_os.changes import Status
+from datetime import datetime
+
+from edit_os import biblio, docmodel, header, queries, refengine, renumber, rules, style, tracked
+from edit_os.changes import ChangeSet, Status
 
 
 def _style():
@@ -41,6 +43,17 @@ def _apply(path, st, tmp_path):
     return [p.text for p in docmodel.load(str(out)).paragraphs]
 
 
+def _header(path, st):
+    """The header lines (header.py) for a document whose renumbering is accepted."""
+    ms = docmodel.load(path)
+    cs = rules.run_all(ms, st)
+    for c in cs.changes:
+        c.status = Status.ACCEPTED
+    info = header.plan(ms, st)
+    return header.lines(st, info, ChangeSet(cs.changes), (Status.ACCEPTED,), stages=("style",), editor="A. Editor",
+                        when=datetime(2026, 10, 22))
+
+
 def test_compress():
     st = _style()
     assert renumber.compress([5, 3, 4, 1], st) == "1,3-5"
@@ -66,7 +79,11 @@ def test_renumber_by_first_citation(tmp_path):
     assert listed[4].startswith("5. Author4 A") and listed[5].startswith("6. Author6 A")
     assert all(x.endswith("2001;{}:1-2.".format(x.split("Author")[1][0])) for x in listed)
     qs = queries.collect(docmodel.load(path), st)
-    assert "References are renumbered in text and list for citation sequence." in [q.text for q in qs.queries]
+    assert not [q for q in qs.queries if q.check.startswith("references.renumber")]  # at the top of the file instead
+    lines = _header(path, st)
+    assert ("q", "AQ: References are renumbered in text and list for citation sequence") in lines
+    table = next(v for k, v in lines if k == "table")
+    assert table == [["Old", "New"], ["1", "1"], ["5", "2"], ["2", "3"], ["3", "4"], ["4", "5"], ["6", "6"]]
 
 
 def test_round_bracket_document(tmp_path):
@@ -136,8 +153,12 @@ def test_duplicate_reference_removed_and_list_renumbered(tmp_path):
     assert t[3].startswith("1. Author1") and t[4].startswith("2. Author2")
     assert t[5].startswith("3. Author4") and t[6] == ""
     qs = queries.collect(docmodel.load(path), st)
-    q = next(q for q in qs.queries if q.check == "references.duplicate_removed")
-    assert q.text.startswith("References (1 and 3) are identical, so duplicate reference has been removed")
+    assert not [q for q in qs.queries if q.check == "references.duplicate_removed"]  # at the top of the file instead
+    lines = _header(path, st)
+    q = next(v for k, v in lines if k == "q")
+    assert q.startswith("AQ: References (1 and 3) are identical, so duplicate reference has been removed")
+    table = next(v for k, v in lines if k == "table")
+    assert table[1:] == [["1", "1"], ["3", "1"], ["2", "2"], ["4", "3"]]  # the duplicate goes to its kept number
 
 
 def test_duplicate_by_pmid(tmp_path, monkeypatch):
