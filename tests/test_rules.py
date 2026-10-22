@@ -109,8 +109,8 @@ def _refs(doc, n):
         doc.add_paragraph(t)
 
 
-def _no_lookup():
-    st = style.load("ijo")
+def _no_lookup(code="ijo"):
+    st = style.load(code)
     st.settings["references"]["lookup"] = False
     st.settings["sections"]["back_matter"]["add_missing"] = False
     st.settings["sections"]["headings"]["drop"] = []  # keeps paragraph positions fixed
@@ -191,3 +191,47 @@ def test_round_bracket_counts_in_a_square_citing_manuscript(tmp_path):
     assert t[3] == "Causes were trauma (7) and stroke (2); scar (3), foreign body (1)."
     assert t[4] == "Two risks were noted: (1) a long delay and (2) recent surgery.[5]"
     assert t[5] == "Lenses were described,[6] as were rings.[7]"  # rising: citations
+
+
+def test_greek_and_operator_superscripts_are_not_citations(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Effects were large (F = 74.8, η² = 0.42; χ² = 23.2) with partial η² of 0.5, "
+                      "and R²=0.45. Falls are common in older adults.²")
+    _refs(doc, 3)
+    path = tmp_path / "g.docx"
+    doc.save(path)
+    t = apply(str(path), _no_lookup(), tmp_path)
+    assert t[1] == ("Effects were large (F = 74.8, η² = 0.42; χ² = 23.2) with partial η² of 0.5, "
+                    "and R²=0.45. Falls are common in older adults.[2]")
+
+
+def test_numbered_questions_after_colon_are_not_citations(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Swabs help (1). Media help (2). Cold helps (3).")
+    doc.add_paragraph("The review asks three questions: (1) How do schools act? (2) What do teachers do? "
+                      "and (3) Which factors matter?")
+    _refs(doc, 3)
+    path = tmp_path / "q.docx"
+    doc.save(path)
+    st = _no_lookup()
+    st.settings["renumber"] = {"enabled": False}
+    t = apply(str(path), st, tmp_path)
+    assert t[1] == "Swabs help.[1] Media help.[2] Cold helps.[3]"
+    assert t[2] == ("The review asks three questions: (1) How do schools act? (2) What do teachers do? "
+                    "and (3) Which factors matter?")
+
+
+def test_comparison_after_a_word_left_as_typed_when_switched_off(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("Patients aged ≥18 years with a score >5 were included (P<0.05, n=28, BMI ≥30).")
+    path = tmp_path / "s.docx"
+    doc.save(path)
+    st = _no_lookup("base")
+    assert apply(str(path), st, tmp_path)[1] == \
+        "Patients aged ≥ 18 years with a score > 5 were included (P < 0.05, n = 28, BMI ≥ 30)."
+    st.settings["statistics"]["unary_after_word"] = False
+    assert apply(str(path), st, tmp_path)[1] == \
+        "Patients aged ≥18 years with a score >5 were included (P < 0.05, n = 28, BMI ≥ 30)."

@@ -69,8 +69,11 @@ _PLAIN_NUMS = re.compile(r"\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*")
 
 
 _UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/cm|/mm)|[\d^×x])\s*$")
-# A statistic letter standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5".
-_STAT_BEFORE = re.compile(r"(?<![\w.])[pPnNrRtFzZdUHI]$")
+# A statistic letter standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5";
+# any Greek letter too: "η² = 0.42", "partial η²", "χ²".
+_STAT_BEFORE = re.compile(r"(?<![\w.])[pPnNrRtFzZdUHI\u0370-\u03ff]$")
+# A superscript followed by a comparison is an index or a power, never a citation: "Ne² =", "R²=0.4".
+_OPERATOR_AFTER = re.compile(r"\s*[=<>≤≥]")
 
 
 # A year standing alone right before the number: "Vision 2025⁹⁴", "et al., 2013⁸⁸" (table cells).
@@ -86,7 +89,9 @@ def _is_exponent(text: str, start: int) -> bool:
 
 def _is_statistic_index(text: str, start: int, end: int) -> bool:
     """p¹, p2 (formatted superscript), n² after a lone statistic letter: an index, not a citation."""
-    return bool(_STAT_BEFORE.search(text[max(0, start - 3):start])) and len(text[start:end].strip()) <= 2
+    if len(text[start:end].strip()) > 2:
+        return False
+    return bool(_STAT_BEFORE.search(text[max(0, start - 3):start]) or _OPERATOR_AFTER.match(text, end))
 
 
 def _sup_plain(s: str) -> str:
@@ -149,6 +154,8 @@ def front_matter_ids(ms: Manuscript) -> set[str]:
 
 
 _ENUMERATION = re.compile(r"\(1\)\s+[a-z].*\(2\)\s+[a-z]", re.S)
+# Numbered questions or items introduced by a colon: "three questions: (1) How do ... ? (2) What ...".
+_ENUMERATION_COLON = re.compile(r"[:;]\s*\(1\)\s+[A-Za-z].*?\(2\)\s+[A-Za-z]", re.S)
 
 
 def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]) -> set[tuple[str, int]]:
@@ -169,6 +176,9 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
         if _ENUMERATION.search(p.text):
             out.update((pid, m.start()) for m in matches
                        if m.group(2) in "123456789" and re.match(r"\s+[a-z]", p.text[m.end():]))
+        if _ENUMERATION_COLON.search(p.text):
+            out.update((pid, m.start()) for m in matches
+                       if m.group(2) in "123456789" and re.match(r"\s+[A-Za-z]", p.text[m.end():]))
         if not dominant or _SQUARE.search(p.text) or superscript_citations(p):
             continue
         nums = [int(m.group(2)) for m in matches if m.group(2).isdigit()]
@@ -456,6 +466,8 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
             continue
         lead = len(text) - len(text.lstrip())  # the tag goes at the very start: leading spaces go
         out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "heading_tags"))
+        if level != "H1" and style.get("headings.subheading_case", "keep") == "sentence":
+            out += rules_sections.sentence_case_changes(ms, p, "heading_tags")
         if style.get("headings.strip_trailing_colon", True) and text.rstrip().endswith(":"):
             i = len(text.rstrip()) - 1  # the colon and any spaces after it: "Conclusion: " -> "Conclusion"
             out.append(_change(p, i, len(text), "", Layer.STRUCTURE, "heading_tags"))
@@ -464,17 +476,24 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 # --- statistics ----------------------------------------------------------------------
 
-_OPERATOR = re.compile(r"(?<=[A-Za-z0-9)\]])(\s*)([=<>≤≥])(\s*)(?=[-−–]?\d|\.\d)")
+# A comparison after a plain word ("aged ≥18", "showing <5%") has no left operand; a statistic
+# ("P <0.05", "BMI >30", "n=28") does.
+_WORD_BEFORE = re.compile(r"(?<![\w-])[a-z]{2,}$")
+# The left operand may be a Greek letter or end in a superscript ("β=0.44", "η²=0.42"); "P=<0.001" -> "P = <0.001".
+_OPERATOR = re.compile(r"(?<=[A-Za-z0-9)\]\u0370-\u03ff²³])(\s*)([=<>≤≥])(\s*)(?=[-−–]?\d|\.\d|[<>≤≥]\s*\.?\d)")
 
 
 def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("statistics.space_around_operators"):
         return []
+    unary_after_word = style.get("statistics.unary_after_word", True)
     out = []
     for p in body_paragraphs(ms):
         if "http" in p.text or "<" in p.text and ">" in p.text and re.search(r"<\w+>", p.text):
             continue
         for m in _OPERATOR.finditer(p.text):
+            if not unary_after_word and m.group(2) != "=" and m.group(1) and _WORD_BEFORE.search(p.text, 0, m.start()):
+                continue  # "aged ≥18 years", "a score >5": no left operand, left as typed
             new = f" {m.group(2)} "
             if m.group(0) != new:
                 out.append(_change(p, m.start(), m.end(), new, Layer.NUMBERS, "statistics"))

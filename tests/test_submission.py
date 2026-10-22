@@ -220,3 +220,15 @@ def test_paragraph_with_an_image_is_never_deleted(tmp_path):
     pid = next(p.id for p in ms.paragraphs if p.text.startswith(LETTER[2][:30]))
     assert pid not in {c.para_id for c in cs.changes}
     assert any(w["para_id"] == pid and "image" in w["message"] for w in submission.warnings(ms, style.load("ijo")))
+
+
+def test_copyright_notice_prefix_per_journal(tmp_path):
+    doc = Document()
+    for t in [NOTICE, "Abstract", BODY, "Introduction", BODY] + REFS:
+        doc.add_paragraph(t)
+    path = tmp_path / "n.docx"
+    doc.save(path)
+    new = [c.new for c in rules.run_all(docmodel.load(str(path)), style.load("jehp"), only=["submission"]).changes]
+    assert new == ["Query: "]
+    new = [c.new for c in rules.run_all(docmodel.load(str(path)), style.load("ijo"), only=["submission"]).changes]
+    assert new == ["AQ: "]

@@ -244,3 +244,19 @@ def test_added_consent_has_its_own_reason(tmp_path):
     cs = rules.run_all(load(path, article_type="Case Report"), style.load("ijo"), only=["sections_back_matter"])
     added = [c for c in cs.changes if CONSENT_TEXT in c.new]
     assert added and added[0].reason == "sections_back_matter.consent_added"
+
+
+def test_jehp_keeps_author_wording_and_conflict_heading(tmp_path):
+    path = make(tmp_path, ["Discussion", BODY, "Funding", "This research received no specific grant.",
+                           "Conflict of interest", "The authors declare no conflict of interest."] + REFS)
+    t = run(path, "jehp")
+    assert t[2:6] == ["<H2>Financial support and sponsorship", "This research received no specific grant.",
+                      "<H2>Conflict of interest", "The authors declare no conflict of interest."]
+    # the base keeps renaming and rewording
+    assert run(path, "njcp")[2:6] == STD
+
+
+def test_jehp_inline_statement_split_not_deleted(tmp_path):
+    path = make(tmp_path, ["Discussion", BODY, "Conflicts of interest: There are no conflicts of interest."] + REFS)
+    t = run(path, "jehp")
+    assert t[2:6] == STD  # the conflicts statement split into heading + statement; funding added before it

@@ -24,9 +24,11 @@ headings:
   subheadings: true          # short own-line heads inside a section -> <H2> (<H3> for italic under bold, "2.1.1")
   subheading_max_words: 8
   subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
+  subheading_case: keep      # keep | sentence: <H2> / <H3> heads "Statistical Analysis" -> "Statistical analysis"
 
 statistics:
   space_around_operators: true  # p=0.03 -> p = 0.03
+  unary_after_word: true        # also "aged ≥18" -> "aged ≥ 18" (< > ≤ ≥ after a plain word); false: left as typed
 
 guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rules_guide.py), body text only
   # On by default: what the editors were measured to do on real articles (style + copy edit).
@@ -48,6 +50,11 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   degree_space: false         # "29 °C" -> "29°C"
   technetium: false           # "99 mTc" -> "99mTc"
   p_value_capital: false      # "p = 0.03" -> "P = 0.03" (copy editors, sometimes)
+  trailing_space: false       # spaces at the end of a paragraph go
+  leading_space: false        # spaces at the start of a paragraph go (tabs stay)
+  double_space: false         # "and  control" -> "and control"
+  smart_quotes: false         # "caregivers' knowledge" -> "caregivers’ knowledge", "safe" -> “safe”
+  abbreviation_colon: false   # "Abbreviations: CI, confidence interval; OR, odds ratio" -> "CI: confidence interval; ..."
   include_tables: false
 
 text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit checkers; body text, not references
@@ -97,6 +104,7 @@ keywords:
   alphabetical: true
 
 required_sections:  # in the order the style editors add them before the references
+  # keep_labels: [...] in an entry: the author's heading in this list is kept as written (tagged, not renamed)
   - {heading: Financial support and sponsorship, default: "Nil."}
   - {heading: Conflicts of interest, default: "There are no conflicts of interest."}
 expected_h1: [conclusion]
@@ -134,6 +142,7 @@ figures:                        # figure and table citations and captions (rules
   captions: true
   caption_separator: ": "       # "Table 1. Title" -> "Table 1: Title"
   caption_end_period: false     # delete the period at the end of a caption
+  caption_end_period_keep: false  # true: leave the caption's final period as the author typed it
   queries: true                 # out of order, cited without caption, caption never cited
   insert:                       # figures sent as separate files in the zip -> picture above its legend (figures_insert.py)
     enabled: false              # off: of 58 edited articles with figure files in the zip and no picture in the
@@ -189,6 +198,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     enabled: true
     delete_nil_statements: true  # "Funding: None", "Conflict(s) of Interest and Disclosure(s): None", "No conflict
                                  # of interest." etc. go; the standard sections replace them
+    reword_nil: true             # under the standard heading, "The authors declare no conflict of interest." ->
+                                 # the required section's default wording ("None" -> "Nil." regardless)
     add_missing: true            # required_sections not stated -> heading + default before references
     delete_declarations_heading: true  # a bare "Declarations" / "Statements and declarations" heading over the
                                        # statements goes (editors: 13 of 14)
@@ -228,6 +239,7 @@ submission:  # parts of a submission inside the manuscript file (edit_os/submiss
   enabled: true
   copyright_notice_aq: true    # the portal's "The author(s) ... has/have not agreed to the copyright terms ..." on top:
                                # editors prefix "AQ: " (46 of 48; 2 left it)
+  copyright_notice_prefix: "AQ: "
   delete_cover_letter: true    # "Cover letter" / "To, The Editor ..." with a submission cue, to "Sincerely" and the
                                # signature, followed by the manuscript: deleted (3 of 3 letters, every paragraph)
   delete_reviewer_reply: true  # "Reply to the reviewers' comments" + the portal's table, or "Reviewer 1: ..." text
@@ -251,6 +263,9 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   initial_period: true           # "Anjum S. K. Joad" (false: "Anjum S K Joad")
   abbreviate_middle_names: true  # guide and editors: "Anjum Syed Khan Joad" -> "Anjum S. K. Joad"
   affiliation_first_unnumbered: true  # "Asha Kumar, Ravi Rao1": the first affiliation has no number
+  group_departments: true        # "Departments of A and B, Institute, City": departments of one place share a line
+  affiliation_country_each: false  # the country after every affiliation, not only the last of a run in one country
+  correspondence_one_line: false   # the address on the "Address for correspondence:" line after the name
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
   email_label: "E-mail:"

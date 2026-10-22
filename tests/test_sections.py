@@ -204,3 +204,29 @@ def test_keywords_list_on_next_line_and_mixed_delimiters(tmp_path):
     t, _, _ = run(path, style.load("base"), only=["sections_keywords"])
     assert t[2:4] == ["Keywords:", "Child, fluoxetine, pediatrics"]
     assert "keywords.missing" not in {q.check for q in queries.collect(docmodel.load(path), style.load("base")).queries}
+
+
+def test_jehp_abstract_and_headings(tmp_path):
+    path = make(tmp_path, ["Title of the paper", "Abstract:", "Background: " + BODY, "Methods and Material: " + BODY,
+                           "Conclusions: " + BODY, "Keywords: Cataract, glaucoma, retina", "Introduction", BODY,
+                           "Ethical consideration", BODY])
+    t, _, _ = run(path, style.load("jehp"), only=["heading_tags", "sections_abstract"])
+    assert t[1] == "Abstract"  # not tagged; colon gone
+    assert t[3].startswith("Materials and Methods: ") and t[4].startswith("Conclusion: ")
+    assert t[6] == "<H1>Introduction" and t[8] == "<H2>Ethical consideration"
+
+
+def test_subheadings_in_sentence_case(tmp_path):
+    long = ("The analysis was planned in advance and the participants from Iran were followed for a year; "
+            "the analysis of participants used standard methods and the results were checked twice.")
+    path = make(tmp_path, ["Introduction", long, "Materials and Methods", ("Statistical Analysis",), long,
+                           ("Participants From Iran",), long, ("Analysis: Beyond Participants",), long,
+                           "Ethical Considerations", long, "Discussion", long])
+    st = style.load("jehp")
+    t, _, _ = run(path, st, only=["heading_tags", "subheadings"])
+    assert t[3] == "<H2>Statistical analysis"
+    assert t[5] == "<H2>Participants from Iran"  # "Iran" is a proper noun in the text
+    assert t[7] == "Analysis: Beyond Participants"  # a run-in label, not a heading: untouched
+    assert t[9] == "<H2>Ethical considerations"
+    st.settings["headings"]["subheading_case"] = "keep"
+    assert run(path, st, only=["heading_tags", "subheadings"])[0][3] == "<H2>Statistical Analysis"

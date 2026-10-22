@@ -436,7 +436,7 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         old_label = p.text[m.end("lead"):rest_start]
         if new_label != old_label:
             out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions")
-        if not style.get("figures.caption_end_period", False):
+        if not style.get("figures.caption_end_period", False) and not style.get("figures.caption_end_period_keep"):
             i = _end_period(rest)
             if i is not None:
                 from .rules import _change

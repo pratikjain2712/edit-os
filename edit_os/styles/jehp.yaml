@@ -1,9 +1,79 @@
 # Journal of Education and Health Promotion (StyleSheet_Sample_JEHP.docx); only the settings that differ from base.yaml.
+# Tuned on 17 training articles (six style editors); counts below are articles of those 17.
 name: Journal of Education and Health Promotion
 
 # not yet automated:
 #   - affiliations: each linked affiliation written out in full
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 
+headings:
+  # No "Abstract" tag: the editors leave the abstract heading untagged (16 of 16; 0 "<H1>Abstract").
+  h1: [introduction, materials and methods, methods, methodology, patients and methods,
+       subjects and methods, results, discussion, conclusion, conclusions, references,
+       case report, case reports, case presentation, review of literature]
+  # The JEHP template's Methods sub-heads and back-matter statements the editors tag <H2> (base list plus
+  # "Ethical consideration(s)": 14 of 17, "AI policy statement": 2).
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions, data availability statement,
+       ethical approval, ethics approval, ethical consideration, ethical considerations, ethics considerations,
+       ai policy statement]
+  subheading_case: sentence  # stylesheet: H2 / H3 in sentence case; editors lowered Title Case sub-heads in 5 of 6
+                             # articles that had them (about 25 heads; one head kept)
+
+statistics:
+  unary_after_word: false  # "aged ≥18", "a score ≥10", "showing <5%" left as typed (0 of 20 spaced, 6 articles);
+                           # "P<0.05" -> "P < 0.05" as before
+
+guide_replace:
+  p_value_capital: true   # "p < 0.05" -> "P < 0.05": 8 of the 10 articles with a lowercase p (the other 2: one editor)
+  trailing_space: true    # 128 of 159 paragraph-final spaces deleted (15 articles)
+  leading_space: true     # 23 of 26
+  double_space: true      # 44 of 62 (7 articles; one editor kept 17 in one article)
+  smart_quotes: true      # straight apostrophes made curly in 11 of 16 articles that have them; straight double
+                          # quotes in 3 of 3
+  abbreviation_colon: true  # "Abbreviations: CI, confidence interval" -> "CI: confidence interval": 3 of 3 lists
+                            # (stylesheet: "term 1: definition, term 2: definition")
+
+figures:
+  caption_end_period_keep: true  # editors split on the caption's final period (tables: 9 add it, 8 leave none; the
+                            # stylesheet asks for one); deleting it hurt 18 captions
+
+sections:
+  abstract:
+    # The JEHP abstract keeps "Materials and Methods" (17 of 17; the stylesheet's "Methods" is not used).
+    rename: {material and methods: Materials and Methods, materials and method: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             conclusions: Conclusion}  # "Conclusions" -> "Conclusion": 2 of 3
+  back_matter:
+    delete_nil_statements: false  # the author's "The authors declare no conflict of interest." stays (10 of 13
+                                  # articles keep the wording; deleting it hurt 13 paragraphs)
+    reword_nil: false
+
+required_sections:
+  - {heading: Financial support and sponsorship, default: "Nil."}
+  - {heading: Conflicts of interest, default: "There are no conflicts of interest.",
+     keep_labels: [Conflict of interest]}  # kept as written in 5 of 6 articles (the other was retyped)
+
+submission:
+  copyright_notice_prefix: "Query: "  # JEHP editors write "Query: " before the copyright notice (7 of 9)
+
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   body_unbold: false  # editors keep bold in running text (0 of 6)
+  remove_font_color: false  # editors removed the author's colours in 2 of 17 articles (tool precision 31%)
+
+copyedit:
+  abbreviations:
+    # Measured against the copy editors' files (17 training articles). The stylesheet's "look for undefined acronyms
+    # and raise query" stays on (2 of 91 matched a copy editor's comment, but the stylesheet asks for it).
+    full_form_after_definition: "off"  # "game-based learning" -> "GBL": 0 of 15 helped
+    redefinition: "off"                # "defined twice" queries: 0 of 28
+    query_before_definition: false     # 0 of 15
+
+text:
+  ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it
+
+front_matter:  # stylesheet: "All the affiliations should be complete", duplicates not grouped; correspondence run-on
+  group_departments: false
+  affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")
+  correspondence_one_line: true    # name and address on one line in 9 of the 11 articles that give an address

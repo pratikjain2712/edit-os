@@ -128,3 +128,30 @@ def test_changes_carry_old_text_and_reason(manuscript):
     changes = rules_guide.rule_guide(ms, style.load("base"))
     assert changes and all(ms.by_id(c.para_id).text[c.start:c.end] == c.old for c in changes)
     assert all(c.reason.startswith("guide.") for c in changes)
+
+
+@pytest.mark.parametrize("rule, before, after", [
+    ("trailing_space", "The study ended.  ", "The study ended."),
+    ("trailing_space", "   ", "   "),
+    ("leading_space", "  The study ended.", "The study ended."),
+    ("leading_space", "\tIndented by a tab.", "\tIndented by a tab."),
+    ("double_space", "the  control group and   others", "the control group and others"),
+    ("smart_quotes", "the caregivers' knowledge and the study's aim", "the caregivers’ knowledge and the study’s aim"),
+    ("smart_quotes", 'no "safe place" and a \'term\' here', "no “safe place” and a ‘term’ here"),
+    ("smart_quotes", "a height of 5'10\" was rare", "a height of 5'10\" was rare"),
+    ("smart_quotes", "see https://example.org/it's", "see https://example.org/it's"),
+    ("abbreviation_colon", "Abbreviations: CI, confidence interval; aOR, adjusted odds ratio; HDL-C, HDL cholesterol",
+     "Abbreviations: CI: confidence interval; aOR: adjusted odds ratio; HDL-C: HDL cholesterol"),
+    ("abbreviation_colon", "Abbreviations: CI, confidence interval", "Abbreviations: CI, confidence interval"),
+    ("abbreviation_colon", "We used CI, confidence intervals; OR, odds ratios", "We used CI, confidence intervals; OR, odds ratios"),
+])
+def test_spacing_and_quote_finders(rule, before, after):
+    assert fix(before, rule) == after
+
+
+def test_spacing_finders_off_by_default():
+    cfg = rules_guide.settings(style.load("ijo"))
+    assert not any(cfg.get(k) for k in ("trailing_space", "leading_space", "double_space", "smart_quotes",
+                                           "abbreviation_colon"))
+    assert all(rules_guide.settings(style.load("jehp")).get(k)
+               for k in ("trailing_space", "leading_space", "double_space", "smart_quotes", "p_value_capital"))

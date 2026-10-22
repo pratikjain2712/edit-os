@@ -413,6 +413,7 @@ def rule_submission(ms: Manuscript, style: JournalStyle) -> list[Change]:
     """Tracked deletions of the submission-only parts; "AQ: " before the portal's copyright notice.
     Paragraphs holding an image or object are left for the editor (see `warnings`)."""
     out: list[Change] = []
+    prefix = settings(style).get("copyright_notice_prefix") or "AQ: "  # JEHP editors write "Query: "
     for n, part in enumerate(detect(ms, style).parts, 1):
         for p in part.paras:
             if not p.text.strip():
@@ -422,9 +423,9 @@ def rule_submission(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if part.action == DELETE:
                 out.append(Change(id=f"sub{n}_{p.id}", para_id=p.id, start=0, end=len(p.text), old=p.text, new="",
                                   layer=Layer.STRUCTURE, source=Source.RULE, reason=f"submission_{part.kind}"))
-            elif part.action == AQ and not re.match(r"\s*AQ\s*:", p.text):
+            elif part.action == AQ and not re.match(r"\s*(?:AQ|Query)\s*:", p.text, re.I):
                 at = len(p.text) - len(p.text.lstrip())
-                out.append(Change(id=f"sub{n}_{p.id}", para_id=p.id, start=at, end=at, old="", new="AQ: ",
+                out.append(Change(id=f"sub{n}_{p.id}", para_id=p.id, start=at, end=at, old="", new=prefix,
                                   layer=Layer.QUERY, source=Source.RULE, reason=f"submission_{part.kind}"))
     return out
 
