@@ -514,7 +514,9 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
 def _citation_paragraphs(ms: Manuscript) -> list[Paragraph]:
     from .rules import body_paragraphs
 
-    return [p for p in body_paragraphs(ms) if not p.style.lower().startswith("heading") and caption_match(p) is None]
+    # Running text the author typed in a Word heading style (a long paragraph) is body text all the same.
+    return [p for p in body_paragraphs(ms)
+            if (not p.style.lower().startswith("heading") or len(p.text) > 150) and caption_match(p) is None]
 
 
 _OPEN, _CLOSE = "([{", ")]}"
@@ -540,6 +542,8 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
             rs = len(t[e:]) - len(t[e:].lstrip(" "))
             if t[e + rs:e + rs + 1] == "," and t[e + rs + 1:].lstrip(" ")[:1] in (")", "}"):
                 rs += 1 + len(t[e + rs + 1:]) - len(t[e + rs + 1:].lstrip(" "))  # "(Figure 1,2,3,)"
+            if t[e + rs:e + rs + 1] == "." and t[e + rs + 1:].lstrip(" ")[:1] in _CLOSE:
+                rs += 1 + len(t[e + rs + 1:]) - len(t[e + rs + 1:].lstrip(" "))  # "(Table 1.)": a stray period
             o, c = s - ls - 1, e + rs
             bracketed = o >= 0 and c < len(t) and t[o] in _OPEN and t[c] in _CLOSE
             if bracketed and square:

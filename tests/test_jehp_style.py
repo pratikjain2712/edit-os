@@ -176,3 +176,15 @@ def test_sentence_case_keeps_names_and_expansions(tmp_path):
     assert "<H2>Kaplan-Meier survival analysis" in out
     assert "<H2>Long-term follow-up of patients" in out
     assert any(t.startswith("<H2>Arm and hand activity Inventory-7 (CAHAI-7)") for t in out)
+
+
+def test_table_citations_in_heading_styled_text_and_stray_period(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph(BODY + " The effect was large (Table 1.). Scores rose within groups (Table 2).", style="Heading 1")
+    doc.add_paragraph("Results (Table 1)", style="Heading 1")
+    path = tmp_path / "h.docx"
+    doc.save(path)
+    out = run(str(path), jehp(), ["fig_citations"])
+    assert out[1].endswith("was large [Table 1]. Scores rose within groups [Table 2].")
+    assert out[2] == "Results (Table 1)"  # a real heading is left alone
