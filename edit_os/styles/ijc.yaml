@@ -5,3 +5,11 @@ name: Indian Journal of Cancer
 #   - structured abstract: sub-headings in separate paragraphs
 #   - ethics committee clearance for all original articles; consent / clearance for case reports
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
+
+sections:
+  headings:
+    case: upper  # S: "H1 | Caps, Bold, Roman"
+  abstract:
+    word_limit_query: false  # the IJC sheet has no word-limit line
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

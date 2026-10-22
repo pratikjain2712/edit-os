@@ -3,8 +3,30 @@ name: Kerala Journal of Ophthalmology
 
 # not yet automated:
 #   - the sheet only lists updates: authors bottom of the right column; history dates before 'Access this article online'
-#   - structured abstract run-on; H1 in ALL CAPS
+
+# The KJO sheet only lists updates; everything else follows the pre-editing guide (G).
+headings:
+  subheading_case: keep  # G135: second-level headings in Title Case (no sentence case here)
 
 sections:
+  headings:
+    case: upper  # S: "H1 = All Caps, Bold, Roman"
+  abstract:
+    subheading_case: upper  # G112: "they should be All Caps in bold style followed by a colon"
+    rename: {materials and methods: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             material and methods: Materials and Methods, materials and method: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}  # G114
+    word_limit_query: false
+  keywords:
+    heading: "Key words:"   # G120: 'The heading should be "Key words:"'
+    max_query: false        # G123: "minimum three keywords" (no maximum)
   back_matter:
     consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule
+    acknowledgement_heading: null  # G149: 'If heading "Acknowledgements" is present then please do not delete "s"'
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it
+
+front_matter:
+  dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y"}  # S: "Submitted: 12‑May‑2021"

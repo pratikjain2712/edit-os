@@ -15,9 +15,7 @@ headings:
        study design, data collection]
 
 # not yet automated:
-#   - article title in Title Case
 #   - structured abstract: sub-headings run-on with text
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - affiliations: duplicates not grouped; every author keeps a numbered, complete affiliation
 #   - first H1 is 'Aims and Background' in the sheet's example
 
@@ -25,3 +23,6 @@ sections:
   back_matter:
     contributions: {enabled: false}  # ABR editors leave contributions alone: none added from the 10 title pages
                                      # that give them, one list deleted, one heading left untagged
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

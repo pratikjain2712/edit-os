@@ -2,7 +2,8 @@
 name: Indian Journal of Occupational and Environmental Medicine
 
 # not yet automated:
-#   - article title in Title Case
 #   - H1 in Small Caps
 #   - structured abstract run-on
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

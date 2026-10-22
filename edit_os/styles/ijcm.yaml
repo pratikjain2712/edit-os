@@ -13,11 +13,8 @@ headings:
        acknowledgements, author contribution statement, author contributions,
        data availability statement, ethical approval, ethics approval, limitations]
 
-statistics:
-  space_around_operators: false  # the editor leaves p=0.03 as typed
+# statistics.space_around_operators as base (G297: "add space on either side of operators")
 
 # not yet automated:
-#   - H1 in Title case
 #   - structured abstract: sub-headings in separate paragraphs
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'

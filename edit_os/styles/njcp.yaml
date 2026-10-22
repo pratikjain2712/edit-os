@@ -13,14 +13,14 @@ headings:
        acknowledgements, author contribution statement, author contributions,
        data availability statement, ethical approval, ethics approval, ethical considerations]
 
-citations:
-  range_dash: "–"  # the editor keeps en dashes in citation ranges
+# citations.range_dash, references.title_sentence_case: as base. S: "For range, en dash should be changed to hyphen.
+# Example: Change [6–9] to [6-9]" and the sheet's sentence-case reference titles (the editor's en dashes and kept
+# capitals: owner's list).
 
-references:
-  title_sentence_case: false  # the editor keeps the author's title capitalization
+sections:
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
 
 # not yet automated:
 #   - abstract headings for original articles: Background, Aim, Methods, Results, Conclusion
 #   - H1 in Title case Small Caps
-#   - article title in Title Case
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)

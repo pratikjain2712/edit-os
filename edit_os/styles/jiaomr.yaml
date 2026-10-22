@@ -3,3 +3,9 @@ name: Journal of Indian Academy of Oral Medicine and Radiology
 
 # not yet automated:
 #   - structured abstract: sub-headings in separate paragraphs
+
+sections:
+  abstract:
+    word_limit_query: false  # the JIAOMR sheet has no word-limit line
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

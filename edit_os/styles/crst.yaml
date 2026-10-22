@@ -4,7 +4,13 @@ name: Cancer Research, Statistics, and Treatment
 # not yet automated:
 #   - no 'Correspondence' article type: change to Case Report
 #   - structured abstract: Background, Objective, Materials and Methods, Results, Conclusion (+ trial registration)
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - H1 in Title case; required body order: Introduction, Putting in perspective (boxed), Materials and Methods, Results, Discussion, Conclusion, Author contributions, Data sharing statement
 #   - supplementary appendices only at the end of the manuscript
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
+
+sections:
+  abstract:  # S: the listed sub-headings "Background: / Objective: / Materials and Methods: / Results: / Conclusion:"
+    rename: {materials and methods: Materials and Methods, material and methods: Materials and Methods,
+             materials and method: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}

@@ -8,11 +8,22 @@ headings:
        subjects and methods, results, discussion, conclusion, conclusions, references, case report,
        case reports, case presentation, review of literature]
 
-statistics:
-  space_around_operators: false  # the editor leaves p=0.03 as typed
+# statistics.space_around_operators as base (G297: "add space on either side of operators")
+
+sections:
+  headings:
+    case: upper  # S: "H1 | All Caps, Bold, Roman"
+  abstract:
+    # the sheet has no "... changed to “Methods”" line: G114 (METHODS -> MATERIALS AND METHODS, in the sheet's Title case)
+    rename: {materials and methods: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             material and methods: Materials and Methods, materials and method: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}
+    word_limit_query: false  # no word-limit line
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
 
 # not yet automated:
 #   - journal title not given in the stylesheet
-#   - H1 in ALL CAPS
 #   - edited books: '1995:465-78' (colon before pages, no 'p.')
 #   - structured abstract for original articles, meta-analyses and systematic reviews

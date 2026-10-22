@@ -499,8 +499,14 @@ def is_sentence_cased(title: str) -> bool:
     """Most words lower case: a capital inside such a title marks a proper noun ("colour Doppler")."""
     words = [w for w in _mid_title_words(title) if w.isalpha() or "-" in w]
     lower = sum(1 for w in words if w[:1].islower() and w.lower() not in _MINOR_WORDS)
-    caps = sum(1 for w in words if re.fullmatch(r"[A-Z][a-z]+(?:-[A-Za-z][a-z]*)*", w)
-               and w.lower() not in _MINOR_WORDS)
+    # Capitalised words count by runs: a name is one ("University of Benin Teaching Hospital", "Benin City").
+    caps, prev = 0, False
+    for w in words:
+        if w.lower() in _MINOR_WORDS:
+            continue
+        cap = re.fullmatch(r"[A-Z][a-z]+(?:-[A-Za-z][a-z]*)*", w) is not None
+        caps += cap and not prev
+        prev = cap
     return lower >= 2 and caps < lower
 
 

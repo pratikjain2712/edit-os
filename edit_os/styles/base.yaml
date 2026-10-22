@@ -1,4 +1,8 @@
 # Shared Wolters Kluwer - Medknow style. Journal files override any key.
+# Source of truth (CLAUDE.md): the journal's stylesheet, then the pre-editing guide (G<line>: preedit guide.txt) where
+# the stylesheet is silent; editors' habits only where both are silent. The values here follow the rules that the
+# stylesheets share (S: the common template line, in 26-41 of the 42 sheets) and the guide; each styles/<journal>.yaml
+# overrides what its own sheet says differently. A journal with no stylesheet (e.g. AOMD) gets these values.
 name: Base (Medknow)
 
 citations:
@@ -20,18 +24,21 @@ headings:
        declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
        acknowledgements, author contribution statement, author contributions, data availability statement,
        ethical approval, ethics approval]
-  strip_trailing_colon: true
+  strip_trailing_colon: false  # G137: "If punctuation (period, comma, hyphen, ndash, colon, etc.) is present at end of
+                              # heading then please retain as it is" (editors drop the colon: owner's list)
   subheadings: true          # short own-line heads inside a section -> <H2> (<H3> for italic under bold, "2.1.1")
   subheading_max_words: 8
   subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
-  subheading_case: keep      # keep | sentence: <H2> / <H3> heads "Statistical Analysis" -> "Statistical analysis"
+  subheading_case: sentence  # keep | sentence: <H2> / <H3> heads "Statistical Analysis" -> "Statistical analysis"
+                             # (S: "H2 | Sentence Case, Bold" / "H3 | Sentence Case", all 41 sheets)
 
 statistics:
   space_around_operators: true  # p=0.03 -> p = 0.03
-  unary_after_word: true        # also "aged ≥18" -> "aged ≥ 18" (< > ≤ ≥ after a plain word); false: left as typed
+  unary_after_word: false       # true: also "aged ≥18" -> "aged ≥ 18" (< > ≤ ≥ after a plain word). Off: a sign with
+                                # no left operand is unary (G301: "><space>10 -> >10", delete the space)
 
 guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rules_guide.py), body text only
-  # On by default: what the editors were measured to do on real articles (style + copy edit).
+  # On: the guide's table (G289-330; the stylesheets are silent on these). Off: not in the guide.
   et_al_period: true          # "Smith et al reported" -> "Smith et al. reported"
   ampersand: true             # "anxiety & depression" -> "anxiety and depression" (not references, not "Jammu & Kashmir")
   operator_spacing: true      # "5.2±1.3" -> "5.2 ± 1.3"; off when statistics.space_around_operators is off, unless "always"
@@ -42,17 +49,18 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   bracket_inner_space: true   # "( 80 )" -> "(80)"
   double_period: true         # "80.." -> "80."
   multiplication: true        # "10x20" -> "10 × 20"
-  # Off by default: in the guide, but the editors mostly leave it (see the measurement in rules_guide.py).
-  nbsp: false                 # non-breaking space -> space
-  unary_minus: false          # "of -1.53" -> "of −1.53"
-  unary_comparison: false     # "(> 250 μm)" -> "(>250 μm)"
-  value_bracket_space: false  # "20(80)" -> "20 (80)"
-  degree_space: false         # "29 °C" -> "29°C"
-  technetium: false           # "99 mTc" -> "99mTc"
-  p_value_capital: false      # "p = 0.03" -> "P = 0.03" (copy editors, sometimes)
+  # The next six are in the guide but editors mostly leave them (measurement in rules_guide.py): applied per the
+  # guide; editor misses, not tool errors (owner list: audit conflicts).
+  nbsp: true                  # non-breaking space -> space (G298)
+  unary_minus: true           # "of -1.53" -> "of −1.53" (G300)
+  unary_comparison: true      # "(> 250 μm)" -> "(>250 μm)" (G301)
+  value_bracket_space: true   # "20(80)" -> "20 (80)" (G311)
+  degree_space: true          # "29 °C" -> "29°C" (G314)
+  technetium: true            # "99 mTc" -> "99mTc" (G321)
+  p_value_capital: true       # "p = 0.03" -> "P = 0.03" (G294: "Probability should be changed to capital case")
   range_dash: false           # numeric ranges "2-6 years", "(1.01-1.06)" -> en dash (not citations, dates, IL-6)
-  trailing_space: false       # spaces at the end of a paragraph go
-  leading_space: false        # spaces at the start of a paragraph go (tabs stay)
+  trailing_space: true        # spaces at the end of a paragraph go (G143: "Space(s) present at beginning and at end
+  leading_space: true         # should be deleted"); at the start too (tabs stay)
   double_space: false         # "and  control" -> "and control"
   smart_quotes: false         # "caregivers' knowledge" -> "caregivers’ knowledge", "safe" -> “safe”
   abbreviation_colon: false   # "Abbreviations: CI, confidence interval; OR, odds ratio" -> "CI: confidence interval; ..."
@@ -93,7 +101,8 @@ references:
   capitalize_after_colon: true # "dermoid: a case report" -> "dermoid: A case report"
   title_sentence_case: true    # "Treatment of Metastatic Cancer" -> "Treatment of metastatic cancer"
   journal_abbreviation: nlm    # Index Medicus abbreviation from NLM's journal list
-  journal_drop_qualifier: true # "Spine (Phila Pa 1976)" -> "Spine", as the editors do
+  journal_drop_qualifier: false  # true: "Spine (Phila Pa 1976)" -> "Spine". Off: S "The titles of journals should be
+                                 # abbreviated according to the style used in Index Medicus" (NLM's title keeps it)
   other:                       # books, links, conference papers, reports, theses (refs_other.py)
     enabled: true              # template fixes: "Available from: URL. [Last accessed on 2010 Jul 10].", "4th ed."
     check_links: true          # open each URL: dead links, soft 404s and redirects become queries
@@ -116,9 +125,10 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   et_al_italic: true           # body "et al." in italics (never in the reference list)
   et_al_period: true           # "et al" -> "et al."
   latin_italic: true           # in vivo, in vitro, in situ, ex vivo
-  p_values: false              # probability P in italics (guide; but no editor does it: 0 of 532 in 160 articles)
-  p_capital: false             # "p < 0.05" -> "P < 0.05": copy-edit pass (style editors leave p as typed)
-  n_variable_italic: false     # "n = 34": italic n (guide; editors never do it: 0 of 242)
+  p_values: true               # probability P in italics (G294 "capital case with italics style"; editors: 0 of 532
+                               # in 160 articles -- an editor miss, on the owner's list)
+  p_capital: true              # "p < 0.05" -> "P < 0.05" (G294)
+  n_variable_italic: true      # "n = 34": italic n (G296; editors 0 of 242, on the owner's list)
   superscript_citations: true  # body citations [4] in superscript
   # Clean-up of the author's run formatting (rules_format.rule_cleanup), from the style editors'
   # tracked formatting (tools/eval_format.py):
@@ -137,16 +147,21 @@ figures:                        # figure and table citations and captions (rules
   before_full_stop: false       # "immunized. (Table 1)" -> "immunized [Table 1]." (square brackets only)
   figure_label: Figure          # "Fig. 1" -> "Figure 1" (every journal but IJO in the editors' files)
   figure_label_plural: Figures
-  part_labels: lower            # Figure 1A -> Figure 1a: what the editors do (the guide says uppercase)
+  part_labels: upper            # body citations: Figure 1a -> Figure 1A (G245 "Figure part labels should be in uppercase";
+                                # editors write lower case: owner's list)
+  legend_part_case: lower       # legends: "(A)" -> "(a)" (G263 "part labels ... in small case enclosed within round brackets")
   part_case_query: false
   legend_part_labels: true      # in legends "(1A)" / "(A, B)" / "a)" -> "(a)" / "(a, b)" in part_labels case (IJO, JCRT, NI editors)
   range_dash: "–"               # "Tables 1 to 3" -> "Tables 1–3"
-  compress_lists: false         # "Tables 1, 2 and 3" -> "Tables 1–3"
+  compress_lists: true          # "Tables 1, 2 and 3" -> "Tables 1–3" (S: "Table citation | Tables 1–6; Table 1; Tables 2 and 3")
   captions: true
   caption_separator: ": "       # "Table 1. Title" -> "Table 1: Title"
   caption_end_period: false     # delete the period at the end of a caption
   caption_end_period_keep: false  # true: leave the caption's final period as the author typed it
-  table_caption_end_period: null  # add: table captions end with a period (figure legends as above)
+  table_caption_end_period: add   # add | delete | keep; null: as caption_end_period. S (26 sheets): "The caption should
+                                  # end with a period" (table captions); journals without that line: delete (G200)
+  figure_caption_end_period: null # add | delete | keep; null: as above (delete: G261 "The period if present at end of
+                                  # caption should be deleted"; the stylesheets are silent but SGMJ)
   queries: true                 # out of order, cited without caption, caption never cited
   insert:                       # figures sent as separate files in the zip -> picture above its legend (figures_insert.py)
     enabled: false              # off: of 58 edited articles with figure files in the zip and no picture in the
@@ -169,9 +184,11 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
   headings:
     strip_numbering: true      # "1. Introduction" -> "Introduction" (recognised headings only)
     title_minor_words: true    # "Materials And Methods" -> "Materials and Methods"
-    case: keep                 # H1 text case: keep | upper | title | sentence (editors mostly keep)
-    rename: {}                 # e.g. {materials and methods: Methods}; the guide's "Methods" ->
-                               # "Materials and Methods" is not what the editors do
+    case: title                # H1 text case: keep | upper | title | sentence (S: "H1 | Title case, Bold"; G133 Title Case;
+                               # caps journals: upper)
+    rename: {methods: Materials and Methods, method: Materials and Methods, methodology: Materials and Methods}
+                               # G138: "METHODS" / "METHOD" / "METHODOLOGY" -> "Materials and Methods" (the sheets are
+                               # silent but IJO, IJNMR, IJA, SGMJ: "Methods"); editors keep "Methods": owner's list
     drop: []                   # headings the journal does not print, e.g. [introduction]
     bold: false                # bold recognised headings (most are bold already)
   abstract:
@@ -180,12 +197,14 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     split_inline_heading: true   # "Abstract: text" -> heading paragraph + text
     strip_heading_colon: true    # "Abstract:" -> "Abstract"
     subheading_colon: true       # "Purpose:To" -> "Purpose: To"; "Methods" on its own line -> "Methods: "
-    subheading_case: keep        # keep | title | upper (guide: caps; stylesheets: title case)
-    subheading_bold: false
-    rename: {}                   # e.g. {materials and methods: Methods}: most stylesheets ask for it and
-                                 # the IJO / NJCP / AIAN editors do it, but ABR and JCRT editors keep it
+    subheading_case: title       # keep | title | upper (S: "Headings in a structured abstract should be in Title case and
+    subheading_bold: true        # bold followed by a colon", 41 sheets; the guide's caps lose to them)
+    rename: {materials and methods: Methods, material and methods: Methods, materials and method: Methods,
+             methods and materials: Methods, methods and material: Methods, methodology: Methods}  # S (36 sheets): 'The sub-headings “Materials and Methods” or “Methodology” should be
+                                    # changed to “Methods”'
     citation_query: true         # citations in the abstract -> author query
-    word_limit_query: false      # stylesheets say so; the editors do not query it
+    word_limit_query: true       # S (33 sheets): "If the abstract exceeds these word limits, raise query" (editors
+                                 # seldom do: owner's list)
     word_limit: {structured: 250, unstructured: 150}
     structured_case_report_query: true  # editors' query: case reports have no structured abstract
   keywords:
@@ -197,7 +216,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     drop_final_period: true
     dedupe: true
     add_missing: true            # add the "Keywords:" line after the abstract and query
-    max_query: false             # more than keywords.max: the editors keep them
+    max_query: true              # S (41 sheets): "minimum three keywords and a maximum of five keywords" -> query
+  letter_salutation: null       # letters: "Sir," / "Dear Sir/Madam," -> this (e.g. "Dear Editor,"); null: as typed (G: silent)
   back_matter:  # measured on the editors' tracked files (160 articles, 34 journals)
     enabled: true
     delete_nil_statements: true  # "Funding: None", "Conflict(s) of Interest and Disclosure(s): None", "No conflict
@@ -209,10 +229,11 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
                                        # statements goes (editors: 13 of 14)
     delete_nil_ethics: true      # "Ethics: Not required ...", "Consent for publication: Not applicable" go (7 of 7
                                  # inline ones; a heading with "Not applicable" under it is kept: ABR)
-    acknowledgement_heading: null  # stylesheets: "Acknowledgements" -> "Acknowledgement"; editors keep the
-                                   # author's spelling (0 of 17 "Acknowledgements" headings changed)
-    supplementary_heading: null  # stylesheets: "Supplementary Material" heading over supporting information;
-                                 # no editor added it (0 of 6 articles with supplementary material)
+    acknowledgement_heading: singular  # S (41 sheets): 'If heading "Acknowledgements" is present, then please delete
+                                       # "s"' (singular: drop the final s; a string: that heading; null: as typed).
+                                       # Editors changed 0 of 17: owner's list
+    supplementary_heading: null  # G151: supporting information retained as it is; the 19 sheets that ask for the
+                                 # “Supplementary Material” heading set it (no editor added it: 0 of 6 articles)
     patient_consent_query: true  # case report with no consent statement anywhere: "Kindly confirm whether consent
                                  # form obtained or not?" (the pre-editing query in all 8 such case reports)
     order: [consent, contributions, funding, conflict]  # where added sections go among those already there
@@ -290,30 +311,37 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   cite_journal: ""               # NLM abbreviation for the cite line; per journal below
   cite_max_authors: 6
   ltr_no_running_head_query: false
-  # Per-journal settings (merged over the above by journal code), from the stylesheets and the editors' files.
+  # Per-journal settings (merged over the above by the code the style is loaded with), from the stylesheets and the
+  # editors' files. Journals loaded under an alias (Neurol -> ni, LungIndia -> lung, SMJ -> sgmj) keep theirs in
+  # styles/<journal>.yaml under front_matter:, which applies whichever code is used.
   journals:
     ijo: {title_case: sentence, initial_period: false, correspondence_label: "Correspondence to:",
           dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y", one_line: true},
           cite_label: "Cite this article as:", cite_journal: Indian J Ophthalmol,
           cite_journal_case_reports: Indian J Ophthalmol Case Rep, ltr_no_running_head_query: true}
     dshmj: {cite_journal: Dr Sulaiman Al Habib Med J}
-    neurol: {title_case: title, cite_journal: Neurol India}
     joacc: {title_case: title, cite_journal: J Obstet Anaesth Crit Care}
-    abr: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Adv Biomed Res, dates: {labels: [Submitted, Revised, Accepted]}}
+    abr: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Adv Biomed Res, dates: {labels: [Submitted, Revised, Accepted]},
+          group_departments: false, affiliation_country_each: true}  # S: "should not be grouped ... complete", example 1, 2
     aca: {title_case: title, cite_journal: Ann Card Anaesth}
-    aian: {initial_period: false, title_case: title, cite_journal: Ann Indian Acad Neurol}
+    aian: {title_case: title, cite_journal: Ann Indian Acad Neurol}  # initial_period: G50 "Anjum S. K. Joad" (sheet silent)
     aomd: {affiliation_first_unnumbered: false, cite_journal: Ann Mov Disord}
     crst: {cite_journal: Cancer Res Stat Treat}
-    idoj: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Indian Dermatol Online J}
-    ija: {title_case: as_is, cite_journal: Indian J Anaesth}
+    idoj: {title_case: title, cite_journal: Indian Dermatol Online J}  # S example: first affiliation unnumbered
+    ija: {title_case: sentence, cite_journal: Indian J Anaesth}  # S: "always follow manuscript files ... Sentence case"
     ijc: {cite_journal: Indian J Cancer, correspondence_label: "Correspondence to:"}
     ijcm: {cite_journal: Indian J Community Med}
     ijd: {title_case: title, cite_journal: Indian J Dermatol}
-    ijdr: {affiliation_first_unnumbered: false, title_case: title, cite_journal: Indian J Dent Res}
-    ijnmr: {title_case: title, cite_journal: Iran J Nurs Midwifery Res}
-    ijpm: {cite_journal: Indian J Pathol Microbiol}
-    ijpvm: {title_case: title, cite_journal: Int J Prev Med}
-    indianjpsychiatry: {cite_journal: Indian J Psychiatry}
+    ijdr: {title_case: title, cite_journal: Indian J Dent Res}  # S example: "Department of ..., 1Department of ..."
+    ijem: {title_case: title, dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y"}}  # S: Title case; 22-Feb-2020
+    ijoem: {title_case: title}  # S: "Article title | Title case"
+    jpbs: {title_case: title, affiliation_first_unnumbered: false}  # S: Title case; "author sequence 1,2,3,4"
+    ijnmr: {title_case: title, cite_journal: Iran J Nurs Midwifery Res, affiliation_first_unnumbered: false}  # S: "link should start with 1"
+    ijpm: {cite_journal: Indian J Pathol Microbiol, dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y"}}
+    ijpvm: {title_case: title, cite_journal: Int J Prev Med,
+            dates: {labels: [Received, Accepted], keys: [received, accepted], format: "%d %b %y", one_line: true}}
+    indianjpsychiatry: {cite_journal: Indian J Psychiatry, affiliation_first_unnumbered: false, group_departments: false,
+                        affiliation_country_each: true}  # S: "should not be grouped ... complete", example 1, 2
     ipj: {cite_journal: Ind Psychiatry J}
     jcrt: {cite_journal: J Cancer Res Ther}
     jdrntruhs: {cite_journal: J NTR Univ Health Sci}
@@ -321,15 +349,14 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
     jfmpc: {affiliation_first_unnumbered: false, cite_journal: J Family Med Prim Care}
     jomfp: {cite_journal: J Oral Maxillofac Pathol}
     jpgm: {cite_journal: J Postgrad Med}
-    lungindia: {affiliation_first_unnumbered: false, cite_journal: Lung India}
     mjdrdypu: {cite_journal: Med J DY Patil Univ}
-    njcp: {title_case: title, cite_journal: Niger J Clin Pract}
+    njcp: {title_case: title, cite_journal: Niger J Clin Pract,
+           dates: {labels: [Date of Acceptance], keys: [accepted]}}  # S: "Date of Acceptance: ???"
+    joacp: {ltr_no_running_head_query: true}  # S: "No need to raise Author Query for Running title in LTE articles"
     njms: {cite_journal: Natl J Maxillofac Surg}
     sja: {cite_journal: Saudi J Anaesth}
     sjg: {affiliation_first_unnumbered: false, cite_journal: Saudi J Gastroenterol}
-    smj: {cite_journal: Singapore Med J, correspondence_label: "Correspondence:", capital_after_colon: false,
-          dates: {labels: [Received, Accepted], keys: [received, accepted], format: "%d %b %Y", one_line: true}}
-    wjcs: {cite_journal: World J Colorectal Surg}
+    wjcs: {cite_journal: World J Colorectal Surg, dates: {labels: [Submitted, Revised, Accepted]}}  # S: "Submitted: 00-00-0000"
 
 copyedit:
   spelling:

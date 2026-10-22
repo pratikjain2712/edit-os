@@ -140,7 +140,10 @@ def test_sentence_case_of_title_cased_titles():
 def test_journal_qualifier_kept_for_ijo():
     rec = _record("A study of glaucoma drugs.", journal="Clinics (Sao Paulo)")
     assert "Clinics (Sao Paulo) 2020;75:e1874." in refengine.format_record(rec, style.load("ijo"))
-    assert "Clinics 2020;75:e1874." in refengine.format_record(rec, style.load("ija"))
+    assert "Clinics (Sao Paulo) 2020;75:e1874." in refengine.format_record(rec, style.load("ija"))  # Index Medicus
+    st = style.load("ija")
+    st.settings["references"]["journal_drop_qualifier"] = True
+    assert "Clinics 2020;75:e1874." in refengine.format_record(rec, st)
 
 
 def test_erratum_kept_and_styled(fake_pubmed):
@@ -161,3 +164,12 @@ def test_record_title_brackets_and_all_caps():
     p = refengine.Parsed(text="", title="Wide-angle viewing systems for vitreoretinal surgery")
     if p is not None:
         assert refengine._usable_title(caps, p) == p.title
+
+
+def test_record_title_with_names_counts_as_sentence_case():
+    # NJCP / JFMPC now sentence-case reference titles (S example): names in a PubMed title keep their capitals.
+    t = ("Health-related quality of life in patients with dyspepsia presenting at the University of Benin "
+         "Teaching Hospital, Benin City, South-South Nigeria: a cross-sectional study")
+    assert refengine.is_sentence_cased(t)
+    assert refengine.sentence_case(t, refengine.proper_nouns(t)) == t
+    assert not refengine.is_sentence_cased("Treatment of Metastatic Cancer in Adult Patients With Chronic Disease")

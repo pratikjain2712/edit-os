@@ -6,5 +6,16 @@ name: Indian Journal of Endocrinology and Metabolism
 #   - H1 in Small Caps; original-article sections: Introduction, Materials and Methods, Ethical Aspect, Results, Discussion, Conclusion, Acknowledgement, Authors' contribution, Financial support and sponsorship, Conflict of interest, Data Availability statement, References (query missing Ethical Aspect / Authors' contribution)
 #   - review abstracts: one paragraph, no sub-headings
 #   - structured abstract: Introduction, Methods, Results, Conclusion
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
-#   - article title in Title Case
+
+required_sections:  # S: "... Authors' contribution, Financial support and sponsorship, Conflict of interest ..."
+  - {heading: Financial support and sponsorship, default: "Nil."}
+  - {heading: Conflict of interest, default: "There are no conflicts of interest."}
+
+sections:
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+    contributions:  # S: "Authors' contribution *(If not given, Include in the article and raise query to provide details)"
+      heading: "Authors' contribution"
+      from_sources: true
+      query_missing: true
+    data_availability: {enabled: true, query_missing: false}  # S: "Data Availability statement *(include only If given)"

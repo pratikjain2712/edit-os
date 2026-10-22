@@ -212,8 +212,10 @@ def _numbers(seg_items: list[Item]) -> set[int]:
     return nums
 
 
-def _case(part: str, style: JournalStyle) -> str:
-    mode = style.get("figures.part_labels", "lower")
+def _case(part: str, style: JournalStyle, legend: bool = False) -> str:
+    """A figure part label in the journal's case: `figures.part_labels` in body citations and, in legends,
+    `figures.legend_part_case` when set (the guide: citations "Figure 1A", legends "(a)")."""
+    mode = (legend and style.get("figures.legend_part_case")) or style.get("figures.part_labels", "lower")
     return part.lower() if mode == "lower" else part.upper() if mode == "upper" else part
 
 
@@ -386,7 +388,7 @@ def _legend_parts(p: Paragraph, rest_start: int, number: int, style: JournalStyl
             continue
         if not m.group("num") and len(inner) == 1 and inner.lower() not in "abcdefgh":
             continue
-        new = "(" + re.sub(r"\d+", "", re.sub(r"[A-La-l]", lambda x: _case(x.group(0), style), inner)) + ")"
+        new = "(" + re.sub(r"\d+", "", re.sub(r"[A-La-l]", lambda x: _case(x.group(0), style, True), inner)) + ")"
         new = re.sub(r"\s*&\s*", " and ", new) if "&" in new else new
         if new != m.group(0):
             out += _diff(p, m.start(), m.group(0), new, "fig_captions")
@@ -394,7 +396,7 @@ def _legend_parts(p: Paragraph, rest_start: int, number: int, style: JournalStyl
     letters = [b.group("l").lower() for b in bare]
     if len(bare) >= 2 and letters == [chr(ord("a") + i) for i in range(len(letters))]:
         for b in bare:
-            out += _diff(p, b.start(), b.group(0), f"({_case(b.group('l'), style)})", "fig_captions")
+            out += _diff(p, b.start(), b.group(0), f"({_case(b.group('l'), style, True)})", "fig_captions")
     return out
 
 
@@ -420,15 +422,16 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if cap.kind == TABLE:
                 suffix = m.group("part")  # "Table 1A" is its own table
             else:
-                new_rest_prefix = f"({_case(m.group('part'), style)}) "
+                new_rest_prefix = f"({_case(m.group('part'), style, True)}) "
         # "Table 3: Table 3. Individual..." -> drop the repeated label.
         dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(cap.number) + r"[A-Za-z]?\s*[.:\-–]\s*", rest, re.I)
         if dup and not m.group("part"):
             rest_start += dup.end()
         elif cap.kind == FIG and not style.get("figures.legend_part_labels", True):
             lead_part = re.match(r"\(([A-Za-z])\)", rest)
-            if lead_part and _case(lead_part.group(1), style) != lead_part.group(1):
-                out += _diff(p, m.start("rest") + 1, lead_part.group(1), _case(lead_part.group(1), style), "fig_captions")
+            if lead_part and _case(lead_part.group(1), style, True) != lead_part.group(1):
+                out += _diff(p, m.start("rest") + 1, lead_part.group(1), _case(lead_part.group(1), style, True),
+                             "fig_captions")
         if cap.kind == FIG and style.get("figures.legend_part_labels", True):
             out += _legend_parts(p, m.start("rest"), cap.number, style)
         sep = style.get("figures.caption_separator", ": ")
@@ -438,14 +441,20 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         old_label = p.text[m.end("lead"):rest_start]
         if new_label != old_label:
             out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions")
-        table_end = style.get("figures.table_caption_end_period") if cap.kind == TABLE else None
-        if table_end == "add":  # "Table 1: Baseline characteristics" -> "... characteristics." (MJDRDYPU stylesheet)
+        # The final period, per kind: add | delete | keep (figures.table_caption_end_period / figure_caption_end_period);
+        # unset: the older caption_end_period / caption_end_period_keep switches (delete unless kept).
+        end_mode = style.get("figures.table_caption_end_period" if cap.kind == TABLE else
+                             "figures.figure_caption_end_period" if cap.kind == FIG else "figures.graph_caption_end_period")
+        if end_mode is None:
+            keep = style.get("figures.caption_end_period", False) or style.get("figures.caption_end_period_keep")
+            end_mode = "keep" if keep else "delete"
+        if end_mode == "add":  # "Table 1: Baseline characteristics" -> "... characteristics." (stylesheets)
             body = rest.rstrip()
             if body and not body.endswith((".", "?", "!", ":")):
                 from .rules import _change
                 k = m.start("rest") + len(body)
                 out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions"))
-        elif not style.get("figures.caption_end_period", False) and not style.get("figures.caption_end_period_keep"):
+        elif end_mode == "delete":
             i = _end_period(rest)
             if i is not None:
                 from .rules import _change

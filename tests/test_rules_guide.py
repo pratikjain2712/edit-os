@@ -109,16 +109,18 @@ def _apply(path, st, tmp_path):
 def test_defaults_base(manuscript, tmp_path):
     t = _apply(manuscript, style.load("base"), tmp_path)
     assert t[1] == "Smith et al. found anxiety and depression in 50% of 120 patients aged 45.2 ± 11.3 years."
-    assert t[2] == "Lesions measured 10 × 20 mm (80). Then p = 0.03."  # P capital is off by default
+    assert t[2] == "Lesions measured 10 × 20 mm (80). Then P = 0.03."  # G294: P capital
     assert "&" in t[4]   # never in references
     assert t[5] == "50 % & 10mm"  # tables are off by default
 
 
-def test_ijo_keeps_operators_unspaced(manuscript, tmp_path):
-    """IJO turns statistics.space_around_operators off; the guide rule must not bring it back."""
-    t = _apply(manuscript, style.load("ijo"), tmp_path)
-    assert "45.2±11.3" in t[0] and "Smith et al. found anxiety and depression in 50% " in t[0]  # "Introduction" gone
+def test_operators_unspaced_when_statistics_spacing_is_off(manuscript, tmp_path):
+    """A journal that turns statistics.space_around_operators off: the guide rule must not bring it back."""
     st = style.load("ijo")
+    st.settings["statistics"]["space_around_operators"] = False
+    t = _apply(manuscript, st, tmp_path)
+    assert "45.2±11.3" in t[0] and "Smith et al. found anxiety and depression in 50% " in t[0]  # "Introduction" gone
+    assert "45.2 ± 11.3" in _apply(manuscript, style.load("ijo"), tmp_path)[0]  # IJO: G297 spaces operators
     st.settings["guide_replace"]["operator_spacing"] = "always"
     assert "45.2 ± 11.3" in _apply(manuscript, st, tmp_path)[0]
 
@@ -149,9 +151,9 @@ def test_spacing_and_quote_finders(rule, before, after):
     assert fix(before, rule) == after
 
 
-def test_spacing_finders_off_by_default():
+def test_spacing_finders_follow_the_guide():
     cfg = rules_guide.settings(style.load("ijo"))
-    assert not any(cfg.get(k) for k in ("trailing_space", "leading_space", "double_space", "smart_quotes",
-                                           "abbreviation_colon"))
+    assert cfg.get("trailing_space") and cfg.get("leading_space")  # G143: spaces at the start and end go
+    assert not any(cfg.get(k) for k in ("double_space", "smart_quotes", "abbreviation_colon"))  # not in the guide
     assert all(rules_guide.settings(style.load("jehp")).get(k)
                for k in ("trailing_space", "leading_space", "double_space", "smart_quotes", "p_value_capital"))

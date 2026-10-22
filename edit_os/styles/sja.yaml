@@ -2,6 +2,10 @@
 name: Saudi Journal of Anaesthesia
 
 # not yet automated:
-#   - 'ABSTRACT' heading in capitals
 #   - no author queries for missing history dates
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+sections:
+  abstract:
+    heading: ABSTRACT  # S: 'The word "ABSTRACT" should be added as heading'
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

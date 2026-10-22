@@ -256,6 +256,33 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     return out
 
 
+# --- letters: salutation ------------------------------------------------------------------
+
+_SALUTATION = re.compile(
+    r"^(?P<lead>\s*)(?P<sal>(?:(?:my\s+)?dear|respected)\s+(?:sir|madam|sir\s*(?:/|or|and)\s*madam|editor(?:[- ]in[- ]chief)?)"
+    r"|sirs?|madam|sir\s*(?:/|or|and)\s*madam)(?P<punct>\s*[,:;!]?)(?=\s*$|\s+[A-Z])", re.I)
+
+
+def rule_salutation(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """Letters to the editor open with the journal's salutation (sections.letter_salutation, e.g. "Dear Editor,"):
+    "Sir,", "Dear Sir/Madam,", "Respected Editor-in-Chief," -> "Dear Editor," (IJO, IDOJ, IJD, IJN / DSHMJ, JOACP
+    sheets). Only an existing salutation is replaced; the first one in the body."""
+    want = _cfg(style, "letter_salutation")
+    if not want or not _cfg(style, "enabled", True):
+        return []
+    from .rules import body_paragraphs
+
+    for p in body_paragraphs(ms)[:60]:
+        m = _SALUTATION.match(p.text)
+        if not m or not m.group("punct").strip() and p.text[m.end():].strip():
+            continue  # "Sir Ronald Fisher showed": a salutation ends the paragraph or has its comma
+        old = p.text[m.start("sal"):m.end("punct")]
+        if old != want:
+            return [_change(p, m.start("sal"), m.end("punct"), want, Layer.STRUCTURE, "sections_salutation")]
+        return []
+    return []
+
+
 # --- abstract ---------------------------------------------------------------------------
 
 # --- sub-headings --------------------------------------------------------------------
@@ -343,6 +370,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
             k = len(p.text.rstrip()) - 1  # with the spaces after it
             out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
+        elif p.text != p.text.rstrip() and lead < len(p.text.rstrip()):  # the colon stays (G137), the spaces go
+            out.append(_change(p, len(p.text.rstrip()), len(p.text), "", Layer.STRUCTURE, "subheadings"))
     return out
 
 
@@ -374,7 +403,8 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str) -> list[Chang
             continue
         head = re.match(r"[A-Za-z]+", w).group(0)
         lower, caps = _counts(head, body)
-        if caps <= lower:  # never capitalised inside a sentence of the text, or more often lower case
+        inside = p.text[:m.start()].count("(") > p.text[:m.start()].count(")")  # "(Heine, Germany)": maker, place
+        if caps <= lower and not inside:  # never capitalised inside a sentence of the text, or more often lower case
             out.append(_change(p, m.start(), m.start() + 1, w[0].lower(), Layer.STRUCTURE, rule))
         first = w.endswith(":")
     return out
@@ -1004,8 +1034,12 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     delete(content_p)
             elif ack_heading and not p.text[m.end():].strip():
                 s, e = m.start("ack"), m.end("ack")
-                if p.text[s:e] != ack_heading:
-                    out.append(_change(p, s, e, ack_heading, Layer.STRUCTURE, "sections_back_matter"))
+                label = p.text[s:e]
+                # "singular": the stylesheets' 'If heading "Acknowledgements" is present, then please delete "s"'
+                # (the author's spelling otherwise kept: "Acknowledgments" -> "Acknowledgment").
+                want = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else ack_heading
+                if label != want:
+                    out.append(_change(p, s, e, want, Layer.STRUCTURE, "sections_back_matter"))
             continue
         kept_labels = {k.lower() for k in (std[kind].get("keep_labels") or [])} if kind in std else set()
         standard = kind in std and m.group("label").lower() in {std[kind]["heading"].lower()} | kept_labels

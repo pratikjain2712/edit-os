@@ -7,8 +7,29 @@ copyedit:
     convention: british  # from the copy editors' practice (tools/eval_ce.py)
 
 # not yet automated:
-#   - 'KEY WORDS:' heading; 'ABSTRACT' heading in capitals; H1 in ALL CAPS
 #   - correspondence after Abstract/Keywords
 #   - author names bold italic
 #   - structured abstract: Introduction/Background and Objective, Materials and Methods, Results, Conclusion
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+sections:
+  headings:
+    case: upper  # S: "H1 | All Caps, Bold, Roman"
+  abstract:
+    heading: ABSTRACT  # S: 'The word "ABSTRACT" should be added as heading'
+    # S: "Structured Abstract sub-headings should be Introduction/Background and Objective, Materials and Methods,
+    # Results and Conclusion" (over the template's "... changed to “Methods”")
+    rename: {materials and methods: Materials and Methods, material and methods: Materials and Methods,
+             materials and method: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}
+  keywords:
+    heading: "KEY WORDS:"  # S: 'Heading should be "KEY WORDS:"'
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it
+
+front_matter:  # (was front_matter.journals.lungindia in base.yaml: here it applies under either code)
+  cite_journal: Lung India
+  affiliation_first_unnumbered: false  # S: "start indication of authors and affiliations 1,2,3,4,5"
+  group_departments: false             # S: "should not be grouped together. All the affiliations should be complete"
+  affiliation_country_each: true       # S: "full affiliation with city and country name"

@@ -10,8 +10,14 @@ headings:
 
 # not yet automated:
 #   - Key Messages after Keywords in original, review, case report and brief articles (query if missing)
-#   - article title in Title Case
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   remove_font_color: false  # editors keep the author's colours (4 of 30)
+
+sections:
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+
+front_matter:  # (was front_matter.journals.neurol in base.yaml: here it applies under either code)
+  title_case: title  # S: "Article title | Title case"
+  cite_journal: Neurol India

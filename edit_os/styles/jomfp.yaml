@@ -15,4 +15,6 @@ copyedit:
 # not yet automated:
 #   - author limits: 6 (single-institution study), 4 (case report, review), 3 (short communication)
 #   - structured abstract: sub-headings in separate paragraphs
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

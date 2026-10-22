@@ -17,13 +17,13 @@ FILES = sorted(f for f in glob.glob(os.path.join(style.STYLES_DIR, "*.yaml")) if
 
 def _paths(node, prefix="", base=None):
     """Dotted key paths of a mapping; lists and scalars are leaves, and so are free-form maps
-    (settings whose base value is an empty mapping, such as heading rename tables)."""
+    (settings whose base value is an empty mapping, and heading rename tables)."""
     out = set()
     for k, v in node.items():
         p = f"{prefix}{k}"
         out.add(p)
         b = base.get(k) if isinstance(base, dict) else None
-        if isinstance(v, dict) and b != {}:
+        if isinstance(v, dict) and b != {} and k != "rename":
             out |= _paths(v, p + ".", b)
     return out
 

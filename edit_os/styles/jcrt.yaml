@@ -13,15 +13,12 @@ headings:
        acknowledgements, author contribution statement, author contributions,
        data availability statement, ethical approval, ethics approval, statistical analysis]
 
-statistics:
-  space_around_operators: false  # the editor leaves p=0.03 as typed
+# statistics.space_around_operators as base (G297: "add space on either side of operators")
 
 # not yet automated:
 #   - no 'Correspondence' article type: change to Case Report
 #   - two corresponding authors allowed only for Chinese articles
-#   - H1 in Title case
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
-  table_head_bold: false  # editors bold only some column heads (59 of 135)
+  # table_head_bold: as base (S: "Column heads | Sentence case, bold"; editors bold 59 of 135: owner's list)
   body_unbold: false  # editors keep bold in running text (0 of 17)
