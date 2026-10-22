@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from edit_os import autopilot, docview, pipeline, style as style_mod
+from edit_os import autopilot, docview, pipeline, rule_sources, style as style_mod
 from edit_os.changes import Source, Status
 
 from . import db
@@ -251,10 +251,15 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
                      context: int = 120):
         outdir, man, changes, inserts, _ = merged(job["id"])
         texts = paragraphs(job["id"])
+        checks = _second_checks(job["id"])
         items = []
         for c in changes.changes:
             t = texts.get(c.para_id, "")
-            items.append({**c.to_dict(), "kind": "change",
+            d = c.to_dict()
+            if c.source == Source.AI and c.id in checks:
+                d["provenance"] = {**(c.provenance or {"kind": "ai", "label": "Claude copy edit"}),
+                                   "second_check": checks[c.id]}
+            items.append({**d, "kind": "change", "rule_key": rule_sources.key_for(c.reason, c.provenance),
                           "edited": c.source == Source.EDITOR and c.reason != docview.DIRECT_EDIT,
                           "direct": c.reason == docview.DIRECT_EDIT,
                           "context": {"before": t[max(0, c.start - context):c.start], "after": t[c.end:c.end + context],
@@ -267,6 +272,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             items.append({"id": n.id, "kind": "insert", "para_id": n.anchor, "start": 0, "end": 0, "old": "",
                           "new": n.text, "layer": "structure", "source": n.source.value,
                           "reason": f"front_matter: {n.role}", "status": n.status.value, "format": None,
+                          "provenance": n.provenance,
+                          "rule_key": n.reason if n.reason != "front_matter" else f"front_matter:{n.role}",
                           "where": n.where, "position": position, "edited": dec.get(n.id, {}).get("new_text") is not None,
                           "runs": [[t, f] for t, f in n.runs] if dec.get(n.id, {}).get("new_text") is None else None,
                           "context": {"before": "", "after": "", "paragraph": t}})
@@ -282,6 +289,38 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         if status:
             items = [d for d in items if d["status"] == status]
         return {"job_id": job["id"], "journal": man["journal"], "layers": layers, "items": items}
+
+    def _second_checks(job_id: str) -> dict[str, dict]:
+        """Autopilot's second Claude check of Claude's copy edits, from its saved report (no model call here)."""
+        path = _autopilot_path(job_id)
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                rep = json.load(f)
+        except (OSError, ValueError):
+            return {}
+        if "undone_at" in rep:
+            return {}
+        out = {d["id"]: {"verdict": "review", "why": re.sub(r"^second check:?\s*", "", d.get("why", ""))}
+               for d in rep.get("left_items", []) if d.get("category") == "ai" and "second check" in d.get("why", "")}
+        for item_id, dec in store.decisions(job_id).items():
+            if dec.get("editor") == autopilot.EDITOR and dec.get("status") == "accepted":
+                out.setdefault(item_id, {"verdict": "agreed", "why": "second check agreed"})
+        return out
+
+    @app.get("/api/jobs/{job_id}/rules")
+    def list_rules(job: dict = Depends(require_done)):
+        """The rule behind each kind of suggestion in the job, keyed by `rule_key` (as in /changes items): a plain
+        label and description, and the stylesheet or pre-editing guide line it implements (`quote`, `where`, `line`),
+        resolved at runtime from EDITOS_STYLESHEETS / EDITOS_PREEDIT_GUIDE; `quote` is null when none is configured or
+        no line matches."""
+        _, man, changes, inserts, _ = merged(job["id"])
+        keys = {rule_sources.key_for(c.reason, c.provenance) for c in changes.changes}
+        keys |= {n.reason if n.reason != "front_matter" else f"front_matter:{n.role}" for n in inserts}
+        res = rule_sources.resolver(man["journal"])
+        return {"job_id": job["id"], "journal": man["journal"], "configured": rule_sources.configured(),
+                "rules": {k: res.rule(k) for k in sorted(keys)}}
 
     @app.get("/api/jobs/{job_id}/queries")
     def list_queries(job: dict = Depends(require_done)):

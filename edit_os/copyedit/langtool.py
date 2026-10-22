@@ -30,6 +30,7 @@ import zipfile
 from dataclasses import dataclass
 from typing import Callable
 
+from .. import provenance
 from ..changes import Change
 from ..docmodel import Manuscript
 from ..style import JournalStyle
@@ -186,8 +187,13 @@ def collect(ms: Manuscript, style: JournalStyle, client: Client | None = None) -
             reps = [r["value"] for r in m.get("replacements", [])]
             rule = m.get("rule", {})
             if _rule_ok(m, cfg) and len(reps) == 1 and reps[0] != p.text[s:e]:
-                changes.append(change(p, s, e, reps[0], "languagetool",
-                                      reason=f"languagetool:{rule.get('id', '')}"))
+                c = change(p, s, e, reps[0], "languagetool", reason=f"languagetool:{rule.get('id', '')}")
+                rid = rule.get("id", "")
+                c.provenance = provenance.make(
+                    "checker", f"LanguageTool {rid}".strip(), m.get("message", "") or rule.get("description", ""),
+                    url=f"https://community.languagetool.org/rule/show/{rid}?lang={lang}" if rid else "",
+                    checker="languagetool", rule_id=rid, category=rule.get("category", {}).get("name", ""))
+                changes.append(c)
             elif rule.get("category", {}).get("id") in warn_cats:
                 warnings.append(Warning(p.id, s, e, rule.get("id", ""), m.get("message", ""), reps[:3]))
     return changes, warnings

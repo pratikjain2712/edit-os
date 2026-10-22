@@ -46,6 +46,9 @@ Edit OS never reads, copies or reuses any of those credentials.
 | `EDITOS_WORKERS` | no | Pipeline threads per API task (default 2). |
 | `EDITOS_MAX_UPLOAD_MB` | no | Default 50. |
 | `EDITOS_STAGES` | no | Default `style,copyedit`. |
+| `EDITOS_STYLESHEETS` | recommended | Directory of the journals' stylesheet `.txt` files (file name holds the journal code). The review screen quotes the stylesheet line behind each suggestion (`GET /api/jobs/{id}/rules`). Client material: never in git or the image. |
+| `EDITOS_PREEDIT_GUIDE` | recommended | The pre-editing guide `.txt` (same use; quoted for the guide's rules, e.g. the P value row). |
+| `EDITOS_STYLESHEETS_S3` | no | EC2: the private S3 prefix `deploy/ec2-deploy.sh` syncs into the container (default `s3://$EDITOS_S3_BUCKET/stylesheets/`: `*.txt` + `guide/*.txt`). |
 
 ## Quick test deployment: one command
 
@@ -98,6 +101,20 @@ The code is already split for it: the API only calls `queue.submit(job_id)`, and
    that receive messages and call `process` (scale on queue depth).
 3. Files: set `EDITOS_S3_BUCKET` so any task can restore any job.
 4. API tasks become stateless; run 2+ behind the ALB.
+
+## Stylesheets for the review screen's "Why"
+
+The journals' stylesheets and the pre-editing guide are client material: they are not in the repository, the release
+or the image. Upload them to the private bucket once (and again when one changes):
+
+    .venv/bin/python tools/deploy_aws.py --stylesheets /path/to/stylesheets/txt --guide /path/to/guide.txt
+
+(or `aws s3 sync /path/to/stylesheets/txt s3://<bucket>/stylesheets/ --sse AES256` and the guide to
+`s3://<bucket>/stylesheets/guide/`). On every deploy `deploy/ec2-deploy.sh` syncs that prefix to
+`/opt/edit-os-stylesheets` (mode 700) and mounts it read-only at `/stylesheets` with `EDITOS_STYLESHEETS` /
+`EDITOS_PREEDIT_GUIDE` set; the instance role already reads the bucket. On ECS, mount the same files (EFS or an init
+container that runs the sync) and set the two variables. Without them the review screen shows each rule's plain
+description instead of the quote.
 
 ## S3 bucket
 

@@ -41,7 +41,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from lxml import etree
 
-from . import ai_refs, queries, submission
+from . import ai_refs, provenance, queries, submission
 from .changes import Change, Layer, Source, Status
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle, _merge
@@ -159,6 +159,10 @@ class Sources:
     # paragraphs of other submission files named for author contributions ("Author Contribution Form.docx"),
     # read by the back-matter rule (rules_sections) for the authors' contributions section
     contribution_forms: list[list[str]] = field(default_factory=list)
+    # file names, for the review screen's "Source" chip
+    first_page_name: str = ""
+    xml_name: str = ""
+    contribution_form_names: list[str] = field(default_factory=list)
 
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -182,16 +186,19 @@ def sources_from_zip(path: str) -> Sources:
     if fp:
         try:
             src.first_page = docx_paragraphs(z.read(sorted(fp, key=len)[0]))
+            src.first_page_name = os.path.basename(sorted(fp, key=len)[0])
         except (KeyError, zipfile.BadZipFile, etree.XMLSyntaxError):
             pass
     xml = [n for n in names if n.lower().endswith(".xml") and "/" not in n.strip("/")]
     if xml:
         src.meta = parse_xml(z.read(xml[0]))
+        src.xml_name = os.path.basename(xml[0])
     for n in sorted(names):
         if n.lower().endswith(".docx") and re.search(r"contribut", os.path.basename(n), re.I) \
                 and not _FIRST_PAGE.search(os.path.basename(n)):
             try:
                 src.contribution_forms.append(docx_paragraphs(z.read(n)))
+                src.contribution_form_names.append(os.path.basename(n))
             except (KeyError, zipfile.BadZipFile, etree.XMLSyntaxError):
                 pass
     return src
@@ -202,9 +209,11 @@ def sources_from_files(first_page: str | None = None, xml: str | None = None) ->
     if first_page:
         with open(first_page, "rb") as f:
             src.first_page = docx_paragraphs(f.read())
+        src.first_page_name = os.path.basename(first_page)
     if xml:
         with open(xml, "rb") as f:
             src.meta = parse_xml(f.read())
+        src.xml_name = os.path.basename(xml)
     return src
 
 
@@ -791,6 +800,7 @@ class Block:
     role: str
     runs: list[Run]
     end: bool = False  # letters: authors to cite line go at the end, before the references
+    provenance: dict | None = None  # which input the block was built from (set by `plan`)
 
     @property
     def text(self) -> str:
@@ -1077,6 +1087,7 @@ class NewParagraph:
     status: Status = Status.SUGGESTED
     source: Source = Source.RULE
     reason: str = "front_matter"
+    provenance: dict | None = None  # which input the paragraph was built from (edit_os/provenance.py)
 
     @property
     def text(self) -> str:
@@ -1084,7 +1095,8 @@ class NewParagraph:
 
     def to_dict(self) -> dict:
         return dict(id=self.id, anchor=self.anchor, where=self.where, runs=[[t, f] for t, f in self.runs],
-                    role=self.role, status=self.status.value, source=self.source.value, reason=self.reason)
+                    role=self.role, status=self.status.value, source=self.source.value, reason=self.reason,
+                    provenance=self.provenance)
 
 
 @dataclass
@@ -1195,6 +1207,116 @@ def clean_article_type(raw: str) -> str:
             return known
     return recase(t, "title", []) if t else raw.strip()
 
+# --- where each block comes from (the review screen's "Source" chip) ----------------------------
+
+_XML_FIELDS = {"article_type": "article type", "title": "title", "running_title": "running title"}
+
+
+def _xml_hit(value: str, meta: Meta) -> str:
+    """The submission XML field holding `value` ("article type", "author names", ...), or ""."""
+    v = _norm(value)
+    if not v:
+        return ""
+    for attr, name in _XML_FIELDS.items():
+        if v and v in _norm(getattr(meta, attr)):
+            return name
+    for a in meta.authors:
+        if v in _norm(" ".join([a.get("given", ""), a.get("surname", "")])):
+            return "author names"
+        if v in _norm(a.get("email", "")):
+            return "author e-mail"
+        if v in _norm(" ".join((a.get("aff") or {}).values())):
+            return "affiliation"
+    return ""
+
+
+def locate(value: str, src: Sources, lead: list[Paragraph], prefer: tuple[str, ...] = ("title_page", "manuscript", "xml"),
+           what: str = "") -> dict | None:
+    """Which input `value` was read from: the title-page file, a manuscript paragraph or the submission XML."""
+    v = _norm(value)
+    if not v:
+        return None
+    for where in prefer:
+        if where == "title_page":
+            line = min((t for t in src.first_page if v in _norm(t)), key=len, default=None)  # the line it is most of
+            if line is not None:
+                return provenance.make("title_page", "Title page", line, file=src.first_page_name, field=what)
+        elif where == "manuscript":
+            p = min((p for p in lead if v in _norm(p.text)), key=lambda p: len(p.text), default=None)
+            if p is not None:
+                return provenance.make("manuscript", "Manuscript", p.text, para_id=p.id, field=what)
+        elif where == "xml":
+            hit = _xml_hit(value, src.meta)
+            if hit:
+                return provenance.make("xml", f"XML: {hit}", value, file=src.xml_name, field=hit)
+    return None
+
+
+def block_provenance(role: str, f: Fields, src: Sources, lead: list[Paragraph], cfg: dict, ms: Manuscript,
+                     text: str = "") -> dict | None:
+    """Where a front-matter block's content was read from (mirrors the choices `build` makes); `text` is the block's."""
+    meta = src.meta
+    if role == "article_type":
+        first, second = (f.article_type, meta.article_type) if cfg.get("type_source") == "text" \
+            else (meta.article_type, f.article_type)
+        chosen = first or second
+        if chosen and chosen == meta.article_type:
+            return provenance.make("xml", "XML: article type", chosen, file=src.xml_name, field="article type")
+        if chosen:
+            return locate(chosen, src, lead, what="article type")
+        if _imrad(ms):
+            return provenance.make("inferred", "IMRaD headings", "Introduction, Methods, Results, Discussion and "
+                                   "Conclusion headings: Original Article, with a query to confirm")
+        return None
+    if role == "title":
+        if f.title:
+            return locate(f.title, src, lead, what="title")
+        return provenance.make("xml", "XML: title", meta.title, file=src.xml_name, field="title") if meta.title else None
+    if role == "running_head":
+        short = f.running_title or meta.running_title
+        if not short:
+            return provenance.make("inferred", "Not supplied", "author surnames from the author list; short title queried")
+        if not f.running_title:
+            return provenance.make("xml", "XML: running title", short, file=src.xml_name, field="running title")
+        return locate(f.running_title, src, lead, what="running title")
+    if role == "authors" and f.authors:
+        a = f.authors[0]
+        return locate(f"{a.given} {a.surname}".strip(), src, lead, what="authors") or \
+            locate(a.surname, src, lead, what="authors")
+    if role == "affiliations" and f.affiliations:
+        aff = next(iter(f.affiliations.values()))
+        for key in ("institution", "department", "city"):
+            hit = locate(aff.get(key, ""), src, lead, what="affiliations")
+            if hit:
+                return hit
+        return None
+    if role == "correspondence":
+        c = f.correspondence or {}
+        if "@" in text:  # the e-mail line
+            values = (c.get("email", ""),)
+        elif text.startswith(cfg.get("correspondence_label", "Address for correspondence:")):  # the name line
+            values = (c.get("surname", ""), c.get("email", ""))
+        else:  # the address
+            values = tuple(c.get("address_parts", [])[:2]) + (c.get("city", ""), c.get("email", ""))
+        for value in values:
+            hit = locate(value, src, lead, what="correspondence")
+            if hit:
+                return hit
+        corr = next((a for a in meta.authors if a.get("corresponding")), None)
+        if corr:
+            return provenance.make("xml", "XML: corresponding author", corr.get("email", "") or corr.get("surname", ""),
+                                   file=src.xml_name, field="corresponding author")
+        return None
+    if role == "dates":
+        if meta.dates:
+            return provenance.make("xml", "XML: history dates", ", ".join(f"{k} {v:%d-%m-%Y}" for k, v in meta.dates.items()),
+                                   file=src.xml_name, field="history dates")
+        return provenance.make("inferred", "Not supplied", "no submission XML: dates left to fill in")
+    if role == "cite":
+        return provenance.make("journal_style", "Title + authors", "built from the title and author names; journal name "
+                               "from the journal's style settings")
+    return None
+
 
 def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Plan:
     """Everything the front-matter step proposes for this manuscript."""
@@ -1233,6 +1355,8 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         return pl
     blocks, qspecs = build(ms, f, src.meta, style)
     pl.blocks = blocks
+    for b in blocks:
+        b.provenance = block_provenance(b.role, f, src, lead, cfg, ms, b.text)
 
     # Map existing manuscript paragraphs onto blocks; insert the rest in reading order.
     have: dict[str, list[Paragraph]] = {}
@@ -1245,7 +1369,9 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             have.setdefault(_ROLE_TO_BLOCK[role], []).append(p)
         elif role in _DELETE_ROLES and _LABEL.match(p.text) and (role == "running_title" or len(p.text) < 60):
             pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=p.id, start=0, end=len(p.text), old=p.text,
-                                     new="", layer=Layer.STRUCTURE, source=Source.RULE, reason="front_matter"))
+                                     new="", layer=Layer.STRUCTURE, source=Source.RULE, reason="front_matter",
+                                     provenance=provenance.make("manuscript", "Manuscript label", p.text, para_id=p.id,
+                                                                role=role)))
     by_role: dict[str, list[Block]] = {}
     for b in blocks:
         by_role.setdefault(b.role, []).append(b)
@@ -1254,17 +1380,26 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         outs = [i for i, b in enumerate(blocks) if b.role == role]
         for k, p in enumerate(paras):
             if k < len(outs):
-                ch = _rewrite(p, blocks[outs[k]].runs, Layer.HOUSE_STYLE)
+                b = blocks[outs[k]]
+                prov = dict(b.provenance, role=role) if b.provenance else {"kind": "manuscript", "label": "Manuscript",
+                                                                           "para_id": p.id, "role": role}
+                ch = _rewrite(p, b.runs, Layer.HOUSE_STYLE)
                 if ch is None:  # replace the paragraph instead
                     pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=p.id, start=0, end=len(p.text), old=p.text,
-                                             new="", layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="front_matter"))
-                    pl.inserts.append(NewParagraph(f"fi{next(_ids)}", p.id, "after", blocks[outs[k]].runs, role))
+                                             new="", layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="front_matter",
+                                             provenance=prov))
+                    pl.inserts.append(NewParagraph(f"fi{next(_ids)}", p.id, "after", b.runs, role, provenance=b.provenance))
                 else:
+                    for c in ch:
+                        c.provenance = prov
                     pl.changes += ch
                 placed[outs[k]] = (p.id, "in place")
             else:  # more paragraphs than the block needs
                 pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=p.id, start=0, end=len(p.text), old=p.text,
-                                         new="", layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="front_matter"))
+                                         new="", layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="front_matter",
+                                         provenance=provenance.make("manuscript", "Manuscript", "repeats the "
+                                                                    f"{role.replace('_', ' ')} given above",
+                                                                    para_id=p.id, role=role)))
     first_any = next((p for p in ms.paragraphs if p.text.strip()), ms.paragraphs[0] if ms.paragraphs else None)
     first_placed = next((placed[i][0] for i in sorted(placed)), None)
     last: tuple[str, str] | None = None
@@ -1278,7 +1413,8 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             last = (placed[i][0], "after")
             continue
         if b.end and end_anchor:
-            pl.inserts.append(NewParagraph(f"fi{next(_ids)}", end_anchor[0], end_anchor[1], b.runs, b.role))
+            pl.inserts.append(NewParagraph(f"fi{next(_ids)}", end_anchor[0], end_anchor[1], b.runs, b.role,
+                                           provenance=b.provenance))
             continue
         if last is None:
             anchor = (first_placed or (first_any.id if first_any else None), "before")
@@ -1286,7 +1422,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             anchor = last
         if anchor[0] is None:
             continue
-        pl.inserts.append(NewParagraph(f"fi{next(_ids)}", anchor[0], anchor[1], b.runs, b.role))
+        pl.inserts.append(NewParagraph(f"fi{next(_ids)}", anchor[0], anchor[1], b.runs, b.role, provenance=b.provenance))
     anchor_q = first_placed or (first_any.id if first_any else None)
     if anchor_q:
         for check, fmt in qspecs:

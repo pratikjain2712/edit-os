@@ -105,7 +105,7 @@ def insert_from_dict(d: dict) -> frontmatter.NewParagraph:
     return frontmatter.NewParagraph(
         id=d["id"], anchor=d["anchor"], where=d["where"], runs=[(t, f) for t, f in d["runs"]], role=d["role"],
         status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
-        reason=d.get("reason", "front_matter"))
+        reason=d.get("reason", "front_matter"), provenance=d.get("provenance") or None)
 
 
 def load_manifest(outdir: str) -> dict:

@@ -20,6 +20,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+from .. import provenance
 from ..changes import Change, Layer
 from ..docmodel import Manuscript
 from ..style import JournalStyle
@@ -193,6 +194,8 @@ def check(ms: Manuscript, style: JournalStyle, variants: Variants | None = None)
         if new and w.lower() in extra and re.match(r"\s+scales?\b", p.text[m.end():], re.I):
             continue  # "visual analogue scale": the instrument's name is kept as written
         if new and new.lower() != w.lower():
-            out.append(change(p, m.start(), m.end(), _match_case(w, new), "spelling",
-                              reason=f"spelling ({conv})"))
+            c = change(p, m.start(), m.end(), _match_case(w, new), "spelling", reason=f"spelling ({conv})")
+            c.provenance = provenance.make("checker", f"Spelling: {conv.capitalize()} convention",
+                                           f"{w} → {c.new} (VarCon word list)", checker="spelling", convention=conv)
+            out.append(c)
     return out

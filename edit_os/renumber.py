@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from . import refengine, references
+from . import provenance, refengine, references
 from .changes import Change, Layer
 from .docmodel import Manuscript
 from .style import JournalStyle
@@ -360,7 +360,12 @@ def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
         new = re.sub(r"\[[^\]]*\]", lambda m: f"[{compress(mapped, style)}]", o.new, count=1)
         if new != o.old:
             p = ms.by_id(o.para_id)
-            out.append(rules._change(p, o.start, o.end, new, Layer.REFERENCES, "renumber"))
+            c = rules._change(p, o.start, o.end, new, Layer.REFERENCES, "renumber")
+            olds = ",".join(str(n) for n in o.numbers)
+            news = compress(mapped, style)
+            c.provenance = provenance.make("renumber", f"Citation {olds} → {news}", _why(pl),
+                                           old=list(o.numbers), new=mapped)
+            out.append(c)
     # Reference list: position k gets the entry numbered k.
     by_new: dict[int, references.Reference] = {}
     removed = {d for _, d in pl.duplicates}
@@ -372,12 +377,18 @@ def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
         p = ms.by_id(pos.para_id)
         src = by_new.get(k)
         if src is None:  # left over after deleting duplicates
-            out.append(rules._change(p, 0, len(p.text), "", Layer.REFERENCES, "renumber"))
+            c = rules._change(p, 0, len(p.text), "", Layer.REFERENCES, "renumber")
+            dups = ", ".join(f"{d} = {kept}" for kept, d in pl.duplicates)
+            c.provenance = provenance.make("renumber", "Duplicate removed", f"duplicate references: {dups}" if dups else "")
+            out.append(c)
             continue
+        prov = provenance.make("renumber", f"Reference {src.number} → {k}", _why(pl), old=[src.number], new=[k])
         if pos.label:
             m = re.search(r"\d+", pos.label)
             if m and int(m.group(0)) != k:
-                out.append(rules._change(p, m.start(), m.end(), str(k), Layer.REFERENCES, "renumber"))
+                c = rules._change(p, m.start(), m.end(), str(k), Layer.REFERENCES, "renumber")
+                c.provenance = prov
+                out.append(c)
         if src is not pos:
             if formatted is None:
                 formatted = _formatted_entries(ms, style)
@@ -385,8 +396,16 @@ def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
             full = formatted[src.para_id]
             tail = len(src_p.text) - (src.offset + len(src.text))  # trailing whitespace kept as is
             entry = full[src.offset:len(full) - tail]
-            out.append(rules._change(p, pos.offset, pos.offset + len(pos.text), entry, Layer.REFERENCES, "renumber"))
+            c = rules._change(p, pos.offset, pos.offset + len(pos.text), entry, Layer.REFERENCES, "renumber")
+            c.provenance = prov
+            out.append(c)
     return out
+
+
+def _why(pl) -> str:
+    if pl.duplicates:
+        return "duplicate references merged; the list renumbered in order of first citation"
+    return "references renumbered in order of first citation in the text"
 
 
 def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:

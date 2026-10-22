@@ -91,6 +91,15 @@ leaves the rest pending, keeps every author query and earlier decision, re-rende
 (`_autopilot_report.json`, `GET .../autopilot`) lists what was accepted and why the rest was left;
 `POST .../autopilot/undo` puts its acceptances back to pending.
 
+**Why this suggestion** (popover and list cards): every record carries an optional `provenance` (`edit_os/provenance.py`):
+the input a front-matter field was read from (title-page file, XML field, manuscript paragraph), the PubMed / CrossRef
+record a reference was rebuilt from (with the author's original, the styled entry and the record's fields) or why it is
+not verified, where added back matter came from (title page, contribution form, cover letter, the journal's standard
+text), the checker and rule id, the old -> new reference number. `GET /api/jobs/{id}/rules` gives the rule behind each
+`rule_key`: a label, a description and the stylesheet or pre-editing guide line it implements, found at runtime in
+`EDITOS_STYLESHEETS` / `EDITOS_PREEDIT_GUIDE` from a repo-side map of search keywords (`edit_os/rule_sources.py`;
+no client text in the repo). "Reject all like this" rejects every pending suggestion with the same rule (with Undo).
+
 Docs at `/docs`. Dashboard hook: `integrations/te_back/`. AWS: `docs/deploy-aws.md`.
 
 ## Roadmap

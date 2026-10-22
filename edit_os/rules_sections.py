@@ -32,7 +32,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from . import references
+from . import provenance, references, submission
 from .changes import Change, Layer
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -791,14 +791,32 @@ def _contribution_items(paras: list[str]) -> list[str]:
 def contributions_from_sources(ms: Manuscript, skip: set[str] = frozenset()) -> list[str]:
     """Authors' contributions given with the submission: the title-page file, a contribution form, or a cover
     letter inside the manuscript (paragraphs in `skip`, the back matter, are not read)."""
+    return contributions_with_origin(ms, skip)[0]
+
+
+def contributions_with_origin(ms: Manuscript, skip: set[str] = frozenset()) -> tuple[list[str], dict | None]:
+    """`contributions_from_sources` and where the statements were read (a provenance dict)."""
     src = getattr(ms, "front_sources", None)
-    pools = [list(getattr(src, "first_page", None) or [])] + [list(f) for f in getattr(src, "contribution_forms", None) or []]
-    pools.append([p.text for p in ms.paragraphs if p.id not in skip and not p.in_table])
-    for pool in pools:
+    forms = [list(f) for f in getattr(src, "contribution_forms", None) or []]
+    form_names = list(getattr(src, "contribution_form_names", None) or [])
+    paras = [p for p in ms.paragraphs if p.id not in skip and not p.in_table]
+    pools = [(list(getattr(src, "first_page", None) or []), ("title_page", "Title page", getattr(src, "first_page_name", "")))]
+    pools += [(f, ("contribution_form", "Contribution form", form_names[i] if i < len(form_names) else ""))
+              for i, f in enumerate(forms)]
+    pools.append(([p.text for p in paras], ("manuscript", "Manuscript", "")))
+    for pool, (kind, label, name) in pools:
         items = _contribution_items(pool)
         if items:
-            return items
-    return []
+            para = None
+            if kind == "manuscript":
+                para = next((p for p in paras if items[0] in p.text), None)
+                letter = set(submission.cover_letter_paragraphs(ms, getattr(ms, "_submission_style", None)))
+                at = paras.index(para) if para is not None else -1
+                if para is not None and (para.text in letter or any(
+                        re.match(r"^\s*cover(?:ing)?\s+letter\b", q.text, re.I) for q in paras[max(0, at - 10):at])):
+                    kind, label = "cover_letter", "Cover letter"
+            return items, provenance.make(kind, label, items[0], file=name, para_id=para.id if para else "")
+    return [], None
 
 
 # Data availability statement: "Data availability statement: ...", "Availability of data and materials", "Data
@@ -1124,9 +1142,12 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
     # --- sections to add: the standard statements, patient consent, authors' contributions ---
     new: dict[str, list[str]] = {}
+    origins: dict[str, dict | None] = {}  # kind -> where its text comes from (provenance)
     for kind, sec in std.items():
         if kind not in satisfied:
             new[kind] = [f"{tag}{sec['heading']}", sec.get("default", "")]
+            origins[kind] = provenance.make("journal_style", "Journal's standard text",
+                                            f"{sec['heading']}: the journal's wording for a missing section")
     have = {s.kind for s in sections}
     if consent_on:
         if "consent" in have or has_consent_statement(ms):
@@ -1134,6 +1155,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         elif consent_cfg.get("add_missing", True) and identifiable_patient_images(ms):
             new["consent"] = [f"{tag}{consent_cfg.get('heading', 'Declaration of patient consent')}",
                               consent_cfg.get("text", "")]
+            origins["consent"] = provenance.make("inferred", "Patient images in legends", "a figure legend shows the "
+                                                 "patient and no consent statement was found: the journal's standard text")
             plan["consent"] = "added"
         else:
             plan["consent"] = "missing"
@@ -1141,9 +1164,11 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if "contributions" in have:
             plan["contributions"] = "exists"
         else:
-            items = contributions_from_sources(ms, {p.id for p in region}) if contrib_cfg.get("from_sources") else []
+            items, origin = contributions_with_origin(ms, {p.id for p in region}) \
+                if contrib_cfg.get("from_sources") else ([], None)
             if items:
                 new["contributions"] = [f"{tag}{contrib_cfg.get('heading', 'Author contributions')}"] + items
+                origins["contributions"] = origin
                 plan["contributions"] = "added"
             else:
                 plan["contributions"] = "missing"
@@ -1154,6 +1179,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             text = data_availability_from_sources(ms) if data_cfg.get("from_sources", True) else ""
             if text:
                 new["data"] = [f"{tag}{data_cfg.get('heading', 'Data availability statement')}", text]
+                fsrc = getattr(ms, "front_sources", None)
+                origins["data"] = provenance.make("title_page", "Title page", text, file=getattr(fsrc, "first_page_name", ""))
                 plan["data"] = "added"
             else:
                 plan["data"] = "missing"
@@ -1187,6 +1214,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         return last
 
     targets: dict[tuple[str, str], list[str]] = {}
+    target_kinds: dict[tuple[str, str], list[str]] = {}
     for kind in sorted(new, key=lambda k: rank.get(k, len(order))):
         r = rank.get(kind, len(order))
         later = [s for s in kept if rank.get(s.kind, -1) > r]
@@ -1197,23 +1225,24 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 q.id in deleted for q in nonempty if pos[prev_end.id] < pos[q.id] <= pos[anchor.id]):
             prev_end = anchor  # only deleted statements between: with the others, after them
         if prev_end is not None and (before is None or pos[prev_end.id] < pos[before.para.id]):
-            targets.setdefault(("after", prev_end.id), []).extend(new[kind])
+            (targets.setdefault(("after", prev_end.id), []).extend(new[kind]), target_kinds.setdefault(("after", prev_end.id), []).append(kind))
         elif before is None or pos[before.para.id] > pos[anchor.id]:
-            targets.setdefault(("after", anchor.id), []).extend(new[kind])
+            (targets.setdefault(("after", anchor.id), []).extend(new[kind]), target_kinds.setdefault(("after", anchor.id), []).append(kind))
         elif not before.heading:
-            targets.setdefault(("before", before.para.id), []).extend(new[kind])
+            (targets.setdefault(("before", before.para.id), []).extend(new[kind]), target_kinds.setdefault(("before", before.para.id), []).append(kind))
         else:
             # Before a heading line (heading_tags inserts its tag there): after the paragraph above it.
             j = ms.paragraphs.index(before.para)
             above = next((q for q in reversed(ms.paragraphs[:j]) if q.text.strip() and not q.in_table), None)
             if above is None:
                 continue
-            targets.setdefault(("after", above.id), []).extend(new[kind])
+            (targets.setdefault(("after", above.id), []).extend(new[kind]), target_kinds.setdefault(("after", above.id), []).append(kind))
     by_id = {p.id: p for p in ms.paragraphs}
     fmt = {"bold": False, "italic": False, "superscript": False}
     consent_text = (new.get("consent") or [None, None])[1] if plan.get("consent") == "added" else None
     for (where, pid), lines in targets.items():
         p = by_id[pid]
+        prov = provenance.combine([origins.get(k) for k in target_kinds.get((where, pid), [])])
         # The standard consent statement asserts that consent was obtained: its own reason, so that autopilot can hold it.
         reason = "sections_back_matter.consent_added" if consent_text and consent_text in lines else "sections_back_matter"
         if where == "after":
@@ -1226,6 +1255,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 out.append(_change(p, 0, 0, BR.join(lines) + BR + mine.new, Layer.STRUCTURE, reason, mine.format))
             else:
                 out.append(_change(p, 0, 0, BR.join(lines) + BR, Layer.STRUCTURE, reason, fmt))
+        if prov:  # the change just added (a merged heading included)
+            out[-1].provenance = prov
     return out
 
 

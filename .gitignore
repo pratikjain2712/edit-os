@@ -10,3 +10,7 @@ samples/private/
 data/
 build/
 *.egg-info/
+
+# client material: journal stylesheets and the pre-editing guide are never committed
+stylesheets/
+*stylesheet*.txt

@@ -11,7 +11,7 @@ from itertools import count
 
 import difflib
 
-from . import journals, refengine, references, renumber, rules_figures, rules_format, rules_sections
+from . import journals, provenance, refengine, references, renumber, rules_figures, rules_format, rules_sections
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -641,14 +641,31 @@ def word_diff(p: Paragraph, base: int, old: str, new: str, rule: str) -> list[Ch
 def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
     for ref, res in lookup_references(ms, style):
+        mine = []
         if res.status == refengine.FORMAT_FIXED:
-            out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup")
+            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup")
             for pid, text in ref.continuation:  # the rebuilt entry holds the rest ("doi:..." on its own line)
                 p = ms.by_id(pid)
-                out.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_lookup"))
+                mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_lookup"))
         elif res.formatted and res.formatted != ref.text:  # books, links, reports: template fixes
-            out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other")
+            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other")
+        prov = provenance.reference(res, ref.full_text)
+        for c in mine:
+            c.provenance = prov
+        out += mine
     return out
+
+
+def _reference_provenance(ms: Manuscript, style: JournalStyle, changes: list[Change]) -> None:
+    """Reference-list changes from the cleanup rules: the entry's lookup result ("Not verified" and why)."""
+    found = {}
+    for ref, res in lookup_references(ms, style):
+        for pid in [ref.para_id] + [pid for pid, _ in ref.continuation]:
+            found.setdefault(pid, (ref, res))
+    for c in changes:
+        if c.provenance is None and c.layer == Layer.REFERENCES and c.para_id in found:
+            ref, res = found[c.para_id]
+            c.provenance = provenance.reference(res, ref.full_text)
 
 
 RULES = {
@@ -715,4 +732,6 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     replaced = [k for k in kept if not k.format_only and k.end > k.start]
     kept = [c for c in kept if not (c.format_only and any(
         t.para_id == c.para_id and t.start <= c.start and c.end <= t.end for t in replaced))]
+    if not only or "references" in only or "ref_lookup" in only:
+        _reference_provenance(ms, style, kept)
     return ChangeSet(kept)

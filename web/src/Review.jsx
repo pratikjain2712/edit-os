@@ -46,6 +46,7 @@ export default function Review({ id, theme, nextTheme }) {
   const [doc, setDoc] = useState(null);
   const [queries, setQueries] = useState([]);
   const [report, setReport] = useState(null);
+  const [rules, setRules] = useState({}); // rule_key -> {label, description, quote, where, line} ("Why")
   const [error, setError] = useState("");
   const [view, setView] = useState(() => { try { return localStorage.getItem(VIEW_KEY) || "doc"; } catch { return "doc"; } });
   const [tab, setTab] = useState("changes");
@@ -75,6 +76,7 @@ export default function Review({ id, theme, nextTheme }) {
     setQueries(q.items);
     setReport(r);
     setDoc(d);
+    api.rules(id).then((r) => setRules(r.rules || {})).catch(() => setRules({})); // optional: labels fall back
   }, [id]);
   const reloadChanges = useCallback(async () => { setData(await api.changes(id)); }, [id]);
 
@@ -131,6 +133,11 @@ export default function Review({ id, theme, nextTheme }) {
   const nav = useMemo(() => items.filter((i) => (!layer || i.layer === layer) && (!onlyPending || i.status === "suggested" || i.id === selId)),
     [items, layer, onlyPending, selId]);
   const decided = items.filter((i) => i.status !== "suggested").length;
+  const likeCounts = useMemo(() => {
+    const out = {};
+    for (const i of items) if (i.status === "suggested" && i.rule_key && !i.direct) out[i.rule_key] = (out[i.rule_key] || 0) + 1;
+    return out;
+  }, [items]);
   const sel = items.find((i) => i.id === selId) || null;
 
   const select = useCallback((itemId, scroll = false) => {
@@ -235,6 +242,25 @@ export default function Review({ id, theme, nextTheme }) {
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [popOpen]);
+
+  // "Reject all like this": every still-pending suggestion with the same rule, after a confirm; Undo puts them back.
+  const rejectLike = useCallback(async (item) => {
+    const ids = items.filter((i) => i.rule_key === item.rule_key && i.status === "suggested" && !i.direct).map((i) => i.id);
+    const r = rules[item.rule_key];
+    const name = (r && r.label) || item.reason;
+    if (!ids.length || !window.confirm(`Reject all ${ids.length} pending “${name}” suggestions?`)) return;
+    setData((d) => ({ ...d, items: d.items.map((i) => (ids.includes(i.id) ? { ...i, status: "rejected" } : i)) }));
+    try {
+      await api.decide(id, { ids, status: "rejected" });
+      toast(`Rejected ${ids.length} “${name}” suggestion${ids.length > 1 ? "s" : ""}`, "ok", 8000, {
+        label: "Undo",
+        onClick: async () => {
+          setData((d) => ({ ...d, items: d.items.map((i) => (ids.includes(i.id) ? { ...i, status: "suggested" } : i)) }));
+          try { await api.decide(id, { ids, status: "suggested" }); toast(`${ids.length} back to pending`); } catch (e) { toast(e.message, "error"); reloadChanges(); }
+        },
+      });
+    } catch (e) { toast(e.message, "error"); reloadChanges(); }
+  }, [id, items, rules, toast, reloadChanges]);
 
   async function bulk(l) {
     const n = counts[l] ? counts[l].suggested : 0;
@@ -376,7 +402,8 @@ export default function Review({ id, theme, nextTheme }) {
                     onSelect={(i) => select(i)} onDirectEdit={directEdit} onDecideQuery={decideQuery} />
                 ) : (
                   <ListView items={nav} selId={selId} onlyPending={onlyPending} onSelect={(i) => { setSelId(i); setPopOpen(false); }}
-                    onDecide={(i, s) => { setSelId(i); decide([i], s); }} onEdit={(i, t) => { setSelId(i); editWording(i, t); }} />
+                    onDecide={(i, s) => { setSelId(i); decide([i], s); }} onEdit={(i, t) => { setSelId(i); editWording(i, t); }}
+                    rules={rules} likeCounts={likeCounts} onRejectLike={rejectLike} />
                 )}
               </motion.div>
             )}
@@ -400,6 +427,7 @@ export default function Review({ id, theme, nextTheme }) {
       <AnimatePresence>
         {done && view === "doc" && popOpen && sel && (
           <Popover key="pop" item={sel} onClose={() => setPopOpen(false)} onNav={move}
+            rule={rules[sel.rule_key]} likeCount={likeCounts[sel.rule_key] || 0} onRejectLike={rejectLike}
             onDecide={(s) => { if (s === "suggested") decide([sel.id], s); else { setSelId(sel.id); decideSelectedFor(sel, s); } }}
             onEdit={(t) => editWording(sel.id, t)} />
         )}

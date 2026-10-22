@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useRef, useState } from "react";
-import { Check, Pencil, RotateCcw, Sparkles, UserRound, X } from "lucide-react";
-import { LAYERS, fmtLabel, formatOnly, ruleLabel, show } from "./labels.js";
+import { Check, ListX, Pencil, RotateCcw, Sparkles, UserRound, X } from "lucide-react";
+import { LAYERS, fmtLabel, formatOnly, show, whyLabel } from "./labels.js";
+import Why from "./Why.jsx";
 
 function Diff({ item, expanded }) {
   const { before, after, paragraph } = item.context;
@@ -24,7 +25,7 @@ function Diff({ item, expanded }) {
   );
 }
 
-const Card = memo(function Card({ item, selected, onSelect, onDecide, onEdit }) {
+const Card = memo(function Card({ item, selected, onSelect, onDecide, onEdit, rule, likeCount, onRejectLike }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.new);
@@ -36,7 +37,7 @@ const Card = memo(function Card({ item, selected, onSelect, onDecide, onEdit }) 
       <div className="meta">
         <span className={`dot l-${item.layer}`} />
         <span className="muted">{LAYERS[item.layer] || item.layer}</span>
-        <span className="rule" title={`${item.reason} · ${item.para_id}`}>{ruleLabel(item.reason)}</span>
+        <span className="rule" title={`${item.reason} · ${item.para_id}`}>{whyLabel(item, rule)}</span>
         {item.format && <span className="pill">{fmtLabel(item.format)}</span>}
         {item.source === "ai" && <span className="pill ai"><Sparkles size={11} /> AI</span>}
         {item.direct && <span className="pill"><UserRound size={11} /> You</span>}
@@ -45,6 +46,7 @@ const Card = memo(function Card({ item, selected, onSelect, onDecide, onEdit }) 
         <span className={`pill ${item.status}`}>{item.status === "suggested" ? "pending" : item.status}</span>
       </div>
       <Diff item={item} expanded={expanded} />
+      {!item.direct && <Why item={item} rule={rule} compact hideLabel />}
       {editing && (
         <form className="pop-edit" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onEdit(item.id, draft); setEditing(false); }}>
           <label className="small muted">{item.old ? <>Replace “{show(item.old)}” with</> : "Insert"}</label>
@@ -61,18 +63,21 @@ const Card = memo(function Card({ item, selected, onSelect, onDecide, onEdit }) 
         {item.status !== "suggested" && <button className="btn ghost sm" onClick={stop(() => onDecide(item.id, "suggested"))} title="Undo (u)"><RotateCcw size={13} /> Undo</button>}
         {!formatOnly(item) && !editing && !item.direct && <button className="btn sm" onClick={stop(() => { setDraft(item.new); setEditing(true); })}><Pencil size={13} /> Edit</button>}
         {item.kind !== "insert" && <button className="linkbtn" onClick={stop(() => setExpanded(!expanded))}>{expanded ? "less context" : "whole paragraph"}</button>}
+        {item.status === "suggested" && likeCount > 1 && onRejectLike && !item.direct &&
+          <button className="linkbtn like" onClick={stop(() => onRejectLike(item))} title="Reject every pending suggestion made by this rule"><ListX size={12} /> Reject all {likeCount} like this</button>}
       </div>
     </article>
   );
 });
 
-export default function ListView({ items, selId, onSelect, onDecide, onEdit, onlyPending }) {
+export default function ListView({ items, selId, onSelect, onDecide, onEdit, onlyPending, rules = {}, likeCounts = {}, onRejectLike }) {
   const [limit, setLimit] = useState(150);
   return (
     <div className="list-wrap">
       {items.length === 0 && <p className="muted">Nothing {onlyPending ? "pending " : ""}here.</p>}
       {items.slice(0, limit).map((item) => (
-        <Card key={item.id} item={item} selected={item.id === selId} onSelect={onSelect} onDecide={onDecide} onEdit={onEdit} />
+        <Card key={item.id} item={item} selected={item.id === selId} onSelect={onSelect} onDecide={onDecide} onEdit={onEdit}
+          rule={rules[item.rule_key]} likeCount={likeCounts[item.rule_key] || 0} onRejectLike={onRejectLike} />
       ))}
       {items.length > limit && <button className="btn" onClick={() => setLimit(limit + 150)}>Show {Math.min(150, items.length - limit)} more</button>}
     </div>

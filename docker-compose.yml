@@ -11,7 +11,11 @@ services:
     environment:
       EDITOS_LANGUAGETOOL_URL: http://languagetool:8081
       EDITOS_PUBLIC_URL: http://localhost:8000
-    volumes: ["editos-data:/data"]
+    volumes:
+      - editos-data:/data
+      # Stylesheets + guide for the "Why" quotes (client material, kept outside the repo); set EDITOS_STYLESHEETS=/stylesheets
+      # and EDITOS_PREEDIT_GUIDE=/stylesheets/guide/<file>.txt in .env.
+      # - /path/to/stylesheets:/stylesheets:ro
     depends_on: [languagetool]
     restart: unless-stopped
   languagetool:

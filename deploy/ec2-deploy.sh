@@ -30,6 +30,26 @@ aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" 
 echo "AWS_REGION=$REGION" >> /opt/edit-os.env
 grep -q '^EDITOS_PUBLIC_URL=' /opt/edit-os.env || echo "EDITOS_PUBLIC_URL=http://$PUBLIC_IP" >> /opt/edit-os.env
 
+# Journal stylesheets and the pre-editing guide (client material, never in the release): synced from a private S3
+# prefix when one is there -- EDITOS_STYLESHEETS_S3 in the secret, else s3://$EDITOS_S3_BUCKET/stylesheets/ --
+# into /opt/edit-os-stylesheets and mounted read-only. Layout: <prefix>*.txt (one per journal) and
+# <prefix>guide/*.txt (the guide). Without them the review screen shows each rule's plain description.
+SHEETS_S3=$(sed -n 's/^EDITOS_STYLESHEETS_S3=//p' /opt/edit-os.env | tail -1)
+BUCKET=$(sed -n 's/^EDITOS_S3_BUCKET=//p' /opt/edit-os.env | tail -1)
+[ -z "$SHEETS_S3" ] && [ -n "$BUCKET" ] && SHEETS_S3="s3://$BUCKET/stylesheets/"
+SHEETS_DIR=/opt/edit-os-stylesheets
+SHEETS_ARGS=()
+if [ -n "$SHEETS_S3" ] && aws s3 ls "$SHEETS_S3" --region "$REGION" >/dev/null 2>&1; then
+  mkdir -p "$SHEETS_DIR" && chmod 700 "$SHEETS_DIR"
+  aws s3 sync "$SHEETS_S3" "$SHEETS_DIR" --region "$REGION" --delete --only-show-errors
+  SHEETS_ARGS=(-v "$SHEETS_DIR:/stylesheets:ro" -e EDITOS_STYLESHEETS=/stylesheets)
+  GUIDE=$(ls "$SHEETS_DIR"/guide/*.txt 2>/dev/null | head -1 || true)
+  [ -n "$GUIDE" ] && SHEETS_ARGS+=(-e "EDITOS_PREEDIT_GUIDE=/stylesheets/guide/$(basename "$GUIDE")")
+  echo "stylesheets: $(ls "$SHEETS_DIR"/*.txt 2>/dev/null | wc -l) from $SHEETS_S3${GUIDE:+ (+ guide)}"
+else
+  echo "stylesheets: none at ${SHEETS_S3:-<no prefix>}; rule quotes off"
+fi
+
 docker network inspect editos >/dev/null 2>&1 || docker network create editos
 docker build -q -t editos-languagetool -f deploy/languagetool.Dockerfile deploy
 docker build -q -t editos .
@@ -38,7 +58,7 @@ docker rm -f editos-lt editos-api >/dev/null 2>&1 || true
 docker run -d --name editos-lt --network editos --restart unless-stopped editos-languagetool
 docker run -d --name editos-api --network editos --restart unless-stopped -p 80:8000 \
   --env-file /opt/edit-os.env -e EDITOS_LANGUAGETOOL_URL=http://editos-lt:8081 \
-  -v editos-data:/data editos
+  -v editos-data:/data ${SHEETS_ARGS[@]+"${SHEETS_ARGS[@]}"} editos
 
 for _ in $(seq 60); do
   curl -fsS http://127.0.0.1/api/health >/dev/null 2>&1 && break

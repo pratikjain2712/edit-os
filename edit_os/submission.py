@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 
 from docx.oxml.ns import qn
 
+from . import provenance
 from .changes import Change, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle, _merge
@@ -415,6 +416,8 @@ def rule_submission(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out: list[Change] = []
     prefix = settings(style).get("copyright_notice_prefix") or "AQ: "  # JEHP editors write "Query: "
     for n, part in enumerate(detect(ms, style).parts, 1):
+        prov = provenance.make("submission", PART_LABELS.get(part.kind, part.kind.replace("_", " ").capitalize()),
+                               "submission material inside the manuscript file")
         for p in part.paras:
             if not p.text.strip():
                 continue
@@ -422,12 +425,19 @@ def rule_submission(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 continue
             if part.action == DELETE:
                 out.append(Change(id=f"sub{n}_{p.id}", para_id=p.id, start=0, end=len(p.text), old=p.text, new="",
-                                  layer=Layer.STRUCTURE, source=Source.RULE, reason=f"submission_{part.kind}"))
+                                  layer=Layer.STRUCTURE, source=Source.RULE, reason=f"submission_{part.kind}",
+                                  provenance=prov))
             elif part.action == AQ and not re.match(r"\s*(?:AQ|Query)\s*:", p.text, re.I):
                 at = len(p.text) - len(p.text.lstrip())
                 out.append(Change(id=f"sub{n}_{p.id}", para_id=p.id, start=at, end=at, old="", new=prefix,
-                                  layer=Layer.QUERY, source=Source.RULE, reason=f"submission_{part.kind}"))
+                                  layer=Layer.QUERY, source=Source.RULE, reason=f"submission_{part.kind}",
+                                  provenance=prov))
     return out
+
+
+PART_LABELS = {"copyright_notice": "Portal copyright notice", "cover_letter": "Cover letter",
+               "reviewer_reply": "Reply to reviewers", "counts": "Word counts", "phone": "Phone numbers",
+               "title_repeat": "Repeated title", "form": "Submission form"}
 
 
 def warnings(ms: Manuscript, style: JournalStyle) -> list[dict]:

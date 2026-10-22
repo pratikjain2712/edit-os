@@ -41,7 +41,7 @@ from docx.image.image import Image as DocxImage
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from . import rules_figures
+from . import provenance, rules_figures
 from .changes import Source, Status
 from .docmodel import Manuscript, has_picture
 from .frontmatter import NewParagraph
@@ -103,7 +103,8 @@ class FigureInsert(NewParagraph):
     def from_dict(cls, d: dict) -> "FigureInsert":
         return cls(id=d["id"], anchor=d["anchor"], where=d.get("where", "before"), runs=[], role=d.get("role", "figure"),
                    status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
-                   reason=d.get("reason", REASON), images=list(d.get("images") or []), figure=int(d.get("figure", 0)))
+                   reason=d.get("reason", REASON), images=list(d.get("images") or []), figure=int(d.get("figure", 0)),
+                   provenance=d.get("provenance") or None)
 
 
 def is_figure_insert(n) -> bool:
@@ -378,7 +379,9 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
         first, last = block(num)
         out.inserts.append(FigureInsert(
             id=f"fig_ins{next(n_ins)}", anchor=ms.paragraphs[last if below else first].id,
-            where="after" if below else "before", runs=[], role="figure", reason=REASON, images=images, figure=num))
+            where="after" if below else "before", runs=[], role="figure", reason=REASON, images=images, figure=num,
+            provenance=provenance.make("figure_file", "Figure file", ", ".join(os.path.basename(i["name"]) for i in images),
+                                       files=[os.path.basename(i["name"]) for i in images])))
     return out
 
 

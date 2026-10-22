@@ -17,6 +17,11 @@ What it sets up (all named edit-os*, idempotent):
 The release is `git archive HEAD` uploaded to S3; the instance builds the Docker images and runs
 deploy/ec2-deploy.sh (user data on first boot, SSM Run Command after).
 
+Stylesheets (client material, never in git or the release): `--stylesheets DIR` (the journals' .txt files) and
+`--guide FILE` (the pre-editing guide .txt) upload them to s3://<bucket>/stylesheets/ (guide under guide/, SSE);
+ec2-deploy.sh syncs that prefix into the container read-only (EDITOS_STYLESHEETS / EDITOS_PREEDIT_GUIDE), so the
+review screen can quote the rule behind each suggestion. Without them it shows the rules' plain descriptions.
+
 Credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY of a deploy user; AWS_DEFAULT_REGION
 (default ap-south-1).
 """
@@ -24,6 +29,7 @@ Credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY of a deploy user; AWS_DEF
 from __future__ import annotations
 
 import argparse
+import glob
 import io
 import json
 import os
@@ -178,6 +184,25 @@ class Deployer:
             self.s3.upload_fileobj(io.BytesIO(data), self.bucket, key, ExtraArgs={"ServerSideEncryption": "AES256"})
         return key
 
+    def upload_stylesheets(self, directory: str | None, guide: str | None) -> None:
+        """Journal stylesheets (*.txt) and the guide to s3://<bucket>/stylesheets/ (private, encrypted). Only .txt
+        files are sent; nothing is read or kept anywhere else."""
+        files = sorted(glob.glob(os.path.join(directory, "*.txt"))) if directory else []
+        if directory and not files:
+            sys.exit(f"--stylesheets {directory}: no .txt files")
+        if guide and not os.path.isfile(guide):
+            sys.exit(f"--guide {guide}: not a file")
+        todo = [(p, f"stylesheets/{os.path.basename(p)}") for p in files]
+        if guide:
+            todo.append((guide, f"stylesheets/guide/{os.path.basename(guide)}"))
+        if not todo:
+            return
+        log(f"upload {len(files)} stylesheet(s){' + guide' if guide else ''} -> s3://{self.bucket}/stylesheets/")
+        if self.dry:
+            return
+        for path, key in todo:
+            self.s3.upload_file(path, self.bucket, key, ExtraArgs={"ServerSideEncryption": "AES256"})
+
     def resize(self, inst: dict, itype: str, disk_gb: int) -> None:
         """Scale the existing instance in place: instance type (needs a stop) and root volume (grow only)."""
         iid = inst["InstanceId"]
@@ -295,6 +320,10 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--no-wait", action="store_true", help="do not wait for the site to answer")
+    ap.add_argument("--stylesheets", default=None,
+                    help="directory of journal stylesheet .txt files to upload to s3://<bucket>/stylesheets/")
+    ap.add_argument("--guide", default=None,
+                    help="pre-editing guide .txt to upload to s3://<bucket>/stylesheets/guide/")
     a = ap.parse_args(argv)
 
     d = Deployer(a.region, a.dry_run)
@@ -311,6 +340,7 @@ def main(argv=None) -> int:
     env = d.ensure_secret()
     d.ensure_role()
     sg = d.ensure_sg(a.allow_cidr)
+    d.upload_stylesheets(a.stylesheets, a.guide)
     key = d.upload_release()
     if inst:
         d.resize(inst, a.instance_type, a.disk_gb)
