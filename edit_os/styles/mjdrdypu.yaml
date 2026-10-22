@@ -1,6 +1,7 @@
 # Medical Journal of Dr. D.Y. Patil Vidyapeeth (StyleSheet_mjdrdypu.docx); only the settings that differ from base.yaml.
 # Tuned against 3 style-edited articles: closure 38.6% (hurt 25) -> 38.8% (hurt 22) (base only -> this file).
-# Re-tuned on 16 training articles (13 new + those 3; 6 style editors); 13 held-out articles scored once at the end.
+# Re-tuned on 16 training articles (13 new + those 3; 6 style editors): closure 55.8% (helped 252, hurt 37) -> 62.0%
+# (305, 36). 13 held-out articles, scored once at the end: 37.9% (160, 31) -> 39.2% (168, 31).
 name: Medical Journal of Dr. D.Y. Patil Vidyapeeth
 
 headings:
