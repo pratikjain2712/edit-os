@@ -401,3 +401,25 @@ def test_formatting_only_change_does_not_block_copy_edits(monkeypatch):
     monkeypatch.setattr(copyedit, "CHECKERS", {"spelling": lambda *a, **k: ([edit], [], [])})
     res = copyedit.run_all(ms, None, existing=[fmt])
     assert [c.id for c in res.changes.changes] == ["s1"]
+
+
+def test_claude_cache_shared_across_threads(tmp_path):
+    import threading
+    from edit_os.copyedit import claude_pass
+    cache = claude_pass._Cache(str(tmp_path / "c.sqlite"))
+    errors = []
+
+    def work(i):
+        try:
+            for j in range(20):
+                cache.put(f"k{i}-{j}", {"edits": [], "queries": []})
+                assert cache.get(f"k{i}-{j}") == {"edits": [], "queries": []}
+        except Exception as e:  # pragma: no cover - the failure being guarded against
+            errors.append(e)
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors

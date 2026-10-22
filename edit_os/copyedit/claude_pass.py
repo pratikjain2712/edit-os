@@ -32,11 +32,12 @@ import os
 import random
 import re
 import sqlite3
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from itertools import count
 
-from .. import ai_refs
+from .. import ai_refs, provenance
 from ..changes import Change, Layer, Source
 from ..docmodel import Manuscript, Paragraph
 from ..queries import Query
@@ -308,7 +309,9 @@ def cost(model: str | None = None) -> float:
 
 class _Cache:
     def __init__(self, path: str | None = None):
-        self.con = sqlite3.connect(path or cache_dir("claude_copyedit.sqlite"), timeout=60)
+        # shared by the service's worker threads (serialized SQLite; writes under the lock)
+        self.con = sqlite3.connect(path or cache_dir("claude_copyedit.sqlite"), timeout=60, check_same_thread=False)
+        self.lock = threading.Lock()
         self.con.execute("CREATE TABLE IF NOT EXISTS ce (key TEXT PRIMARY KEY, body TEXT)")
 
     @staticmethod
@@ -316,12 +319,14 @@ class _Cache:
         return hashlib.sha256(json.dumps([PROMPT_VERSION, model, effort, system, text]).encode()).hexdigest()
 
     def get(self, key: str) -> dict | None:
-        row = self.con.execute("SELECT body FROM ce WHERE key = ?", (key,)).fetchone()
+        with self.lock:
+            row = self.con.execute("SELECT body FROM ce WHERE key = ?", (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
     def put(self, key: str, body: dict) -> None:
-        self.con.execute("INSERT OR REPLACE INTO ce VALUES (?, ?)", (key, json.dumps(body)))
-        self.con.commit()
+        with self.lock:
+            self.con.execute("INSERT OR REPLACE INTO ce VALUES (?, ?)", (key, json.dumps(body)))
+            self.con.commit()
 
 
 _cache: _Cache | None = None
@@ -473,7 +478,10 @@ def verify(p: Paragraph, e: dict, cfg: dict, prot=None, hidden=None) -> tuple[Ch
     if e.get("reason"):
         reason += f" ({e['reason'].strip()[:120]})"
     c = Change(id=f"ai{next(_ids)}", para_id=p.id, start=t.start, end=t.end, old=t.old, new=t.new,
-               layer=Layer.LANGUAGE, source=Source.AI, reason=reason, author="Edit OS (AI)")
+               layer=Layer.LANGUAGE, source=Source.AI, reason=reason, author="Edit OS (AI)",
+               provenance=provenance.make("ai", "Claude copy edit", (e.get("reason") or "").strip(), checker="claude",
+                                          edit_kind=kind, confidence=e.get("confidence", ""),
+                                          model=cfg.get("model", "claude-haiku-5-5")))
     return c, ""
 
 

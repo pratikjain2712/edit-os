@@ -43,9 +43,10 @@ export const useToast = () => useContext(ToastCtx);
 export function ToastProvider({ children }) {
   const [items, setItems] = useState([]);
   const n = useRef(0);
-  const push = useCallback((text, kind = "ok", ms = 2600) => {
+  // `action`: optional {label, onClick} button on the toast (e.g. Undo); the toast closes when it is used.
+  const push = useCallback((text, kind = "ok", ms = 2600, action = null) => {
     const id = ++n.current;
-    setItems((xs) => [...xs.slice(-2), { id, text, kind }]);
+    setItems((xs) => [...xs.slice(-2), { id, text, kind, action }]);
     setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), kind === "error" ? Math.max(ms, 5200) : ms);
   }, []);
   return (
@@ -59,6 +60,11 @@ export function ToastProvider({ children }) {
               exit={{ opacity: 0, y: 8, scale: 0.98 }} transition={{ type: "spring", stiffness: 420, damping: 32 }}>
               {t.kind === "error" ? <AlertCircle size={16} className="ico" /> : <CheckCircle2 size={16} className="ico" />}
               <span>{t.text}</span>
+              {t.action && (
+                <button className="toast-act" onClick={() => { t.action.onClick(); setItems((xs) => xs.filter((x) => x.id !== t.id)); }}>
+                  {t.action.label}
+                </button>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>

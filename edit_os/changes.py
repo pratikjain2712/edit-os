@@ -57,6 +57,10 @@ class Change:
     # old == new it is a formatting-only change over start..end (Word tracked formatting);
     # with a text change it is applied to the inserted text.
     format: dict[str, bool | str] | None = None
+    # Where the suggestion comes from, for the editor (edit_os/provenance.py): which input a front-matter
+    # field was read from, the PubMed / CrossRef record a reference was rebuilt from, the checker and its
+    # rule id, the old -> new reference number. Optional: records saved without it still load.
+    provenance: dict | None = None
 
     def __post_init__(self):
         for k, v in (self.format or {}).items():
@@ -80,7 +84,11 @@ class Change:
         d["layer"], d["source"] = Layer(d["layer"]), Source(d["source"])
         d["status"] = Status(d.get("status", "suggested"))
         d["format"] = d.get("format") or None
-        return cls(**d)
+        d["provenance"] = d.get("provenance") or None
+        return cls(**{k: v for k, v in d.items() if k in _FIELDS})
+
+
+_FIELDS = set(Change.__dataclass_fields__)
 
 
 @dataclass

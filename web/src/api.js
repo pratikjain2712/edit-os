@@ -51,6 +51,7 @@ export const api = {
     return call("POST", "/api/jobs", fd);
   },
   changes: (id) => call("GET", `/api/jobs/${id}/changes`),
+  rules: (id) => call("GET", `/api/jobs/${id}/rules`),
   queries: (id) => call("GET", `/api/jobs/${id}/queries`),
   decide: (id, body) => call("POST", `/api/jobs/${id}/decisions`, body),
   edit: (id, itemId, text) => call("POST", `/api/jobs/${id}/edit`, { id: itemId, new: text }),

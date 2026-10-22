@@ -48,6 +48,14 @@ export function ruleLabel(reason) {
   return cap(r);
 }
 
+// The rule name shown for a suggestion: the /rules label, except where the reason itself says more
+// (Claude's kind and note, a LanguageTool rule id).
+export function whyLabel(item, rule) {
+  const r = item.reason || "";
+  if (/^(claude\.|front_matter: )/.test(r) || !rule || !rule.label) return ruleLabel(r);
+  return rule.label;
+}
+
 const FMT_NAMES = { italic: "italic", bold: "bold", superscript: "superscript", subscript: "subscript", small_caps: "small caps" };
 export const fmtLabel = (f) => Object.entries(f || {}).filter(([, v]) => v).map(([k]) => FMT_NAMES[k] || k).join(", ") ||
   Object.keys(f || {}).map((k) => `no ${FMT_NAMES[k] || k}`).join(", ");

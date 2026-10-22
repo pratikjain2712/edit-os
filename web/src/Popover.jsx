@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, ChevronDown, ChevronUp, Pencil, RotateCcw, Sparkles, UserRound, X } from "lucide-react";
-import { LAYERS, fmtLabel, formatOnly, ruleLabel, show } from "./labels.js";
+import { Check, ChevronDown, ChevronUp, ListX, Pencil, RotateCcw, Sparkles, UserRound, X } from "lucide-react";
+import { LAYERS, fmtLabel, formatOnly, show, whyLabel } from "./labels.js";
+import Why from "./Why.jsx";
 
 const W = 340;
 
-export default function Popover({ item, onDecide, onEdit, onClose, onNav }) {
+export default function Popover({ item, rule, likeCount = 0, onRejectLike, onDecide, onEdit, onClose, onNav }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -48,7 +49,7 @@ export default function Popover({ item, onDecide, onEdit, onClose, onNav }) {
       onMouseDown={(e) => e.stopPropagation()}>
       <div className="pop-head">
         <span className={`dot l-${item.layer}`} />
-        <span className="rule" title={`${item.reason} · ${item.para_id}`}>{ruleLabel(item.reason)}</span>
+        <span className="rule" title={`${item.reason} · ${item.para_id}`}>{whyLabel(item, rule)}</span>
         {item.source === "ai" && <span className="pill ai"><Sparkles size={12} /> AI</span>}
         {item.direct && <span className="pill"><UserRound size={12} /> You</span>}
         {item.edited && <span className="pill">reworded</span>}
@@ -67,6 +68,7 @@ export default function Popover({ item, onDecide, onEdit, onClose, onNav }) {
                 {!item.new && <span className="small muted" style={{ fontFamily: "var(--font-ui)", marginLeft: 6 }}>delete</span>}</>}
         </div>
       )}
+      {!editing && !item.direct && <Why item={item} rule={rule} hideLabel />}
       {editing ? (
         <form className="pop-edit" onSubmit={(e) => { e.preventDefault(); onEdit(draft); setEditing(false); }}>
           <label className="small muted">{item.old ? <>Replace “{show(item.old).slice(0, 80)}” with</> : "Insert"}</label>
@@ -95,6 +97,13 @@ export default function Popover({ item, onDecide, onEdit, onClose, onNav }) {
               {decided && <button className="btn sm ghost" onClick={() => onDecide("suggested")} title="Undo (u)"><RotateCcw size={13} /> Undo</button>}
             </>
           )}
+        </div>
+      )}
+      {!editing && !item.direct && item.status === "suggested" && likeCount > 1 && onRejectLike && (
+        <div className="pop-like">
+          <button className="linkbtn like" onClick={() => onRejectLike(item)} title="Reject every pending suggestion made by this rule">
+            <ListX size={13} /> Reject all {likeCount} like this
+          </button>
         </div>
       )}
       <div className="pop-foot"><span><kbd>a</kbd> accept</span><span><kbd>r</kbd> reject</span><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>Esc</kbd></span></div>

@@ -187,3 +187,12 @@ def test_metadata_card_tolerates_junk():
     assert sf.metadata_card(b"\xff\xfe", ".json") is None
     xxe = b'<?xml version="1.0"?><!DOCTYPE m [<!ENTITY x SYSTEM "file:///etc/passwd">]><manuscript><title>&x;</title></manuscript>'
     assert "root" not in sf.metadata_card(xxe, ".xml")["title"]
+
+
+def test_xml_image_role_does_not_make_documents_figures():
+    from server import submission_files as sf
+    roles = {"authors contribution file.docx": "figure", "Cover Letter.docx": "figure", "Reply_template.doc": "figure",
+             "Figure 1.png": "figure"}
+    kinds = {n: sf._kind(n, roles, "Manuscript.docx") for n in roles}
+    assert kinds == {"authors contribution file.docx": "form", "Cover Letter.docx": "cover_letter",
+                     "Reply_template.doc": "other", "Figure 1.png": "figure"}

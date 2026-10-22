@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .. import provenance
 from ..changes import Change, ChangeSet
 from ..docmodel import Manuscript
 from ..queries import Query
@@ -55,6 +56,10 @@ CHECKERS = {
     "claude": _claude,  # needs EDITOS_ANTHROPIC_API_KEY and copyedit.claude.enabled; last, so it never wins an overlap
 }
 
+# Checkers whose suggestions carry no provenance of their own: the chip names the checker.
+_CHECKER_SOURCE = {"spelling": "Spelling checker", "text": "Copy-edit text rule", "abbreviations": "Abbreviation checker",
+                   "languagetool": "LanguageTool"}
+
 
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None,
             lt_client: langtool.Client | None = None, existing: list[Change] = (),
@@ -71,6 +76,8 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None,
             if any(k.para_id == c.para_id and (c.start < k.end and k.start < c.end or c.start == k.start)
                    for k in kept):
                 continue
+            if c.provenance is None and name in _CHECKER_SOURCE:
+                c.provenance = provenance.make("checker", _CHECKER_SOURCE[name], c.reason, checker=name)
             kept.append(c)
             res.changes.add(c)
         res.queries += queries

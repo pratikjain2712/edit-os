@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import sqlite3
+import threading
 import subprocess
 import time
 import urllib.parse
@@ -30,6 +31,7 @@ import zipfile
 from dataclasses import dataclass
 from typing import Callable
 
+from .. import provenance
 from ..changes import Change
 from ..docmodel import Manuscript
 from ..style import JournalStyle
@@ -107,18 +109,22 @@ class Client:
                  post: Callable[[str, dict], dict] | None = None):
         self.url = url.rstrip("/")
         self.post = post or _http_post
-        self.db = sqlite3.connect(cache_path or cache_dir("languagetool_cache.sqlite"), timeout=60)
+        self.db = sqlite3.connect(cache_path or cache_dir("languagetool_cache.sqlite"), timeout=60,
+                                  check_same_thread=False)  # one client may serve several worker threads
         self.db.execute("CREATE TABLE IF NOT EXISTS lt (key TEXT PRIMARY KEY, matches TEXT)")
+        self.lock = threading.Lock()
 
     def check(self, text: str, language: str, **params) -> list[dict]:
         data = {"text": text, "language": language, **params}
         key = hashlib.sha256(json.dumps([VERSION, data], sort_keys=True).encode()).hexdigest()
-        row = self.db.execute("SELECT matches FROM lt WHERE key = ?", (key,)).fetchone()
+        with self.lock:
+            row = self.db.execute("SELECT matches FROM lt WHERE key = ?", (key,)).fetchone()
         if row:
             return json.loads(row[0])
         matches = self.post(f"{self.url}/v2/check", data).get("matches", [])
-        self.db.execute("INSERT OR REPLACE INTO lt VALUES (?, ?)", (key, json.dumps(matches)))
-        self.db.commit()
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO lt VALUES (?, ?)", (key, json.dumps(matches)))
+            self.db.commit()
         return matches
 
 
@@ -186,8 +192,13 @@ def collect(ms: Manuscript, style: JournalStyle, client: Client | None = None) -
             reps = [r["value"] for r in m.get("replacements", [])]
             rule = m.get("rule", {})
             if _rule_ok(m, cfg) and len(reps) == 1 and reps[0] != p.text[s:e]:
-                changes.append(change(p, s, e, reps[0], "languagetool",
-                                      reason=f"languagetool:{rule.get('id', '')}"))
+                c = change(p, s, e, reps[0], "languagetool", reason=f"languagetool:{rule.get('id', '')}")
+                rid = rule.get("id", "")
+                c.provenance = provenance.make(
+                    "checker", f"LanguageTool {rid}".strip(), m.get("message", "") or rule.get("description", ""),
+                    url=f"https://community.languagetool.org/rule/show/{rid}?lang={lang}" if rid else "",
+                    checker="languagetool", rule_id=rid, category=rule.get("category", {}).get("name", ""))
+                changes.append(c)
             elif rule.get("category", {}).get("id") in warn_cats:
                 warnings.append(Warning(p.id, s, e, rule.get("id", ""), m.get("message", ""), reps[:3]))
     return changes, warnings

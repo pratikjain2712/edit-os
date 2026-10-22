@@ -47,6 +47,8 @@ _MEDIA = {
 _FORM = re.compile(r"contribut|copyright|consent|declaration|disclosure|conflict|\bcoi\b|icmje|checklist|ethic|"
                    r"approval|certificate|undertaking|\bforms?\b|signature", re.I)
 _COVER = re.compile(r"cover(?:ing)?[\s_-]*letter|submission[\s_-]*letter|letter[\s_-]*to[\s_-]*(?:the[\s_-]*)?editor", re.I)
+_REPLY = re.compile(r"repl(?:y|ies)|response|rebuttal|revision[\s_-]*note|point[\s_-]*by[\s_-]*point", re.I)
+_DOCS = {".docx", ".doc", ".odt", ".rtf", ".txt"}
 _TABLE = re.compile(r"(?<![a-z])tables?(?![a-z])|(?<![a-z])tab[\s_.-]*\d", re.I)
 _FIG = re.compile(r"(?<![a-z])(?:fig(?:ure)?s?|pictures?|images?|photo(?:graph)?s?|graphs?|charts?)(?![a-z])"
                   r"|(?<![a-z])fig[\s_.-]*\d|^\d{1,2}\s*[a-z]?$", re.I)
@@ -102,6 +104,11 @@ def _kind(name: str, roles: dict[str, str], manuscript: str | None) -> str:
     role = roles.get(base)
     if role == "qr_code":
         return "other"
+    # The portal's XML lists every upload as an image; a name or a type that says otherwise wins.
+    if role in ("figure", "table") and (_COVER.search(stem) or _FORM.search(stem) or _REPLY.search(stem)):
+        role = None
+    if role == "figure" and ext in _DOCS:
+        role = None
     if role and role != "manuscript":
         return role
     if ext == ".xml":
@@ -114,6 +121,8 @@ def _kind(name: str, roles: dict[str, str], manuscript: str | None) -> str:
         return "cover_letter"
     if _FORM.search(stem):
         return "form"
+    if _REPLY.search(stem):
+        return "other"
     if _TABLE.search(stem) and ext in (".docx", ".doc", ".xlsx", ".xls", ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"):
         return "table"
     if ext in _IMAGE | _CONVERT | _FIG_OTHER:
