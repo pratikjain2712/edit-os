@@ -156,7 +156,7 @@ def test_subheadings_tagged(tmp_path):
     assert t[9] == "Inclusion criteria:"
     assert t[12] == "Funding"
     assert t[14] == "OCT: optical coherence tomography"
-    assert t[18] == "<H2>Data collection"
+    assert t[18] == "<H2>Data collection:"  # G137: punctuation at the end of a heading is retained
 
 
 def test_subheadings_skip_run_in_section_and_abstract(tmp_path):
@@ -197,7 +197,7 @@ def test_heading_tags_replace_leading_spaces(tmp_path):
     path = _save(tmp_path, paras)
     _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
     # IJO drops "Introduction" (editors); H1 in capitals (S: "H1 | Caps")
-    assert t[:5] == [LONG, "<H1>METHODS", "<H2>Study design", LONG, "<H1>RESULTS"]
+    assert t[:5] == [LONG, "<H1>METHODS:", "<H2>Study design", LONG, "<H1>RESULTS"]  # G137 colon kept, G143 spaces go
 
 
 def test_caption_end_period_kept_when_set_to_keep(tmp_path):

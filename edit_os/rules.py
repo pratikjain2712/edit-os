@@ -483,6 +483,8 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if style.get("headings.strip_trailing_colon", True) and text.rstrip().endswith(":"):
             i = len(text.rstrip()) - 1  # the colon and any spaces after it: "Conclusion: " -> "Conclusion"
             out.append(_change(p, i, len(text), "", Layer.STRUCTURE, "heading_tags"))
+        elif text != text.rstrip() and lead < len(text.rstrip()):  # the colon stays (G137), the spaces go (G143)
+            out.append(_change(p, len(text.rstrip()), len(text), "", Layer.STRUCTURE, "heading_tags"))
     return out
 
 

@@ -370,6 +370,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
             k = len(p.text.rstrip()) - 1  # with the spaces after it
             out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
+        elif p.text != p.text.rstrip() and lead < len(p.text.rstrip()):  # the colon stays (G137), the spaces go
+            out.append(_change(p, len(p.text.rstrip()), len(p.text), "", Layer.STRUCTURE, "subheadings"))
     return out
 
 
@@ -401,7 +403,8 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str) -> list[Chang
             continue
         head = re.match(r"[A-Za-z]+", w).group(0)
         lower, caps = _counts(head, body)
-        if caps <= lower:  # never capitalised inside a sentence of the text, or more often lower case
+        inside = p.text[:m.start()].count("(") > p.text[:m.start()].count(")")  # "(Heine, Germany)": maker, place
+        if caps <= lower and not inside:  # never capitalised inside a sentence of the text, or more often lower case
             out.append(_change(p, m.start(), m.start() + 1, w[0].lower(), Layer.STRUCTURE, rule))
         first = w.endswith(":")
     return out

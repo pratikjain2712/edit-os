@@ -243,3 +243,12 @@ def test_letter_salutation_from_the_stylesheet(tmp_path):
     assert t[0] == "Dear Editor, We read the article with interest."
     t, _, _ = run(path, style.load("abr"), only=["sections_salutation"])  # no such rule in the ABR sheet
     assert t[0] == "Dear Sir/Madam, We read the article with interest."
+
+
+def test_sentence_case_leaves_words_in_brackets(tmp_path):
+    long = ("The examination was planned in advance and the participants were followed for a year; the indirect "
+            "examination used standard methods and the results were checked twice by two observers.")
+    path = make(tmp_path, ["Introduction", long, "Materials and Methods", ("Indirect Examination (Heine, Germany)",),
+                           long, "Discussion", long])
+    t, _, _ = run(path, style.load("ijo"), only=["heading_tags", "subheadings"])
+    assert t[3] == "<H2>Indirect examination (Heine, Germany)"

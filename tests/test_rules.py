@@ -48,7 +48,7 @@ def test_ijo_rules(manuscript, tmp_path):
     assert t[2] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
     # statistics, not a citation: operators spaced (G297), P capital (G294); H1 in capitals (S: "H1 | Caps")
     assert t[3] == "Mean age was 45 (12) years and P = 0.03."
-    assert t[4] == "<H1>METHODS" and t[5] == "<H1>RESULTS" and t[7] == "<H1>REFERENCES"
+    assert t[4] == "<H1>METHODS:" and t[5] == "<H1>RESULTS" and t[7] == "<H1>REFERENCES"  # G137 keeps the colon
     assert t[8] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
     assert t[9] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
                     "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")
@@ -60,7 +60,7 @@ def test_base_rules_space_operators_and_tag_all_h1(manuscript, tmp_path):
     del t[8:12]  # back matter added before the references
     assert t[0] == "<H1>Abstract" and t[2] == "<H1>Introduction"
     assert t[4] == "Mean age was 45 (12) years and P = 0.03."
-    assert "<H1>Materials and Methods" in t  # G138: "Methods" -> "Materials and Methods"
+    assert "<H1>Materials and Methods:" in t  # G138: "Methods" -> "Materials and Methods"; G137 keeps the colon
     assert t[9].endswith("2002;21:295-9.")
 
 

@@ -164,3 +164,12 @@ def test_record_title_brackets_and_all_caps():
     p = refengine.Parsed(text="", title="Wide-angle viewing systems for vitreoretinal surgery")
     if p is not None:
         assert refengine._usable_title(caps, p) == p.title
+
+
+def test_record_title_with_names_counts_as_sentence_case():
+    # NJCP / JFMPC now sentence-case reference titles (S example): names in a PubMed title keep their capitals.
+    t = ("Health-related quality of life in patients with dyspepsia presenting at the University of Benin "
+         "Teaching Hospital, Benin City, South-South Nigeria: a cross-sectional study")
+    assert refengine.is_sentence_cased(t)
+    assert refengine.sentence_case(t, refengine.proper_nouns(t)) == t
+    assert not refengine.is_sentence_cased("Treatment of Metastatic Cancer in Adult Patients With Chronic Disease")

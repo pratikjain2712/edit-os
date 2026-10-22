@@ -24,7 +24,8 @@ headings:
        declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
        acknowledgements, author contribution statement, author contributions, data availability statement,
        ethical approval, ethics approval]
-  strip_trailing_colon: true
+  strip_trailing_colon: false  # G137: "If punctuation (period, comma, hyphen, ndash, colon, etc.) is present at end of
+                              # heading then please retain as it is" (editors drop the colon: owner's list)
   subheadings: true          # short own-line heads inside a section -> <H2> (<H3> for italic under bold, "2.1.1")
   subheading_max_words: 8
   subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
