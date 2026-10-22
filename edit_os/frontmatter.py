@@ -915,7 +915,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         for u in uniq:  # departments of one institution and place go together
             d = department_form(affs[u].get("department", ""))
             loc = key[u][1:]
-            g = next((g for g in groups if key[g[0]][1:] == loc and loc[0] and d.lower().startswith("department of ")
+            g = next((g for g in groups if cfg.get("group_departments", True) and key[g[0]][1:] == loc and loc[0]
+                      and d.lower().startswith("department of ")
                       and department_form(affs[g[0]].get("department", "")).lower().startswith("department of ")),
                      None)
             if g is not None:
@@ -962,7 +963,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             text = ", ".join(dedup)
             if len(g) > 1 and text:
                 text = ", " + text
-            last_of_country = gi == len(groups) - 1 or countries[gi + 1] != countries[gi]
+            last_of_country = gi == len(groups) - 1 or countries[gi + 1] != countries[gi] \
+                or cfg.get("affiliation_country_each", False)  # JEHP: every affiliation complete
             if countries[gi] and last_of_country:
                 text += (", " if text else "") + _place_case(_clean_part(countries[gi]))
             elif not countries[gi] and last_of_country:
@@ -1017,7 +1019,9 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         for p in parts:
             if p and not any(_norm(p) == _norm(q) for q in dedup):
                 dedup.append(p)
-        if dedup:
+        if dedup and cfg.get("correspondence_one_line", False):  # "Address for correspondence: Dr. A, Dept, ..."
+            blocks[-1].runs.append((" " + ", ".join(dedup) + ".", plain))
+        elif dedup:
             blocks.append(Block("correspondence", [(", ".join(dedup) + ".", plain)]))
         email = c.get("email") or next((a.get("email", "") for a in meta.authors if a.get("corresponding")), "")
         if email:

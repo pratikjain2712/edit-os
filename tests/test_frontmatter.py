@@ -224,3 +224,26 @@ def test_clean_article_type():
     assert fm.clean_article_type("ORIGINAL ARTICLE") == "Original Article"
     assert fm.clean_article_type("Letter to the editor") == "Letter to the Editor"
     assert fm.clean_article_type("Case reports") == "Case Report"
+
+
+def test_jehp_complete_affiliations_and_run_on_correspondence(tmp_path, monkeypatch):
+    fields = claude_fields()
+    fields["affiliations"][1].update(institution="City Eye Hospital", city="Chennai", state="Tamil Nadu",
+                                     country="India")
+    fields["affiliations"][0]["country"] = "India"
+    path = make(tmp_path, TITLE_PAGE + ["Abstract", "Purpose: To test."])
+    monkeypatch.setattr(fm, "split", lambda text: fields)
+    ms = docmodel.load(path)
+    ms.front_sources = fm.Sources(meta=fm.parse_xml(PORTAL_XML))
+    st = style.load("jehp")
+    st.settings["references"]["lookup"] = False
+    st.settings["front_matter"]["correspondence_one_line"] = True
+    pl = fm.plan(ms, st)
+    text = {b.role: b.text for b in pl.blocks}
+    # each affiliation complete, departments of one place not grouped, country after each
+    assert text["affiliations"] == ("Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
+                                    "1Department of Physiology, City Eye Hospital, Chennai, Tamil Nadu, India")
+    corr = [b.text for b in pl.blocks if b.role == "correspondence"]
+    assert corr[0] == ("Address for correspondence: Dr. Asha Kumar, Department of Ophthalmology, City Eye Hospital, "
+                       "12 Main Road, Chennai - 600 006, Tamil Nadu, India.")
+    assert corr[1] == "E-mail: asha@example.org"

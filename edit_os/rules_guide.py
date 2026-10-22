@@ -233,6 +233,62 @@ def find_range_dash(text: str, cfg: dict) -> list:
     return out
 
 
+def find_trailing_space(text: str, cfg: dict) -> list:
+    """Spaces at the end of a paragraph go ("... the study.  " -> "... the study.")."""
+    m = re.search(_SP + r"+$", text)
+    return [(m.start(), m.end(), "")] if m and text.strip() else []
+
+
+def find_leading_space(text: str, cfg: dict) -> list:
+    """Spaces at the start of a paragraph go (tabs are layout and stay)."""
+    m = re.match(_SP + r"+", text)
+    return [(m.start(), m.end(), "")] if m and text.strip() else []
+
+
+def find_double_space(text: str, cfg: dict) -> list:
+    """Two or more spaces between words -> one ("and  control" -> "and control")."""
+    return [(m.start(), m.end(), " ") for m in re.finditer(r"(?<=\S)" + _SP + r"{2,}(?=\S)", text)]
+
+
+def find_smart_quotes(text: str, cfg: dict) -> list:
+    """Straight quotes -> typographic ones: "caregivers' knowledge" -> "caregivers’ knowledge", "it's" -> "it’s",
+    'the "safe" place' -> 'the “safe” place'. Quotes after a digit (5'10", primes) are left as typed."""
+    out = []
+    for m in re.finditer(r"['\"]", text):
+        i, q = m.start(), m.group(0)
+        before, after = text[i - 1:i], text[i + 1:i + 2]
+        if before.isdigit():
+            continue
+        opening = (not before or before.isspace() or before in "([{“‘—–-/") and bool(after) and not after.isspace()
+        closing = bool(before) and not before.isspace()
+        if q == "'":
+            new = "‘" if opening else "’" if closing else None
+        else:
+            new = "“" if opening else "”" if closing else None
+        if new:
+            out.append((i, i + 1, new))
+    return out
+
+
+_ABBR_LIST = re.compile(r"^\s*(?:Abbreviations?|Abbr\.)\s*:\s*", re.I)
+
+
+def find_abbreviation_colon(text: str, cfg: dict) -> list:
+    """An abbreviation list "Abbreviations: SCT, social cognitive theory; CI, confidence interval" ->
+    "SCT: social cognitive theory; CI: confidence interval" (stylesheet: "term 1: definition")."""
+    m = _ABBR_LIST.match(text)
+    if not m:
+        return []
+    out = []
+    pos = m.end()
+    for seg in re.split(r"(;\s*)", text[pos:]):
+        a = re.match(r"([^\s,;:=]{1,15}),(?=\s)", seg)
+        if a and re.search(r"[A-Z]", a.group(1)) and not seg.startswith(" "):
+            out.append((pos + a.end() - 1, pos + a.end(), ":"))
+        pos += len(seg)
+    return out if len(out) >= 2 else []
+
+
 FINDERS = {
     "et_al_period": find_et_al,
     "ampersand": find_ampersand,
@@ -250,7 +306,14 @@ FINDERS = {
     "technetium": find_technetium,
     "p_value_capital": find_p_value,
     "range_dash": find_range_dash,
+    "trailing_space": find_trailing_space,
+    "leading_space": find_leading_space,
+    "double_space": find_double_space,
+    "smart_quotes": find_smart_quotes,
+    "abbreviation_colon": find_abbreviation_colon,
 }
+# Spacing rules: never next to content the text view leaves out (symbol-font ±, fields, drawings).
+_SPACING = {"trailing_space", "leading_space", "double_space"}
 # Rules that read arithmetic and must not run inside formula-looking paragraphs.
 _ARITHMETIC = {"operator_spacing", "unary_minus", "unary_comparison", "multiplication", "range_dash"}
 
@@ -294,12 +357,19 @@ def settings(style: JournalStyle) -> dict:
 
 
 def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    from .copyedit.common import hidden_offsets, near_hidden
+
     cfg = settings(style)
     in_tables = set(cfg.get("table_rules") or [])  # finders that also run in tables when include_tables is off
     out = []
     for p in _paragraphs(ms, bool(cfg.get("include_tables") or in_tables)):
         pcfg = cfg if not p.in_table or cfg.get("include_tables") else {k: v for k, v in cfg.items() if k in in_tables}
+        hidden = None
         for s, e, new, name in propose(p.text, pcfg):
+            if name in _SPACING:
+                hidden = hidden_offsets(p) if hidden is None else hidden
+                if near_hidden(s, e, hidden):
+                    continue
             out.append(Change(id=f"g{next(_ids)}", para_id=p.id, start=s, end=e, old=p.text[s:e], new=new,
                               layer=Layer.HOUSE_STYLE, source=Source.RULE, reason=f"guide.{name}"))
     return out

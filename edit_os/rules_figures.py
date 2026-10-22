@@ -323,6 +323,8 @@ def caption_match(p: Paragraph) -> re.Match | None:
     if not m:
         return None
     rest = m.group("rest")
+    if not re.search(r"\w", rest):
+        return None  # "Figure 2..   ": a label with no caption text (a placeholder), left as typed
     has_punct = bool(re.search(r"[.:\-–—]", m.group("sep")))
     if not has_punct:
         # "Table 2 Detection rate" is a caption; "Table 2 shows ..." is a sentence.
@@ -443,9 +445,7 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 from .rules import _change
                 k = m.start("rest") + len(body)
                 out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions"))
-        elif table_end == "keep":
-            pass
-        elif not style.get("figures.caption_end_period", False):
+        elif not style.get("figures.caption_end_period", False) and not style.get("figures.caption_end_period_keep"):
             i = _end_period(rest)
             if i is not None:
                 from .rules import _change

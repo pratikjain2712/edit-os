@@ -114,7 +114,7 @@ _KW = re.compile(r"^(\s*(?:<H\d>)?\s*)(key\s*-?\s*words?)(\s*[:.\-–]?\s*)", re
 _ABSTRACT = re.compile(r"^(\s*)(abstract)\b(\s*[:.\-–]?\s*)", re.I)
 _SUBHEADS = ("purpose|aims?|aims? and objectives?|background(?: and aims?| and objectives?)?|objectives?|"
              "introduction|context|importance|design|settings?(?: and design)?|study design|participants|"
-             "patients|subjects|methods?|methodology|materials? and methods?|subjects? and methods?|"
+             "patients|subjects|methods?|methodology|materials? and methods?|methods? and materials?|subjects? and methods?|"
              "patients? and methods?|statistical analysis(?: used)?|interventions?|main outcome measures?|"
              "observations?|case(?: presentation| description| report| summary)?|results?|findings|"
              "discussion|conclusions?(?: and relevance)?|clinical relevance|significance")
@@ -283,42 +283,6 @@ def _all_fmt(p: Paragraph, prop: str) -> bool:
     return bool(letters) and all(f.get(prop) for f in letters)
 
 
-_HEAD_WORD = re.compile(r"[A-Za-z][A-Za-z’'\-]*")
-
-
-def _plain_cap(w: str) -> bool:
-    """"Analysis", "Cut-off", "Socio-Demographic": capitalised word parts, the rest lower case (not "BPI", "TyG")."""
-    parts = [x for x in re.split(r"[-’']", w) if x]
-    return bool(parts) and w[0].isupper() and len(parts[0]) > 1 and all(x[1:].islower() or x.islower() for x in parts)
-
-
-def sentence_case_edits(text: str) -> list[tuple[int, int, str]]:
-    """Word edits that put a Title Case heading into sentence case ("Sex Differences in BPI Scores" ->
-    "Sex differences in BPI scores"): the first word and the word after a colon keep their capital, so do
-    abbreviations, mixed-case words and an expansion before its abbreviation ("Borderline Personality
-    Inventory (BPI)"). Only a heading whose words are all capitalised is changed: in "Prevalence of Vitamin D
-    deficiency" the capital is the author's proper noun."""
-    words = list(_HEAD_WORD.finditer(text))
-    if len(words) < 2:
-        return []
-    keep = {0}
-    for i, w in enumerate(words[1:], 1):
-        if text[words[i - 1].end():w.start()].strip().endswith(":"):
-            keep.add(i)
-    for m in re.finditer(r"\(([A-Z][A-Za-z]*[A-Z]s?)\)", text):
-        letters = re.sub(r"s$", "", m.group(1))
-        before = [i for i, w in enumerate(words) if w.end() <= m.start()][-len(letters):]
-        if len(before) == len(letters) and all(words[i].group(0)[0].upper() == c.upper() for i, c in zip(before, letters)):
-            keep.update(before)
-    cand = [i for i, w in enumerate(words) if i not in keep and w.group(0).lower() not in _MINOR
-            and not (len(w.group(0)) == 1 and w.group(0).isupper())
-            and (w.group(0).islower() or _plain_cap(w.group(0)))]
-    caps = [i for i in cand if _plain_cap(words[i].group(0))]
-    if not caps or len(caps) < len(cand):
-        return []
-    return [(words[i].start(), words[i].end(), words[i].group(0).lower()) for i in caps]
-
-
 def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("headings.tag") or not style.get("headings.subheadings", False):
         return []
@@ -375,11 +339,44 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
         out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
         if style.get("headings.subheading_case", "keep") == "sentence":
-            for s, e, w in sentence_case_edits(p.text):
-                out.append(_change(p, s, e, w, Layer.STRUCTURE, "subheadings"))
+            out += sentence_case_changes(ms, p, "subheadings")
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
             k = len(p.text.rstrip()) - 1  # with the spaces after it
             out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
+    return out
+
+
+def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str) -> list[Change]:
+    """A Title Case heading in sentence case, word by word ("Statistical Analysis" -> "Statistical analysis").
+    The first word and the word after a colon keep their capital; a word is lowered unless the manuscript's
+    running text capitalises it inside a sentence more often than not (so "Iran", "Bandura" stay); acronyms and
+    mixed-case words ("RTIs", "NVivo") are left alone."""
+    body = getattr(ms, "_sentence_body", None)
+    if body is None:
+        body = ms._sentence_body = _body_text(ms, set())
+    out = []
+    first = True
+    words = list(re.finditer(r"[^\s]+", p.text))
+    # An expansion before its abbreviation keeps its capitals: "Borderline Personality Inventory (BPI)".
+    keep = set()
+    for k, m in enumerate(words):
+        a = re.match(r"\(([A-Z][A-Za-z]*[A-Z])s?\)", m.group(0))
+        if a and k >= len(a.group(1)):
+            before = words[k - len(a.group(1)):k]
+            if all(w.group(0)[:1].upper() == c.upper() for w, c in zip(before, a.group(1))):
+                keep.update(w.start() for w in before)
+    for m in words:
+        w = m.group(0)
+        if w.startswith("<H") or re.fullmatch(r"[\d.]+", w):
+            continue
+        if first or m.start() in keep or not re.match(r"[A-Z][a-z]+(?:[’'][a-z]+)?\W*$", w):
+            first = w.endswith(":")
+            continue
+        head = re.match(r"[A-Za-z]+", w).group(0)
+        lower, caps = _counts(head, body)
+        if caps <= lower:  # never capitalised inside a sentence of the text, or more often lower case
+            out.append(_change(p, m.start(), m.start() + 1, w[0].lower(), Layer.STRUCTURE, rule))
+        first = w.endswith(":")
     return out
 
 
@@ -1010,7 +1007,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if p.text[s:e] != ack_heading:
                     out.append(_change(p, s, e, ack_heading, Layer.STRUCTURE, "sections_back_matter"))
             continue
-        standard = kind in std and m.group("label").lower() == std[kind]["heading"].lower()
+        kept_labels = {k.lower() for k in (std[kind].get("keep_labels") or [])} if kind in std else set()
+        standard = kind in std and m.group("label").lower() in {std[kind]["heading"].lower()} | kept_labels
         if nil and content_p is not None and standard:
             # The standard heading with a "None" under it: keep both, word the statement as the journal does.
             satisfied.add(kind)
@@ -1018,7 +1016,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             body = content_p.text.strip()
             default = std[kind].get("default", "")
             short = body.rstrip(".").lower() in ("none", "nil", "not applicable", "na", "n/a")
-            if body and body.rstrip(".").lower() != default.rstrip(".").lower() and (short or _nil(body)):
+            reword = _on(style, "back_matter.reword_nil") or short
+            if reword and body and body.rstrip(".").lower() != default.rstrip(".").lower() and (short or _nil(body)):
                 # "None" -> "Nil" / the journal's wording; "The authors declare no conflict of interest" -> the same
                 s = content_p.text.index(body)
                 new = ("Nil" + body[len(body.rstrip(".")):] if short else "Nil.") if kind == "funding" else default
@@ -1044,9 +1043,10 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             s, e = m.start("label"), m.end("label")
             head_end = len(p.text.rstrip())
             label_text = p.text[s:e]
+            heading = label_text if label_text.lower() in kept_labels else sec["heading"]
             tagged = levels.get(_key(p.text)) and not p.text.lstrip().startswith("<H")
-            if label_text != sec["heading"] or (not tagged and tag and not p.text.lstrip().startswith("<H")):
-                new = sec["heading"] if tagged or p.text.lstrip().startswith("<H") else tag + sec["heading"]
+            if label_text != heading or (not tagged and tag and not p.text.lstrip().startswith("<H")):
+                new = heading if tagged or p.text.lstrip().startswith("<H") else tag + heading
                 if tag and new.startswith(tag):
                     s = _tag_start(p.text, s)
                 out.append(_change(p, s, e, new, Layer.STRUCTURE, "sections_back_matter"))
@@ -1073,7 +1073,9 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         deleted.discard(p.id)
         s0, e0 = m.start("label"), m.end("label")
         lead = len(p.text) - len(p.text.lstrip())
-        out.append(_change(p, lead, e0, f"{tag}{sec['heading']}", Layer.STRUCTURE, "sections_back_matter"))
+        known = levels.get(_key(p.text)) or p.text.lstrip().startswith("<H")  # heading_tags tags it: no second tag
+        out.append(_change(p, lead, e0, f"{'' if known else tag}{sec['heading']}", Layer.STRUCTURE,
+                           "sections_back_matter"))
         if content_p is None:
             out.append(_change(p, e0, len(p.text), BR + sec.get("default", ""), Layer.STRUCTURE, "sections_back_matter"))
         else:

@@ -65,18 +65,19 @@ def test_stop_already_before_the_citation_is_not_doubled(tmp_path):
 def test_keep_unary_leaves_signs_after_words_closed(tmp_path):
     text = "The target was ≥400 children aged <108 months (P<0.001, n=5)."
     path = make(tmp_path, ["Methods", text] + REFS)
-    t = run(path, styled(statistics={"keep_unary": True}), ["statistics"])
+    t = run(path, styled(statistics={"unary_after_word": False}), ["statistics"])
     assert "The target was ≥400 children aged <108 months (P < 0.001, n = 5)." in t
-    t = run(path, styled(statistics={"keep_unary": False}), ["statistics"])
+    t = run(path, styled(statistics={"unary_after_word": True}), ["statistics"])
     assert "The target was ≥ 400 children aged < 108 months (P < 0.001, n = 5)." in t
 
 
 # --- captions and figure citations -----------------------------------------------------------
 
 def test_table_caption_gets_a_period_figure_legend_loses_it(tmp_path):
+    assert rules_figures.caption_match(type("P", (), {"style": "", "text": "Figure 2..   "})()) is None
     path = make(tmp_path, ["Results", "See [Table 1] and [Figure 1].", BODY,
                            "Table 1. Baseline characteristics (n = 20)", "Figure 1. Axial scan of the orbit."] + REFS)
-    t = run(path, style.load("mjdrdypu"), ["fig_captions"])
+    t = run(path, styled(figures={"table_caption_end_period": "add"}), ["fig_captions"])
     assert "Table 1: Baseline characteristics (n = 20)." in t
     assert "Figure 1: Axial scan of the orbit" in t
     t = run(path, style.load("ijo"), ["fig_captions"])
@@ -97,16 +98,16 @@ def test_figure_citation_moves_before_the_full_stop(tmp_path):
 
 # --- sub-headings ------------------------------------------------------------------------------
 
-def test_sentence_case_edits():
-    def apply(t):
-        for s, e, w in sorted(rules_sections.sentence_case_edits(t), reverse=True):
-            t = t[:s] + w + t[e:]
+def test_sentence_case_keeps_an_expansion_before_its_abbreviation(tmp_path):
+    path = make(tmp_path, ["Borderline Personality Inventory (BPI) Scores", "Sex Differences in BPI Scores"])
+    ms = load(path)
+    def apply(p):
+        t = p.text
+        for c in sorted(rules_sections.sentence_case_changes(ms, p, "subheadings"), key=lambda c: -c.start):
+            t = t[:c.start] + c.new + t[c.end:]
         return t
-    assert apply("Sex Differences in BPI Scores") == "Sex differences in BPI scores"
-    assert apply("Cut-off Levels for TyG Index") == "Cut-off levels for TyG index"
-    assert apply("Borderline Personality Inventory (BPI)") == "Borderline Personality Inventory (BPI)"
-    assert apply("Primary Outcome: Height Gain") == "Primary outcome: Height gain"
-    assert apply("Prevalence of Vitamin D deficiency") == "Prevalence of Vitamin D deficiency"  # not Title Case
+    assert apply(ms.paragraphs[0]) == "Borderline Personality Inventory (BPI) scores"
+    assert apply(ms.paragraphs[1]) == "Sex differences in BPI scores"
 
 
 def test_subheading_sentence_case_is_switchable(tmp_path):

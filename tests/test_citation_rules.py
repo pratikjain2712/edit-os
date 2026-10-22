@@ -197,3 +197,10 @@ def test_heading_tags_replace_leading_spaces(tmp_path):
     path = _save(tmp_path, paras)
     _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
     assert t[:5] == [LONG, "<H1>Methods", "<H2>Study design", LONG, "<H1>Results"]  # IJO drops "Introduction"
+
+
+def test_caption_end_period_kept_when_set_to_keep(tmp_path):
+    st = _style()
+    st.settings["figures"]["caption_end_period_keep"] = True
+    _, t = _run(_save(tmp_path, ["Table 1. Characteristics of participants."]), st, tmp_path, ["fig_captions"])
+    assert t[0] == "Table 1: Characteristics of participants."

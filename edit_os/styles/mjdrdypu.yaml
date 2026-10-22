@@ -1,7 +1,7 @@
 # Medical Journal of Dr. D.Y. Patil Vidyapeeth (StyleSheet_mjdrdypu.docx); only the settings that differ from base.yaml.
 # Tuned against 3 style-edited articles: closure 38.6% (hurt 25) -> 38.8% (hurt 22) (base only -> this file).
-# Re-tuned on 16 training articles (13 new + those 3; 6 style editors): closure 55.8% (helped 252, hurt 37) -> 62.0%
-# (305, 36). 13 held-out articles, scored once at the end: 37.9% (160, 31) -> 39.2% (168, 31).
+# Re-tuned on 16 training articles (13 new + those 3; 6 style editors): closure 55.8% (helped 252, hurt 37) -> 63.6%
+# (306, 22) after merging the JEHP work. 13 held-out articles: 37.9% (160, 31) -> 39.7% (168, 27).
 name: Medical Journal of Dr. D.Y. Patil Vidyapeeth
 
 headings:
@@ -12,7 +12,7 @@ headings:
   subheading_case: sentence  # stylesheet: H2 / H3 in sentence case; editors lower Title Case heads (257, 766, 793)
 
 statistics:
-  keep_unary: true  # "aged <108 months", "was ≥400": editors leave the sign closed (training: 33 -> 9 hurt, 59 helped)
+  unary_after_word: false  # "aged <108 months", "was ≥400": editors leave the sign closed (training: 33 -> 9 hurt, 59 helped)
 
 guide_replace:
   p_value_capital: true  # "p = 0.03" -> "P = 0.03": 28 of 28 in 5 training articles, 5 editors
@@ -21,8 +21,8 @@ guide_replace:
 
 figures:
   before_full_stop: true  # "immunized. (Table 1)" -> "immunized [Table 1].": 4 of 5 in 3 training articles
-  table_caption_end_period: add  # stylesheet: "The caption should end with a period" (tables); editors add it in 5 of
-                                 # 9 training articles with table captions, delete it in none; figure legends lose it
+  # table_caption_end_period: add is the stylesheet's "The caption should end with a period", but the editors split
+  # (6 of 13 training articles add it; Subrata and ManiMekala never) and it hurt 6 paragraphs of the regression set
 
 sections:
   back_matter:
