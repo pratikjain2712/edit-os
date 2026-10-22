@@ -53,11 +53,11 @@ def tracked_pairs(docx_bytes: bytes) -> list[tuple[str, str]]:
 
 
 def manuscript_from_zip(path: str) -> bytes | None:
+    from edit_os import pipeline  # the file the tool edits
+
     z = zipfile.ZipFile(path)
-    docs = [n for n in z.namelist() if n.lower().endswith(".docx")]
-    named = [n for n in docs if "manuscript" in os.path.basename(n).lower()]
-    pick = named or sorted(docs, key=lambda n: -z.getinfo(n).file_size)
-    return z.read(pick[0]) if pick else None
+    pick = pipeline.manuscript_member(z)
+    return z.read(pick) if pick else None
 
 
 def tokens(s: str) -> list[str]:
