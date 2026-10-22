@@ -104,6 +104,8 @@ references:
   capitalize_after_colon: true # "dermoid: a case report" -> "dermoid: A case report"
   title_sentence_case: true    # "Treatment of Metastatic Cancer" -> "Treatment of metastatic cancer"
   journal_abbreviation: nlm    # Index Medicus abbreviation from NLM's journal list
+  non_indexed_journal: full    # a journal NLM does not list: CrossRef's full title, not its short one ("ITSE");
+                               # S (41 of 42 sheets): "Use complete name of the journal for non-indexed journals"
   journal_drop_qualifier: false  # true: "Spine (Phila Pa 1976)" -> "Spine". Off: S "The titles of journals should be
                                  # abbreviated according to the style used in Index Medicus" (NLM's title keeps it)
   other:                       # books, links, conference papers, reports, theses (refs_other.py)
@@ -429,6 +431,8 @@ copyedit:
     full_form_after_definition: change  # full form again after the definition: change (-> "ABBR") | query | off;
                                # only in the main text, when the author uses ABBR more often than the full form
     allow: []                  # extra abbreviations that need no expansion
+    defined_in_article: false  # true: no "Kindly expand" for an abbreviation the article expands elsewhere (the
+                               # abstract, an abbreviation list or table note, "(SCOFF)" after its description)
   languagetool:
     enabled: true              # skipped when no server answers (python -m edit_os.copyedit languagetool start)
     language: null             # en-GB / en-US; default follows the spelling convention

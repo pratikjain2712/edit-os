@@ -423,3 +423,41 @@ def test_claude_cache_shared_across_threads(tmp_path):
     for t in threads:
         t.join()
     assert not errors
+
+
+def test_abbreviation_false_queries_cut(tmp_path):
+    """Lists and table notes, key words, titles, back matter, names in mixed case, degrees, institutions and
+    tools are not queried; real undefined acronyms still are."""
+    ms = make(tmp_path, [
+        "Abstract",
+        "Background: The quality of care (QoC) of wards was rated.",
+        "Keywords: Quality of care (QoC); Nursing",
+        "Abbreviations: KAP: Knowledge, Attitude and Practice; QVF, quorum validity factor; MINI, Mini Ward Interview",
+        "Introduction",
+        "Care Pathways for QZR Wards in Rural Hospitals",
+        "The QoC score, the KAP questionnaire and the Arabic MINI modules were used with the QZR scale.",
+        "Analyses ran in SmartPLS and the t-SNE plot; ethics approval came from the WRX Medical College board.",
+        "Fit was tested with the QVF and the TREND statement was followed; the XDQ fell.",
+        "Correspondence: Ravi Kumar, MD, DM",
+        "Authors’ Contributions",
+        "HD: Conceptualization. SM contributed to the analysis.",
+        "Use of AI: ChatGPT (OpenAI) helped with the language.",
+    ])
+    st = journal("jehp", abbreviations={})
+    got = sorted(q.text.split(":")[0] for q in abbrev.collect(ms, st)[1] if q.check == "abbrev.undefined")
+    assert got == ["QZR", "XDQ"]
+    # Without `defined_in_article` (other journals) the abstract's and the list's definitions and institutions count.
+    st = journal("ijo", abbreviations={"allow": []})
+    got = sorted(q.text.split(":")[0] for q in abbrev.collect(ms, st)[1] if q.check == "abbrev.undefined")
+    assert got == ["KAP", "MINI", "QVF", "QZR", "QoC", "WRX", "XDQ"]
+
+
+def test_abbreviation_list_is_not_a_second_definition(tmp_path):
+    ms = make(tmp_path, [
+        "Introduction",
+        "Reproductive tract infections (RTI) are common.",
+        "Abbreviations: Reproductive Tract Infections (RTI), AOR (Adjusted Odds Ratio)",
+        "RTI was frequent; the AOR was 2.",
+    ])
+    qs = abbrev.collect(ms, journal("jehp", abbreviations={}))[1]
+    assert not [q for q in qs if q.check in ("abbrev.defined_twice", "abbrev.before_definition")]

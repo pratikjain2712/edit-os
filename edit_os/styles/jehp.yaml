@@ -69,6 +69,10 @@ required_sections:
   - {heading: Conflicts of interest, default: "There are no conflicts of interest.",
      keep_labels: [Conflict of interest]}  # kept as written in 5 of 6 articles (the sheet is silent)
 
+# references.non_indexed_journal: full as base (S: "Use complete name of the journal for non-indexed journals"): a CrossRef
+# journal NLM does not list keeps its full title. The editors wrote an ISO-style abbreviation for 13 of 15 such
+# journals ("Interact Technol Smart Educ", "J Learn Sci"): owner's list.
+
 submission:
   copyright_notice_prefix: "Query: "  # JEHP editors write "Query: " before the copyright notice (7 of 9)
 
@@ -82,6 +86,14 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
 # abbreviation in parentheses (only abbreviation should be used thereafter)": full form after the definition ->
 # the abbreviation, a second definition and a use before the definition are flagged (the copy editors did 0 of 15,
 # 0 of 28, 0 of 15: owner's list).
+# "Look for undefined acronyms and raise query" / "Explain nonstandard acronyms and abbreviations at first mention":
+# an acronym the article expands anywhere (the abstract, an abbreviation list, a table note, "(SCOFF)" after its
+# description) is not undefined, and standard ones are not queried. The copy editors raised 0 such queries in
+# 17 articles; the rule is kept (S), the false ones are cut.
+copyedit:
+  abbreviations:
+    defined_in_article: true
+    allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD]
 
 text:
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
