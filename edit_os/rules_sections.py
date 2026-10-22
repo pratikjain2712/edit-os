@@ -356,11 +356,20 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str) -> list[Chang
         body = ms._sentence_body = _body_text(ms, set())
     out = []
     first = True
-    for m in re.finditer(r"[^\s]+", p.text):
+    words = list(re.finditer(r"[^\s]+", p.text))
+    # An expansion before its abbreviation keeps its capitals: "Borderline Personality Inventory (BPI)".
+    keep = set()
+    for k, m in enumerate(words):
+        a = re.match(r"\(([A-Z][A-Za-z]*[A-Z])s?\)", m.group(0))
+        if a and k >= len(a.group(1)):
+            before = words[k - len(a.group(1)):k]
+            if all(w.group(0)[:1].upper() == c.upper() for w, c in zip(before, a.group(1))):
+                keep.update(w.start() for w in before)
+    for m in words:
         w = m.group(0)
         if w.startswith("<H") or re.fullmatch(r"[\d.]+", w):
             continue
-        if first or not re.match(r"[A-Z][a-z]+(?:[’'][a-z]+)?\W*$", w):
+        if first or m.start() in keep or not re.match(r"[A-Z][a-z]+(?:[’'][a-z]+)?\W*$", w):
             first = w.endswith(":")
             continue
         head = re.match(r"[A-Za-z]+", w).group(0)
@@ -762,9 +771,51 @@ def contributions_from_sources(ms: Manuscript, skip: set[str] = frozenset()) -> 
     return []
 
 
+# Data availability statement: "Data availability statement: ...", "Availability of data and materials", "Data
+# sharing statement" (a heading line, or a label with the statement after it).
+_DATA_HEAD = re.compile(
+    r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>data\s+(?:availability|sharing)(?:\s+statements?)?"
+    r"|availability\s+of\s+(?:the\s+)?data(?:\s+and\s+materials?)?)(?P<sep>\s*[:.\-–—]\s*|\s*$)", re.I)
+_DATA_TEMPLATE = re.compile(r"\b(?:if\s+applicable|please\s+(?:state|provide|mention|specify)|e\.g\.|tick)\b", re.I)
+
+
+def _statement(text: str) -> str:
+    """"not applicable" -> "Not applicable.": first letter capital, a final period."""
+    text = re.sub(r"\s+", " ", text).strip(" -–—:")
+    if not text:
+        return ""
+    text = text[0].upper() + text[1:]
+    return text if text.endswith((".", "!", "?")) else text + "."
+
+
+def data_availability_from_sources(ms: Manuscript) -> str:
+    """The data availability statement given on the title page (the first-page file): the label's own text, or the
+    paragraph after a bare label. A form's prompt or an empty label gives nothing (nothing is invented)."""
+    src = getattr(ms, "front_sources", None)
+    paras = [t for t in (getattr(src, "first_page", None) or []) if t.strip()]
+    for i, text in enumerate(paras):
+        m = _DATA_HEAD.match(text)
+        if not m:
+            continue
+        content = text[m.end():].strip()
+        if not content and i + 1 < len(paras):
+            nxt = paras[i + 1].strip()
+            if not (_OTHER_LABEL.match(nxt) or _CONTRIB.match(nxt) or _LABEL.match(nxt) or _CONSENT_HEAD.match(nxt)
+                    or _ETHICS.match(nxt)) and len(nxt) <= 800:
+                content = nxt
+        if content and len(content) <= 800 and not _DATA_TEMPLATE.search(content):
+            return _statement(content)
+    return ""
+
+
+def has_data_availability(ms: Manuscript) -> bool:
+    ref_ids = {r.para_id for r in references.extract(ms)}
+    return any(_DATA_HEAD.match(p.text) for p in ms.paragraphs if p.id not in ref_ids and len(p.text) <= 1000)
+
+
 @dataclass
 class _Section:
-    kind: str           # consent | contributions | funding | conflict
+    kind: str           # consent | contributions | funding | conflict | data
     para: Paragraph     # its first paragraph (heading, or the statement itself)
     heading: bool       # para is a heading line (heading_tags may insert at its start)
     end: Paragraph | None = None  # its last paragraph, when known
@@ -781,7 +832,7 @@ def back_matter_plan(ms: Manuscript, style: JournalStyle, run: bool = False) -> 
     cached = getattr(ms, "_back_matter_plan", None)
     if cached is not None and cached[0] is style:
         return cached[1]
-    plan = {"consent": None, "contributions": None}
+    plan = {"consent": None, "contributions": None, "data": None}
     ms._back_matter_plan = (style, plan)
     if run and _on(style, "back_matter.enabled"):
         _statements(ms, style)
@@ -799,7 +850,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     tag = "<H2>" if style.get("headings.tag") else ""
     levels = _levels(style)
     plan = back_matter_plan(ms, style)
-    plan.update(consent=None, contributions=None)
+    plan.update(consent=None, contributions=None, data=None)
     std = {}
     for sec in style.get("required_sections", []) or []:
         h = sec["heading"].lower()
@@ -817,6 +868,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     contrib_cfg = _cfg(style, "back_matter.contributions") or {}
     consent_on = _cfg(style, "enabled", True) and consent_cfg.get("enabled", False)
     contrib_on = _cfg(style, "enabled", True) and contrib_cfg.get("enabled", False)
+    data_cfg = _cfg(style, "back_matter.data_availability") or {}
+    data_on = _cfg(style, "enabled", True) and data_cfg.get("enabled", False)
     nonempty = [p for p in region if p.text.strip()]
     by_text = {p.id: p.text for p in ms.paragraphs}
     ref_i = references.find_heading(ms)
@@ -866,6 +919,10 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             content = p.text[em.end():]
             if content.strip() and em.group("sep").strip() and _ETHICS_NIL.match(content) and _words(content) <= 25:
                 delete(p)
+            continue
+        # data availability: kept as written; it places the sections added around it
+        if data_on and _DATA_HEAD.match(p.text):
+            sections.append(_Section("data", p, not p.text[_DATA_HEAD.match(p.text).end():].strip()))
             continue
         # consent
         cm = _CONSENT_HEAD.match(p.text)
@@ -1056,8 +1113,18 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 plan["contributions"] = "added"
             else:
                 plan["contributions"] = "missing"
+    if data_on:
+        if "data" in have or has_data_availability(ms):
+            plan["data"] = "exists"
+        else:
+            text = data_availability_from_sources(ms) if data_cfg.get("from_sources", True) else ""
+            if text:
+                new["data"] = [f"{tag}{data_cfg.get('heading', 'Data availability statement')}", text]
+                plan["data"] = "added"
+            else:
+                plan["data"] = "missing"
     if not _on(style, "back_matter.add_missing"):
-        new = {k: v for k, v in new.items() if k in ("consent", "contributions")}
+        new = {k: v for k, v in new.items() if k in ("consent", "contributions", "data")}
     if anchor is None:
         # No reference list found: add the sections after the last statement read here.
         seen = [p for p in nonempty if p.id in deleted or p.id in consumed or any(x.para is p for x in sections)]
@@ -1163,6 +1230,7 @@ TEXT = {
     "sections.patient_consent": "Kindly confirm whether consent form obtained or not?",
     "sections.consent_added": "Please ensure that patient consent form has been obtained.",
     "sections.contributions_missing": "Please provide authors’ contributions.",
+    "sections.data_availability_missing": "Please provide the missing Data availability statement, if available.",
 }
 
 
@@ -1212,3 +1280,6 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         if plan.get("contributions") == "missing" and (_cfg(style, "back_matter.contributions") or {}).get(
                 "query_missing") and at:
             qs.add(at, "sections.contributions_missing")
+        if plan.get("data") == "missing" and (_cfg(style, "back_matter.data_availability") or {}).get(
+                "query_missing") and at:
+            qs.add(at, "sections.data_availability_missing")

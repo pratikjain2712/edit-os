@@ -1,5 +1,7 @@
 # Medical Journal of Dr. D.Y. Patil Vidyapeeth (StyleSheet_mjdrdypu.docx); only the settings that differ from base.yaml.
 # Tuned against 3 style-edited articles: closure 38.6% (hurt 25) -> 38.8% (hurt 22) (base only -> this file).
+# Re-tuned on 16 training articles (13 new + those 3; 6 style editors): closure 55.8% (helped 252, hurt 37) -> 63.6%
+# (306, 22) after merging the JEHP work. 13 held-out articles: 37.9% (160, 31) -> 39.7% (168, 27).
 name: Medical Journal of Dr. D.Y. Patil Vidyapeeth
 
 headings:
@@ -7,9 +9,37 @@ headings:
   h1: [introduction, materials and methods, methods, methodology, patients and methods,
        subjects and methods, results, discussion, conclusion, conclusions, references, case report,
        case reports, case presentation, review of literature]
+  subheading_case: sentence  # stylesheet: H2 / H3 in sentence case; editors lower Title Case heads (257, 766, 793)
+
+statistics:
+  unary_after_word: false  # "aged <108 months", "was ≥400": editors leave the sign closed (training: 33 -> 9 hurt, 59 helped)
+
+guide_replace:
+  p_value_capital: true  # "p = 0.03" -> "P = 0.03": 28 of 28 in 5 training articles, 5 editors
+  range_dash: true       # "2-6 years", "(1.01-1.06)" -> en dash: 47 of 52 numeric ranges in 7 training articles
+  table_rules: [range_dash]  # (37 of them in tables; the 5 kept are one article)
+
+figures:
+  before_full_stop: true  # "immunized. (Table 1)" -> "immunized [Table 1].": 4 of 5 in 3 training articles
+  # table_caption_end_period: add is the stylesheet's "The caption should end with a period", but the editors split
+  # (6 of 13 training articles add it; Subrata and ManiMekala never) and it hurt 6 paragraphs of the regression set
+
+sections:
+  back_matter:
+    order: [consent, data, contributions, funding, conflict]  # as the editors place them
+    contributions:
+      from_sources: true         # stylesheet: add Author Contribution if given in source or FP; editors did in 5 of 6
+      query_missing: true        # ... and query it when missing
+      heading: Author contribution  # the editors' wording (7 of 10 headings)
+    data_availability:
+      enabled: true              # stylesheet: add Data availability statement if given in source or FP; editors did
+      query_missing: true        # in 6 of 8 training articles whose title page had one; query when missing
+
+front_matter:
+  abbreviate_middle_names: false  # editors keep full middle names (Pradeep, not P.): authors field similarity
+                                  # 77.0% -> 82.8% on the training articles (tools/eval_frontmatter.py)
 
 # not yet automated:
-#   - add Data availability statement and Author Contribution if given; query if either is missing
 #   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 
 copyedit:
@@ -18,6 +48,7 @@ copyedit:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   body_unbold: false  # editors keep bold in running text (0 of 12)
+  remove_font_color: false  # editors keep the author's font colours (removed 0 of 238 the rule proposed, 16 training articles)
 
 text:
   prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 14 proposed, 86%

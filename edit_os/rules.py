@@ -187,6 +187,12 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
     return out
 
 
+# A full stop (or comma) that already ends the words before a citation: "gets older. (1).", "features.[1]."
+# (not "et al. (5).": there the period is the abbreviation's).
+_PUNCT_BEFORE = re.compile(r"(?:(?<![\w.])(?!(?:al|etc|vs|approx|fig|figs|ref|refs|no|eq)\b)[A-Za-z]{3,}|[\])%\d])[.,;:]\s*$",
+                           re.I)
+
+
 def _trailing_space(p: Paragraph, end: int, rule: str) -> list[Change]:
     """A citation restyled at the end of a paragraph takes the spaces after it with it:
     "glaucoma [5]. " -> "glaucoma.[5]" (style editors: 79 of 84 such paragraph ends, 160 articles)."""
@@ -236,13 +242,19 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
         norm = normalise_citation(inner, style)
         if norm is None:
             continue
-        if style.get("citations.after_punctuation", True) and punct:
+        doubled = punct and _PUNCT_BEFORE.search(p.text, 0, start) and p.text[:start].rstrip().endswith(punct) \
+            and style.get("citations.after_punctuation", True)
+        if doubled:
+            new = f"[{norm}]"  # "older. (1). CVDs", "features.[1]. On" -> "older.[1] CVDs": the stop is there already
+        elif style.get("citations.after_punctuation", True) and punct:
             new = f"{punct}[{norm}]"
         else:
             new = f"[{norm}]{punct}"
         if new == p.text[start:end]:
             continue
-        if sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
+        if doubled:
+            out.append(_change(p, start, end, new, Layer.REFERENCES, "citations", sup))
+        elif sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
             out.append(_change(p, start, end, punct, Layer.REFERENCES, "citations"))
             out.append(_change(p, end, end, new[len(punct):], Layer.REFERENCES, "citations", sup))
         elif sup:
@@ -476,9 +488,9 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 # --- statistics ----------------------------------------------------------------------
 
-# A comparison after a plain word ("aged ≥18", "showing <5%") has no left operand; a statistic
-# ("P <0.05", "BMI >30", "n=28") does.
-_WORD_BEFORE = re.compile(r"(?<![\w-])[a-z]{2,}$")
+# A comparison after a plain word ("aged ≥18", "showing <5%", "pre-specified <20", "the study's <20") has no left
+# operand; a statistic ("P <0.05", "BMI >30", "n=28") does.
+_WORD_BEFORE = re.compile(r"(?:(?<!\w)[a-z]{2,}|\w[’']s)$")
 # The left operand may be a Greek letter or end in a superscript ("β=0.44", "η²=0.42"); "P=<0.001" -> "P = <0.001".
 _OPERATOR = re.compile(r"(?<=[A-Za-z0-9)\]\u0370-\u03ff²³])(\s*)([=<>≤≥])(\s*)(?=[-−–]?\d|\.\d|[<>≤≥]\s*\.?\d)")
 

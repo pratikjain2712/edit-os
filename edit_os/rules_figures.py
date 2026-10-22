@@ -323,6 +323,8 @@ def caption_match(p: Paragraph) -> re.Match | None:
     if not m:
         return None
     rest = m.group("rest")
+    if not re.search(r"\w", rest):
+        return None  # "Figure 2..   ": a label with no caption text (a placeholder), left as typed
     has_punct = bool(re.search(r"[.:\-–—]", m.group("sep")))
     if not has_punct:
         # "Table 2 Detection rate" is a caption; "Table 2 shows ..." is a sentence.
@@ -436,7 +438,14 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         old_label = p.text[m.end("lead"):rest_start]
         if new_label != old_label:
             out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions")
-        if not style.get("figures.caption_end_period", False) and not style.get("figures.caption_end_period_keep"):
+        table_end = style.get("figures.table_caption_end_period") if cap.kind == TABLE else None
+        if table_end == "add":  # "Table 1: Baseline characteristics" -> "... characteristics." (MJDRDYPU stylesheet)
+            body = rest.rstrip()
+            if body and not body.endswith((".", "?", "!", ":")):
+                from .rules import _change
+                k = m.start("rest") + len(body)
+                out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions"))
+        elif not style.get("figures.caption_end_period", False) and not style.get("figures.caption_end_period_keep"):
             i = _end_period(rest)
             if i is not None:
                 from .rules import _change
@@ -455,12 +464,16 @@ def _citation_paragraphs(ms: Manuscript) -> list[Paragraph]:
 
 
 _OPEN, _CLOSE = "([{", ")]}"
+# A sentence's full stop right before a bracketed figure / table citation: "immunized. (Table 1)", "0.05). [Table 2]"
+# (not "et al. (Figure 1)" or "[75]. (Figure 1)").
+_STOP_BEFORE = re.compile(r"(?:(?<![\w.])(?!(?:al|etc|vs|approx|fig|figs|no)\b)[A-Za-z]{2,}|\d|%|\))(\.)\s*$")
 
 
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.citations", True):
         return []
     square = style.get("figures.brackets", "square") == "square"
+    before_stop = style.get("figures.before_full_stop", False)
     out = []
     for p in _citation_paragraphs(ms):
         t = p.text
@@ -480,7 +493,12 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     lead = " "  # "71](Figure 1)" -> "71] [Figure 1]"
                 old = t[o:c + 1]
                 repl = f"{lead}[{new}]"
-                if repl != old:
+                stop = _STOP_BEFORE.search(t, 0, o) if before_stop else None
+                if stop and re.match(r"\s*(?:$|[A-Z])", t[c + 1:]):
+                    # "fully immunized. (Table 1) The" -> "fully immunized [Table 1]. The"
+                    k = stop.start(1)
+                    out += _diff(p, k, t[k:c + 1], f" [{new}].", "fig_citations")
+                elif repl != old:
                     if lead:
                         from .rules import _change
                         out.append(_change(p, o, o, " ", Layer.TABLES_FIGURES, "fig_citations"))
