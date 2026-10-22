@@ -73,16 +73,27 @@ def parse(text: str) -> Parsed:
     return p
 
 
+def _title_in(title: str, text: str) -> bool:
+    return fuzz.partial_ratio(fold(title), fold(text)) >= 90
+
+
+def _author_in(author: str, text: str) -> bool:
+    name = fold(biblio.first_author_surname(author) or author)  # group authors are checked whole
+    return bool(name) and re.search(rf"\b{re.escape(name)}\b", fold(text)) is not None
+
+
 def from_fields(text: str, f: dict) -> Parsed:
-    """Parsed entry from Claude's fields; identifiers are kept only if they really occur in the text."""
+    """Parsed entry from Claude's fields. Each field is kept only if it really occurs in the text:
+    Claude's split can belong to another entry (a neighbour, or the first half of an entry split over
+    two paragraphs), and that entry's title and first author would find that entry's paper."""
     p = parse(text)  # regex DOI / PMID / year as a base
     p.kind = f.get("kind", "")
-    if f.get("title"):
+    if f.get("title") and _title_in(f["title"], text):
         p.title = f["title"].strip().rstrip(".")
     authors = [a.strip() for a in f.get("authors", []) if a.strip()]
-    if authors:
+    if authors and _author_in(authors[0], text):
         p.authors = authors
-    if re.fullmatch(r"(19|20)\d{2}", f.get("year", "").strip()):
+    if re.fullmatch(r"(19|20)\d{2}", f.get("year", "").strip()) and f["year"].strip() in text:
         p.year = f["year"].strip()
     if f.get("doi") and f["doi"].lower() in text.lower():
         p.doi = f["doi"].strip().rstrip(".")
