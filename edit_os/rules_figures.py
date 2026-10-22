@@ -400,10 +400,50 @@ def _legend_parts(p: Paragraph, rest_start: int, number: int, style: JournalStyl
     return out
 
 
+# A table footnote under a table: abbreviations ("SD, standard deviation", "SE = standard error"), symbols ("*P <
+# 0.05", "a Adjusted"), "Note:", "Data are ...", "Source: ...".
+_FOOTNOTE = re.compile(r"^\s*(?:[*†‡§¶#]|[a-e](?:\s|\))|(?:abbreviations?|notes?|source)\s*[:.]|(?:data|values) (?:are|were)\b|"
+                       r"[A-Z][A-Za-z0-9\-/]{0,12}\s*[:=,]\s)", re.I)
+
+
+def table_footnotes(ms: Manuscript) -> list[list[Paragraph]]:
+    """The footnote paragraphs right under each table (S: "Table footnotes | ... Period should be deleted at end of
+    last footnote")."""
+    paras, out = ms.paragraphs, []
+    for i in range(1, len(paras)):
+        if paras[i].in_table or not paras[i - 1].in_table:
+            continue
+        block = []
+        for q in paras[i:]:
+            if q.in_table:
+                break
+            if not q.text.strip():
+                continue
+            t = q.text.strip()
+            if not _FOOTNOTE.match(t) or len(t.split()) > 80 or caption_match(q) is not None or t.endswith(":"):
+                break
+            block.append(q)
+        if block:
+            out.append(block)
+    return out
+
+
+def _footnote_periods(ms: Manuscript) -> list[Change]:
+    from .rules import _change
+    out = []
+    for block in table_footnotes(ms):
+        p = block[-1]
+        i = _end_period(p.text)
+        if i is not None:
+            end = len(p.text) if not p.text[i + 1:].strip() else i + 1
+            out.append(_change(p, i, end, "", Layer.TABLES_FIGURES, "fig_captions"))
+    return out
+
+
 def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.captions", True):
         return []
-    out = []
+    out = _footnote_periods(ms) if style.get("figures.table_footnote_end_period") == "delete" else []
     prev = None
     for cap in captions(ms):
         p = ms.by_id(cap.para_id)
@@ -490,7 +530,8 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
     for p in _citation_paragraphs(ms):
         t = p.text
-        for g in parse_groups(t):
+        # "table 2" -> "Table 2" (S: "Table citation | Tables 1–6; Table 1"), when figures.lowercase_labels is on
+        for g in parse_groups(t, anycase=bool(style.get("figures.lowercase_labels", False))):
             new = render_group(g, style)
             s, e = g.start, g.end
             # Bracketed: the group is the whole content of (...), {...} or a mismatched [...).

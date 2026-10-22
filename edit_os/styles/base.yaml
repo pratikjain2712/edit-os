@@ -149,6 +149,7 @@ figures:                        # figure and table citations and captions (rules
   brackets: square              # (Figure 1) -> [Figure 1]
   before_full_stop: false       # "immunized. (Table 1)" -> "immunized [Table 1]." (square brackets only)
   figure_label: Figure          # "Fig. 1" -> "Figure 1" (every journal but IJO in the editors' files)
+  lowercase_labels: false       # true: body citations written "table 2" / "figure 1" -> "Table 2" / "Figure 1"
   figure_label_plural: Figures
   part_labels: upper            # body citations: Figure 1a -> Figure 1A (G245 "Figure part labels should be in uppercase";
                                 # editors write lower case: owner's list)
@@ -165,6 +166,7 @@ figures:                        # figure and table citations and captions (rules
                                   # end with a period" (table captions); journals without that line: delete (G200)
   figure_caption_end_period: null # add | delete | keep; null: as above (delete: G261 "The period if present at end of
                                   # caption should be deleted"; the stylesheets are silent but SGMJ)
+  table_footnote_end_period: null  # delete: the period ending a table's last footnote goes ("SD, standard deviation.")
   table_caption_case: null      # sentence: "Table 1: Baseline Characteristics" -> "Table 1: Baseline characteristics"
                                 # (S: 'followed by caption content in bold style and Sentence Case'); null: as typed
   queries: true                 # out of order, cited without caption, caption never cited

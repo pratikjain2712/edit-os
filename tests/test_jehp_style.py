@@ -139,3 +139,28 @@ def test_xml_authors_when_the_text_names_only_some(tmp_path, monkeypatch):
     src = fm.Sources(meta=fm.parse_xml(XML))
     names = [b.text for b in fm.plan(ms, jehp(), src).blocks if b.role == "authors"]
     assert names and names[0].startswith("Amina Benali") and "Sara Idrissi" in names[0]
+
+
+def test_lowercase_table_citation_capitalised(tmp_path):
+    path = make(tmp_path, ["Introduction", BODY + " The results are presented in table 2 and figure 1.",
+                           "References", "1. Lee K, Rao S. Back pain in adolescents. Spine 1997;22:1380-4."])
+    out = run(path, jehp(), ["fig_citations"])
+    assert any("presented in Table 2 and Figure 1." in t for t in out)
+    base = style.load("base")
+    base.settings["references"]["lookup"] = False
+    assert any("presented in table 2" in t for t in run(path, base, ["fig_citations"]))
+
+
+def test_table_footnote_final_period_deleted(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph(BODY + " See Table 1.")
+    doc.add_paragraph("Table 1: Characteristics of the participants.")
+    doc.add_table(rows=2, cols=2).cell(0, 0).text = "Age"
+    doc.add_paragraph("*P < 0.05.")
+    doc.add_paragraph("SD, standard deviation; SE, standard error.")
+    doc.add_paragraph(BODY)
+    path = tmp_path / "t.docx"
+    doc.save(path)
+    out = run(str(path), jehp(), ["fig_captions"])
+    assert "SD, standard deviation; SE, standard error" in out and "*P < 0.05." in out and BODY in out

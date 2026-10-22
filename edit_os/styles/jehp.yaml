@@ -28,7 +28,8 @@ headings:
 
 guide_replace:
   # p_value_capital, trailing_space, leading_space: on in base (G294, G143)
-  range_dash: true
+  range_dash: true        # numeric ranges "46-55 years" -> "46–55": editors 19 of 21 in 6 articles (silent; the sheet's
+                          # own "Tables 1–6" uses the en dash); citation ranges keep the hyphen
   double_space: true      # 44 of 62 (7 articles; one editor kept 17 in one article); the sheet and guide are silent
   smart_quotes: true      # straight apostrophes made curly in 11 of 16 articles that have them; straight double
                           # quotes in 3 of 3 (silent)
@@ -39,6 +40,10 @@ guide_replace:
 # figures: as base. S: "The caption should end with a period" (table captions: added; editors 9 add, 8 leave none);
 # figure legends: G261 deletes a final period (the sheet is silent on legends).
 figures:
+  lowercase_labels: true  # "in table 2" -> "in Table 2" (S: "Table citation | Tables 1–6; Table 1; Tables 2 and 3";
+                          # editors 4 of 4 tables, 2 of 3 figures)
+  table_footnote_end_period: delete  # S: "Table footnotes | ... Period should be deleted at end of last footnote"
+                                     # (editors 3 of 5)
   table_caption_case: sentence  # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold
                                 # style and Sentence Case' (editors leave most captions as typed: owner's list)
 
@@ -68,7 +73,7 @@ submission:
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files (the sheet is silent)
   body_unbold: false  # editors keep bold in running text (0 of 6)
   heading_bold_tagged: true  # S: "H1 | Title case, Bold", "H2 | Sentence Case, Bold", "H3 | ... Bold, italics": every
-                             # tagged heading in bold (editors bold the plain ones: N of M, tools/eval_format.py)
+                             # tagged heading in bold (editors bold the plain ones, tools/eval_format.py bold+)
   remove_font_color: false  # editors removed the author's colours in 2 of 17 articles (tool precision 31%)
 
 # copyedit.abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by
