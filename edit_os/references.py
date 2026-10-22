@@ -28,6 +28,8 @@ _STOP = re.compile(
     re.I,
 )
 _LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|\d+(?=\s))\s*")
+# Not an entry: Word's form-field markers ("Bottom of Form") and rule lines ("______") under the list.
+_NOT_ENTRY = re.compile(r"^\s*(?:(?:top|bottom)\s+of\s+form|[_\-–—=*~.\s]+)\s*$", re.I)
 # "Riazi-Esfahani H, Masoomian B, ...": a surname and initials, as a reference entry starts.
 _LOOKS_LIKE_REFERENCE = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}[,.]")
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
@@ -105,10 +107,11 @@ def extract(ms: Manuscript) -> list[Reference]:
         if p.in_table:
             continue
         raw = p.text
-        if not raw.strip():
+        if not raw.strip() or _NOT_ENTRY.match(raw):
             continue
-        if _STOP.match(raw) or p.style.lower().startswith("heading"):
-            break
+        if _STOP.match(raw) or p.style.lower().startswith("heading") and not (
+                p.numbered or _LABEL.match(raw) or _LOOKS_LIKE_REFERENCE.match(raw)):
+            break  # (a numbered entry the author styled as a heading is still an entry)
         m = _LABEL.match(raw)
         if not m and refs and continues(refs[-1].full_text, raw):
             refs[-1].continuation.append((p.id, raw))

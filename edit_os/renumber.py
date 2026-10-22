@@ -206,13 +206,11 @@ class Plan:
         return any(k != v for k, v in self.mapping.items())
 
 
-# "Table [2]", "Eq. [3]" are labels; unlike round brackets, "in 1985[64]" is a citation.
-_PREV_NOT_CITATION = re.compile(r"\b(table|tables|fig|figure|figures|ref|reference|no|eq|equation)\.?$", re.I)
-
-
 def _formula_superscript(text: str, start: int, end: int) -> bool:
     """Z²P, d², η²H: a power in a formula, not a citation."""
     nxt = text[end:end + 1]
+    if text[start - 1:start] in (".", ",", ";", ":") and start >= 2 and text[start - 2].isalpha():
+        return False  # after a word's punctuation: "manner.⁴Materials" (a run-on heading) is a citation
     if nxt.isalnum():
         return True
     if start >= 1 and text[start - 1].isalpha() and (start < 2 or not text[start - 2].isalpha()):
@@ -221,35 +219,31 @@ def _formula_superscript(text: str, start: int, end: int) -> bool:
 
 
 def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurrence]:
-    """Every numbered citation, in document order: the body forms the citation rule converts, plus
-    [n] citations anywhere outside the reference list (tables, legends)."""
+    """Every numbered citation, in citation order: the forms the citation rule converts (its decision
+    on round brackets included: `rules.round_citations`), plus [n] citations anywhere outside the
+    reference list (tables, legends). Square-bracket numbers beyond the list count too: a citation
+    with no entry stops renumbering and is queried."""
     from . import rules
 
     proposals: dict[str, list[Change]] = {}
     for c in rules.rule_citations(ms, style):
         proposals.setdefault(c.para_id, []).append(c)
-    # Round brackets are ambiguous ("Klebsiella (21)", "six (6) weeks"): when the document cites in
-    # square brackets or superscript, round-bracket numbers are counts, not citations.
-    all_props = [c for cs in proposals.values() for c in cs if "[" in c.new]
-    n_round = sum(c.old.lstrip().startswith("(") for c in all_props)
-    n_square = sum(len(list(rules._SQUARE.finditer(p.text))) for p in ms.paragraphs) + len(all_props) - n_round
-    skip_round = n_square >= n_round
     ref_paras = {r.para_id for r in references.extract(ms)}
     heading = references.find_heading(ms)
     front = rules.front_matter_ids(ms)  # author and affiliation numbers
     out = []
     for idx, p in enumerate(ms.paragraphs):
-        if p.id in ref_paras or p.id in front or idx == heading or not p.text.strip():
+        if p.id in ref_paras or idx == heading or not p.text.strip():
             continue
+        if p.id in front and len(p.text.split()) < 12:
+            continue  # title-page lines: author and affiliation numbers (a running sentence there still cites)
         found = []
         mine = proposals.get(p.id, [])
         for c in mine:
-            if c.old.lstrip().startswith("("):
-                prev = p.text[:c.start].rstrip()
-                if skip_round or re.search(r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
-                                           r"majority|minority|total|cases|patients|eyes|n)$", prev, re.I):
-                    continue
-            elif not c.old.lstrip().startswith("[") and _formula_superscript(p.text, c.start, c.end):
+            # A converted round or superscript citation; its punctuation move ("(1)." -> ".") carries no number.
+            if not c.old.lstrip().startswith(("(", "[")) and not any(
+                    d.end == c.start and d.old.lstrip().startswith("(") for d in mine) \
+                    and _formula_superscript(p.text, c.start, c.end):
                 continue
             m = re.search(r"\[([^\]]*)\]", c.new)
             if m and (nums := expand(m.group(1))):
@@ -257,11 +251,10 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
         for m in rules._SQUARE.finditer(p.text):
             if any(c.start < m.end() and m.start() < c.end for c in mine):
                 continue
-            prev = p.text[:m.start()].rstrip()
-            if _PREV_NOT_CITATION.search(prev):
+            if rules.not_citation_before(p.text[:m.start()].rstrip(), False):
                 continue
             nums = expand(m.group(2))
-            if nums and max(nums) <= n_refs:
+            if nums and min(nums) > 0:
                 found.append(Occurrence(p.id, m.start(), m.end(), m.group(0), m.group(0), nums))
         out += found
     # Tables and their notes count where they are first called out (`reading_keys`).

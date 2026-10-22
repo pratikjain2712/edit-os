@@ -28,6 +28,7 @@ from __future__ import annotations
 import html
 import inspect
 import json
+import re
 import os
 import shutil
 import zipfile
@@ -79,7 +80,14 @@ def manuscript_member(z: zipfile.ZipFile) -> str | None:
     if not docs:
         return None
     named = [n for n in docs if "manuscript" in os.path.basename(n).lower()]
+    # "Figure of manuscript file.docx", "Table of manuscript.docx" sit next to "Manuscript.docx": the file
+    # named for a part of the manuscript comes after the one that is the manuscript.
+    named.sort(key=lambda n: bool(_PART_OF_MANUSCRIPT.search(os.path.basename(n))))
     return (named or sorted(docs, key=lambda n: -z.getinfo(n).file_size))[0]
+
+
+_PART_OF_MANUSCRIPT = re.compile(r"(?i)\b(?:figures?|fig|tables?|supplement\w*|appendix|rebuttal|response|cover|"
+                                 r"letter|revision\s+notes?)\b")
 
 
 def manuscript_from_zip(path: str, outdir: str) -> str:
