@@ -293,8 +293,9 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   initial_period: true           # "Anjum S. K. Joad" (false: "Anjum S K Joad")
   abbreviate_middle_names: true  # guide and editors: "Anjum Syed Khan Joad" -> "Anjum S. K. Joad"
   affiliation_first_unnumbered: true  # "Asha Kumar, Ravi Rao1": the first affiliation has no number
-  group_departments: true        # "Departments of A and B, Institute, City": departments of one place share a line
-  affiliation_country_each: false  # the country after every affiliation, not only the last of a run in one country
+  group_departments: false       # 39 of 42 stylesheets: duplicate affiliations "should not be grouped ... All the
+                                 # affiliations should be complete" (the rule wins over the sheets' own grouped example)
+  affiliation_country_each: true   # the country after every affiliation ("complete"); KJO, IJA, SJG follow the guide
   correspondence_one_line: false   # the address on the "Address for correspondence:" line after the name
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"

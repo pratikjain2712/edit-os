@@ -33,3 +33,7 @@ sections:
              material and methods: Methods, patients and methods: Methods, patient and methods: Methods}
   abstract:  # S: "Background and Aims / Methods / Results / Conclusion"; "Abstract should not be more than 250 words"
     word_limit: {structured: 250, unstructured: 250}
+
+front_matter:
+  group_departments: true       # no rule in this stylesheet: the guide groups duplicate affiliations
+  affiliation_country_each: false

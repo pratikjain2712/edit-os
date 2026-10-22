@@ -30,3 +30,7 @@ sections:
     case: upper  # S: "H1 | All capital case, Bold, Roman"
   back_matter:
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+
+front_matter:
+  group_departments: true       # no rule in this stylesheet: the guide groups duplicate affiliations
+  affiliation_country_each: false
