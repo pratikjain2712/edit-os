@@ -529,6 +529,49 @@ def _dash_compound(core: str) -> bool:
     return m is not None
 
 
+DICTIONARY_URL = "https://raw.githubusercontent.com/LibreOffice/dictionaries/master/en/en_US.dic"
+_dictionary: tuple[set[str], set[str]] | None = None
+
+
+def _dictionary_words() -> tuple[set[str], set[str]]:
+    """(lower-case words, capitalised-only words) of LibreOffice's en_US Hunspell dictionary, which lists
+    names capitalised ("Doppler", "Colombia", "Heidelberg"). Empty when it cannot be fetched (offline)."""
+    global _dictionary
+    if _dictionary is None:
+        lower, caps = set(), set()
+        try:
+            from .copyedit.cache import cache_dir, download
+            with open(download(DICTIONARY_URL, cache_dir("dict", "en_US.dic")), encoding="utf-8", errors="ignore") as f:
+                next(f, None)
+                for line in f:
+                    w = line.split("/", 1)[0].strip()
+                    (caps if w[:1].isupper() else lower).add(w)
+        except Exception:
+            pass
+        caps -= {w.capitalize() for w in lower}
+        _dictionary = (lower, caps)
+    return _dictionary
+
+
+_EPONYM_NEXT = re.compile(r"\s+(?:syndrome|disease|sign|test|phenomenon|procedure|classification|score|criteria)\b", re.I)
+
+
+def dictionary_proper_nouns(title: str) -> set[str]:
+    """Words of a Title-Cased title that are names: listed only capitalised in the dictionary ("Doppler"),
+    an unlisted capitalised word before syndrome / disease ("Cowden Syndrome"), and "United States"."""
+    lower, caps = _dictionary_words()
+    keep = set()
+    for m in re.finditer(r"[A-Z][a-z'’]+", title):
+        w = m.group(0)
+        if w in caps:
+            keep.add(w)
+        elif lower and w.lower() not in lower and _EPONYM_NEXT.match(title, m.end()):
+            keep.add(w)
+    if re.search(r"\bUnited\s+States\b", title):
+        keep |= {"United", "States"}
+    return keep
+
+
 def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
     """Lower-case Title-Cased words, keeping the first word, the word after a colon, acronyms
     (ASCO, GLOBOCAN, U.S.), words with inner capitals or digits (mRNA, COVID-19) and proper nouns:
@@ -570,7 +613,7 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     if title.endswith("."):
         title = title[:-1]
     if style.get("references.title_sentence_case"):
-        title = sentence_case(title, proper_nouns(r.title, p.title if p else ""))
+        title = sentence_case(title, proper_nouns(r.title, p.title if p else "") | dictionary_proper_nouns(title))
     if style.get("references.capitalize_after_colon"):
         title = re.sub(r":\s([a-z])", lambda m: ": " + m.group(1).upper(), title)
     end = "" if title.endswith(("?", "!")) else "."

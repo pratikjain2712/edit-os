@@ -74,6 +74,25 @@ def _citations(ms: Manuscript) -> list[tuple[str, list[int]]]:
     return [(pid, nums) for _, pid, nums in sorted(found, key=lambda x: x[0])]
 
 
+_LIST_ITEM = re.compile(r"\((\d{1,2})\)\s+[A-Za-z]")
+_STAT_WORDS = {"or", "rr", "hr", "ci", "sd", "se", "df", "auc", "icc", "ar", "aor"}
+
+
+def _enumeration(text: str) -> bool:
+    """Round-bracket numbers that run 1, 2, 3 ... each before a word: a numbered list inside the sentence."""
+    nums = [int(m.group(1)) for m in _LIST_ITEM.finditer(text)]
+    return len(nums) >= 2 and nums == list(range(1, len(nums) + 1))
+
+
+def _unary_after_word(text: str, m: re.Match) -> bool:
+    """A sign with a space before and none after, following an ordinary word ("showed >90", "aged <18"): a unary
+    sign, which the guide writes closed up. Not after a variable or statistic ("p >0.05", "OR >2")."""
+    if not (m.group(0).startswith(" ") and len(m.group(0)) == 2):
+        return False
+    word = re.search(r"([A-Za-z]+)\W*$", text[:m.start()])
+    return bool(word) and len(word.group(1)) >= 2 and word.group(1).lower() not in _STAT_WORDS
+
+
 def check(ms: Manuscript, style: JournalStyle) -> Report:
     issues: list[Issue] = []
     refs = references.extract(ms)
@@ -84,6 +103,8 @@ def check(ms: Manuscript, style: JournalStyle) -> Report:
 
     # Citations: brackets, order, and every reference cited.
     for p in body_paragraphs(ms):
+        if _enumeration(p.text):  # "aims were: (1) describing ... (2) assessing ..." is a list, not citations
+            continue
         for m in _ROUND.finditer(p.text):
             prev = p.text[:m.start()].rstrip()
             if prev and not re.search(r"(\d|%|table|figure|fig\.)$", prev, re.I) and style.get("citations.brackets") == "square":
@@ -140,6 +161,8 @@ def check(ms: Manuscript, style: JournalStyle) -> Report:
     if style.get("statistics.space_around_operators"):
         for p in body_paragraphs(ms):
             for m in re.finditer(r"(?<=[A-Za-z0-9)])[=<>≤≥](?=\d|\.\d)|(?<=[A-Za-z0-9)])[=<>≤≥] (?=\d)|(?<=[A-Za-z0-9)]) [=<>≤≥](?=\d)", p.text):
+                if _unary_after_word(p.text, m):  # "showed >90°": a sign before a number, no space after (guide)
+                    continue
                 if "http" not in p.text and not re.search(r"<\w+>", p.text[max(0, m.start() - 4):m.end() + 4]):
                     issues.append(Issue(ERROR, "statistics.spacing", f"Operator needs a space each side: '{p.text[max(0, m.start() - 6):m.end() + 6]}'", p.id))
     return Report(issues)

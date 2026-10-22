@@ -49,3 +49,6 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
 
 text:
   prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 14 proposed, 86%
+
+submission:
+  copyright_notice_prefix: "Query: "  # S: the MJDRDYPU stylesheet writes every query as "(Query: ...)"

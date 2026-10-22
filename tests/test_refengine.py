@@ -173,3 +173,13 @@ def test_record_title_with_names_counts_as_sentence_case():
     assert refengine.is_sentence_cased(t)
     assert refengine.sentence_case(t, refengine.proper_nouns(t)) == t
     assert not refengine.is_sentence_cased("Treatment of Metastatic Cancer in Adult Patients With Chronic Disease")
+
+
+def test_dictionary_proper_nouns(monkeypatch):
+    from edit_os import refengine
+    monkeypatch.setattr(refengine, "_dictionary", ({"syndrome", "society", "state", "the", "in"}, {"Doppler", "Colombia"}))
+    t = "Cowden Syndrome in Colombia and the United States: A Doppler Study"
+    assert refengine.dictionary_proper_nouns(t) >= {"Cowden", "Colombia", "Doppler", "United", "States"}
+    assert "Syndrome" not in refengine.dictionary_proper_nouns(t)
+    assert refengine.sentence_case(t, refengine.dictionary_proper_nouns(t)) == \
+        "Cowden syndrome in Colombia and the United States: A Doppler study"

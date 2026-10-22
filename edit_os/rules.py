@@ -273,7 +273,9 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 continue
             nxt = p.text[e:e + 1]
             if style.get("citations.after_punctuation", True) and nxt in ".,;:":
-                out.append(_change(p, s, s, nxt, Layer.REFERENCES, "citations"))   # punctuation before
+                gap = len(p.text[:s]) - len(p.text[:s].rstrip())
+                # punctuation before, taking the space in front of the citation ("malformations ².")
+                out.append(_change(p, s - gap, s, nxt, Layer.REFERENCES, "citations"))
                 out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
                 out.append(_change(p, e, e + 1, "", Layer.REFERENCES, "citations"))  # and not after
                 out += _trailing_space(p, e + 1, "citations")

@@ -237,3 +237,26 @@ def test_comparison_after_a_word_left_as_typed_when_switched_off(tmp_path):
     st.settings["statistics"]["unary_after_word"] = True
     assert apply(str(path), st, tmp_path)[1] == \
         "Patients aged ≥ 18 years with a score > 5 were included (P < 0.05, n = 28, BMI ≥ 30)."
+
+
+def test_superscript_citation_after_space_takes_the_space(tmp_path):
+    import docx
+    from edit_os import docmodel, rules, style, tracked
+    from edit_os.changes import Status
+    d = docx.Document()
+    d.add_paragraph("Introduction")
+    p = d.add_paragraph("It is rare among congenital malformations ")
+    p.add_run("2").font.superscript = True
+    p.add_run(". It has two forms.")
+    d.add_paragraph("References")
+    d.add_paragraph("1. Smith A. One. J X 2001;1:1-2.")
+    d.add_paragraph("2. Jones B. Two. J Y 2002;2:3-4.")
+    f = tmp_path / "m.docx"
+    d.save(f)
+    cs = rules.run_all(docmodel.load(str(f)), style.load("mjdrdypu"), only=["citations"])
+    for c in cs.changes:
+        c.status = Status.ACCEPTED
+    out = tmp_path / "o.docx"
+    tracked.render(docmodel.load(str(f)), cs, tracked=False).save(out)
+    text = [q.text for q in docmodel.load(str(out)).paragraphs][1]
+    assert text == "It is rare among congenital malformations.[2] It has two forms."
