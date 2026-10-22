@@ -237,6 +237,7 @@ def test_jehp_complete_affiliations_and_run_on_correspondence(tmp_path, monkeypa
     ms.front_sources = fm.Sources(meta=fm.parse_xml(PORTAL_XML))
     st = style.load("jehp")
     st.settings["references"]["lookup"] = False
+    st.settings["front_matter"]["correspondence_one_line"] = True
     pl = fm.plan(ms, st)
     text = {b.role: b.text for b in pl.blocks}
     # each affiliation complete, departments of one place not grouped, country after each

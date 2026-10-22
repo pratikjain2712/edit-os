@@ -73,7 +73,8 @@ copyedit:
 text:
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it
 
-front_matter:  # stylesheet: "All the affiliations should be complete", duplicates not grouped; correspondence run-on
+front_matter:  # stylesheet: "All the affiliations should be complete", duplicates not grouped
   group_departments: false
   affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")
-  correspondence_one_line: true    # name and address on one line in 9 of the 11 articles that give an address
+  # correspondence_one_line stays off: editors split 9 / 8 between the address on the name line and on its own line
+  # (the stylesheet's "run-on" is read as the address lines joined); on, front-matter similarity fell 82.8% -> 78.2%
