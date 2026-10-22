@@ -887,3 +887,8 @@ a.src-chip:hover { background: color-mix(in srgb, var(--l-references) 18%, trans
 .pop .why-src { flex-wrap: nowrap; }
 .pop-head { flex-wrap: nowrap; }
 .toasts { width: max-content; max-width: calc(100vw - 32px); }
+
+/* editor sign-off name */
+.editor-chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.editor-chip.missing { color: var(--warn); }
+@media (max-width: 760px) { .editor-chip { max-width: 96px; } }

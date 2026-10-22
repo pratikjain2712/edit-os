@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, FileText, LayoutList, PanelRightClose, PanelRightOpen, Plane, RefreshCw, ScrollText, Wand2 } from "lucide-react";
-import { api, download, submission } from "./api.js";
+import { api, download, getEditor, setEditor, submission } from "./api.js";
 import { AutopilotSheet } from "./Autopilot.jsx";
 import { Brand } from "./App.jsx";
 import DocView from "./DocView.jsx";
@@ -60,6 +60,20 @@ function DownloadMenu({ id, final, setFinal, onError }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function EditorChip() {
+  const [name, setName] = useState(getEditor());
+  const change = () => {
+    const v = window.prompt("Your name, for the sign-off (\"Technical Editing done on <date>:- <name>\")", name);
+    if (v !== null && v.trim()) { setEditor(v); setName(v.trim()); }
+  };
+  useEffect(() => { if (!name) setTimeout(change, 400); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <button className={`btn ghost sm editor-chip${name ? "" : " missing"}`} onClick={change} title="Signs the edited file">
+      {name ? `Editor: ${name}` : "Add your name"}
+    </button>
   );
 }
 
@@ -431,6 +445,7 @@ export default function Review({ id, theme, nextTheme }) {
             <DownloadMenu id={id} final={final} setFinal={setFinal} onError={(m) => toast(m, "error")} />
           </div>
         )}
+        <EditorChip />
         <ThemeButton theme={theme} onClick={nextTheme} />
         {done && wideScreen && (
           <button className="btn ghost icon" onClick={() => setSideOpen(!sideOpen)} title={sideOpen ? "Hide panel" : "Show panel"} aria-label="Toggle panel">

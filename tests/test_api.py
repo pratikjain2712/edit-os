@@ -282,3 +282,10 @@ def _body(path):
     while texts and re.match(r"(?:Technical Editing|Copyediting) done on", texts[0]):
         texts.pop(0)
     return texts
+
+
+def test_editor_header_decoded():
+    from server.app import _ed
+    assert _ed("Ragavi%20Ravi") == "Ragavi Ravi"
+    assert _ed("S%C3%B6phiya") == "Söphiya"
+    assert _ed(None) == ""

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import urllib.parse
 from contextlib import asynccontextmanager
 from typing import Literal
 from urllib.parse import quote
@@ -84,6 +85,11 @@ class Decision(BaseModel):
     status: Literal["accepted", "rejected", "suggested"]
     layer: str | None = Field(None, description="bulk: every still-pending change in this layer")
     editor: str = ""
+
+
+def _ed(x_editor: str | None) -> str:
+    """The X-Editor header: the review screen sends the name URL-encoded (headers are Latin-1 only)."""
+    return urllib.parse.unquote(x_editor).strip() if x_editor else ""
 
 
 def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
@@ -349,7 +355,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             if body.layer == "structure":
                 pending += [n.id for n in inserts if n.status == Status.SUGGESTED]
             ids += [i for i in pending if i not in ids]
-        n = store.decide(job["id"], [(i, kinds[i]) for i in ids], body.status, body.editor or x_editor or "")
+        n = store.decide(job["id"], [(i, kinds[i]) for i in ids], body.status, body.editor or _ed(x_editor) or "")
         return {"updated": n, "ids": ids, "status": body.status}
 
     @app.post("/api/jobs/{job_id}/edit")
@@ -361,7 +367,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             raise HTTPException(422, f"Unknown id {body.id!r}")
         if "\u2029" in body.new or (kinds[body.id] == "change" and "\n" in body.new):
             raise HTTPException(422, "The new text must stay within one paragraph")
-        store.edit(job["id"], body.id, kinds[body.id], body.new, body.editor or x_editor or "")
+        store.edit(job["id"], body.id, kinds[body.id], body.new, body.editor or _ed(x_editor) or "")
         return {"id": body.id, "status": "accepted", "new": body.new}
 
     @app.get("/api/jobs/{job_id}/document")
@@ -380,7 +386,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         text and stored as accepted editor changes in the job's records (earlier direct edits of the
         paragraph are replaced). 409 when it touches an accepted suggestion or the text is stale;
         pending suggestions it overlaps are set aside (rejected) and listed."""
-        editor = body.editor or x_editor or ""
+        editor = body.editor or _ed(x_editor) or ""
         with job_lock(job["id"]):
             outdir = out_dir(storage, job["id"])
             texts = paragraphs(job["id"])
@@ -426,7 +432,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         `final=true` leaves undecided suggestions out of the tracked copy too. The editor (X-Editor, else the
         last one to decide) signs the technical editing at the top of the file."""
         with job_lock(job["id"]):
-            return _render(job["id"], final, x_editor)
+            return _render(job["id"], final, _ed(x_editor))
 
     def _autopilot_path(job_id: str) -> str:
         return os.path.join(out_dir(storage, job_id), "_autopilot_report.json")

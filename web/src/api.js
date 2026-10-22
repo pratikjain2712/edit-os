@@ -9,6 +9,18 @@ export function getApiKey() {
 export function setApiKey(k) {
   try { localStorage.setItem(KEY_STORE, k); } catch { /* private mode */ }
 }
+const EDITOR_STORE = "editos.editor";
+
+// The editor's name signs the file ("Technical Editing done on <date>:- <name>") and is recorded with each
+// decision. A dashboard link can pass it as ?editor=Name; otherwise the editor types it once.
+export function getEditor() {
+  const fromLink = new URLSearchParams(window.location.search).get("editor");
+  if (fromLink) setEditor(fromLink);
+  try { return (fromLink || localStorage.getItem(EDITOR_STORE) || "").trim(); } catch { return (fromLink || "").trim(); }
+}
+export function setEditor(name) {
+  try { localStorage.setItem(EDITOR_STORE, name.trim()); } catch { /* private mode */ }
+}
 export function reviewToken() {
   return new URLSearchParams(window.location.search).get("token") || "";
 }
@@ -19,6 +31,8 @@ function headers(extra = {}) {
   if (token) h["X-Review-Token"] = token;
   const key = getApiKey();
   if (key) h["X-API-Key"] = key;
+  const editor = getEditor();
+  if (editor) h["X-Editor"] = encodeURIComponent(editor);
   return h;
 }
 
