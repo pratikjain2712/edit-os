@@ -132,7 +132,8 @@ def find_percent(text: str, cfg: dict) -> list:
 
 
 _UNARY_CMP_LEFT = re.compile(r"(?:^|[(\[:,;]|\b(?:of|with|to|was|were|is|are|by|from|at|and|or|between|"
-                             r"than|in|be|if|aged|age|value|values|either|as|having|had|have|showing)\b)$", re.I)
+                             r"than|in|be|if|aged|either|as|having|had|have|showing)\b)$", re.I)  # not "P value < 0.05",
+# "age ≥ 6": there the word before is the left operand (as in "BMI > 30")
 
 
 def find_unary_minus(text: str, cfg: dict) -> list:
@@ -174,8 +175,14 @@ def find_value_bracket(text: str, cfg: dict) -> list:
     return [(m.end(), m.end(), " ") for m in pat.finditer(text)]
 
 
+_BOOLEAN = re.compile(r"(?<![\w-])(?:AND|OR|NOT)(?![\w-])")  # search operators, in capitals
+
+
 def find_bracket_space(text: str, cfg: dict) -> list:
-    """21. "( 80 )" -> "(80)": no space inside brackets."""
+    """21. "( 80 )" -> "(80)": no space inside brackets. Not in a database search string
+    ('TITLE ( digital ) OR TITLE ( "cardiac rehab" )'), which is quoted as the author ran it."""
+    if len(_BOOLEAN.findall(text)) >= 2:
+        return []
     out = []
     for m in re.finditer(r"\((" + _SP + r"+)(?=[^\s)])", text):
         out.append((m.start(1), m.end(1), ""))

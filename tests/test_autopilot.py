@@ -35,6 +35,20 @@ def test_plan_accepts_rules_and_judged_ai_edits():
     assert p.judge == {"used": True, "asked": 3, "agreed": 1}
 
 
+def test_jehp_holds_the_rules_its_editors_confirm():
+    # JEHP: stylesheet / guide rules the copy editors mostly skip stay suggestions; Claude's pass is off and held.
+    st = style.load("jehp")
+    assert st.get("copyedit.claude.enabled") is False
+    changes = [ch("h1", "use abbreviation after its definition"), ch("h2", "sections_abstract.rename:methods"),
+               ch("h3", "sections_back_matter.added"), ch("h4", "guide.unary_comparison"),
+               ch("h7", "claude.grammar (agreement)", Source.AI, Layer.LANGUAGE), ch("k5", "fig_captions.case"),
+               ch("k1", "sections_abstract.rename:conclusion"), ch("k2", "fig_captions.label"),
+               ch("k3", "fig_captions.end_period"), ch("k4", "ref_year", layer=Layer.REFERENCES)]
+    p = autopilot.plan(changes, [], st, judge=lambda items: {c.id: ("accept", "") for c in items})
+    assert p.accept == ["k5", "k1", "k2", "k3", "k4"]
+    assert {d["id"] for d in p.left} == {"h1", "h2", "h3", "h4", "h7"}
+
+
 def test_plan_holds_and_needs_a_key_for_ai_edits():
     st = style.load("ijo")
     st.settings = {**st.settings, "autopilot": {**st.settings["autopilot"], "hold": ["renumber", "guide.dash"]}}

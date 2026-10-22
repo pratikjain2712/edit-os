@@ -361,6 +361,8 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
     full form after defining it: editors leave a term the author keeps writing out ("retinoblastoma"
     in a paper about it) and shorten the stray ones ("intraocular pressure" among many "IOP")."""
     pat = re.compile(r"(?<![\w\-])" + re.escape(d0.long) + r"(s?)(?![\w\-])(?!\s*\()", re.I)
+    listed = re.compile(r"(?<![\w\-])" + re.escape(key) + r"s?\s*[=:,–—]\s*$")
+    listed_after = re.compile(r"\s*[=:,–—]\s*" + re.escape(key) + r"(?![\w\-])")
     found = []
     for p in scope:
         if order[p.id] < order[d0.para_id] or _is_heading(p) or _KEYWORDS.match(p.text):
@@ -369,6 +371,8 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
         for m in pat.finditer(p.text):
             if p.id == d0.para_id and m.start() < d0.end or overlaps(m.start(), m.end(), spans):
                 continue
+            if listed.search(p.text[:m.start()]) or listed_after.match(p.text[m.end():]):
+                continue  # an abbreviation list or table note: "CBE = Competency-Based Education"
             found.append((p, m))
     if n_uses <= len(found):
         return

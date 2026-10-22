@@ -522,11 +522,14 @@ def rule_abstract(ms: Manuscript, style: JournalStyle) -> list[Change]:
             continue
         label = m.group(2)
         new = label
+        reason = "sections_abstract"
         if label.lower() in rename:
             new = _match_case(label, rename[label.lower()])
+            # its own reason, so a journal can hold one renaming for the editor ("sections_abstract.rename:methods")
+            reason = f"sections_abstract.rename:{rename[label.lower()].lower()}"
         new = _cased(new, sub_case) if sub_case != "keep" else new
         if new != label:
-            out.append(_change(p, m.start(2), m.end(2), new, Layer.STRUCTURE, "sections_abstract"))
+            out.append(_change(p, m.start(2), m.end(2), new, Layer.STRUCTURE, reason))
         sep = m.group(3)
         alone = m.re is _SUB_ALONE
         if _on(style, "abstract.subheading_colon"):
@@ -1329,7 +1332,9 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         p = by_id[pid]
         prov = provenance.combine([origins.get(k) for k in target_kinds.get((where, pid), [])])
         # The standard consent statement asserts that consent was obtained: its own reason, so that autopilot can hold it.
-        reason = "sections_back_matter.consent_added" if consent_text and consent_text in lines else "sections_back_matter"
+        # Missing standard statements added with the journal's default text ("Nil."): their own reason too.
+        reason = "sections_back_matter.consent_added" if consent_text and consent_text in lines else \
+            "sections_back_matter.added" if any(k in std for k in target_kinds.get((where, pid), [])) else "sections_back_matter"
         if where == "after":
             out.append(_change(p, len(p.text), len(p.text), BR + BR.join(lines), Layer.STRUCTURE, reason, fmt))
         else:

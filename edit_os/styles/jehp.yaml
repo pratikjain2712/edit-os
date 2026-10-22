@@ -91,6 +91,15 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
 # description) is not undefined, and standard ones are not queried. The copy editors raised 0 such queries in
 # 17 articles; the rule is kept (S), the false ones are cut.
 copyedit:
+  # The Claude copy-edit pass is not a stylesheet rule; against the JEHP copy editors it is too often wrong to keep.
+  # 17 training articles: accepted after Autopilot's second check 22 of 50 in the final text (44%), all its
+  # suggestions 25 of 62 (40%); tools/eval_ce.py: Haiku 36.0% of 89 edits, Opus 36.1% of 183; best kinds
+  # (spelling, punctuation, article) 13 of 21 (62%, about one edit per article). Off (and held, if turned back on).
+  claude: {enabled: false}
+  spelling:  # American as base (the sheet's "Spelling" line is empty). The editors keep "counselling" (4 of 5
+             # articles) and "modelling" (3 of 3) while converting the rest (final text: 33 of 53 other conversions)
+    skip: [acknowledgement, acknowledgements, counselling, counsellor, counsellors, counselled, counselling's,
+           modelling, modelled, modeller, modellers]
   abbreviations:
     defined_in_article: true
     allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD]
@@ -103,3 +112,21 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
   affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")
   # correspondence_one_line stays off: editors split 9 / 8 between the address on the name line and on its own line
   # (the stylesheet's "run-on" is read as the address lines joined); on, front-matter similarity fell 82.8% -> 78.2%
+
+# Measured against the final copy-edited files (tools/eval_final.py; 17 training articles): rule precision = the
+# accepted changes the final text has, against those where it kept the author's wording.
+autopilot:
+  # Left for the editor to confirm (the rules stay on; the stylesheet / guide asks for them, the editors mostly skip):
+  #   use abbreviation   S: "only abbreviation should be used thereafter" (final text 0 of 11)
+  #   sections_abstract.rename:methods  S: '"Materials and Methods" ... should be changed to "Methods"' (0 of 2; 17 of 17 kept)
+  #   sections_back_matter.added  G283: "If information of SoS/CoI is not provided ... keep both as Source of support: Nil"
+  #                      (the statements added with "Nil.": 0 of 3)
+  #   guide.unary_comparison  G301: '"><space>10" -> ">10"' (0 of 5; editors keep the author's space)
+  #   claude             Claude's copy edits (not a stylesheet rule): 22 of 50 accepted ones in the final text
+  # Accepted although the word-level count looks low (the final text rewrites the words around them, so the count
+  # misreads them): table captions in sentence case and with a final period (S) -- the copy editors made Title Case
+  # captions sentence case in 4 of the 4 articles that had them and added the period in 9 of 17; holding both cut
+  # the text closure 23.1% -> 22.5%. ref_year / ref_pages / ref_issue (S: "J Pharm Bioall Sci 2017;9:80-7", G165,
+  # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
+  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, use abbreviation,
+         sections_abstract.rename:methods, sections_back_matter.added, guide.unary_comparison, claude]

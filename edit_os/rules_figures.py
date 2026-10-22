@@ -391,12 +391,12 @@ def _legend_parts(p: Paragraph, rest_start: int, number: int, style: JournalStyl
         new = "(" + re.sub(r"\d+", "", re.sub(r"[A-La-l]", lambda x: _case(x.group(0), style, True), inner)) + ")"
         new = re.sub(r"\s*&\s*", " and ", new) if "&" in new else new
         if new != m.group(0):
-            out += _diff(p, m.start(), m.group(0), new, "fig_captions")
+            out += _diff(p, m.start(), m.group(0), new, "fig_captions.parts")
     bare = list(_BARE_LEGEND_PART.finditer(text, rest_start))
     letters = [b.group("l").lower() for b in bare]
     if len(bare) >= 2 and letters == [chr(ord("a") + i) for i in range(len(letters))]:
         for b in bare:
-            out += _diff(p, b.start(), b.group(0), f"({_case(b.group('l'), style, True)})", "fig_captions")
+            out += _diff(p, b.start(), b.group(0), f"({_case(b.group('l'), style, True)})", "fig_captions.parts")
     return out
 
 
@@ -436,7 +436,7 @@ def _footnote_periods(ms: Manuscript) -> list[Change]:
         i = _end_period(p.text)
         if i is not None:
             end = len(p.text) if not p.text[i + 1:].strip() else i + 1
-            out.append(_change(p, i, end, "", Layer.TABLES_FIGURES, "fig_captions"))
+            out.append(_change(p, i, end, "", Layer.TABLES_FIGURES, "fig_captions.footnote_period"))
     return out
 
 
@@ -471,7 +471,7 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
             lead_part = re.match(r"\(([A-Za-z])\)", rest)
             if lead_part and _case(lead_part.group(1), style, True) != lead_part.group(1):
                 out += _diff(p, m.start("rest") + 1, lead_part.group(1), _case(lead_part.group(1), style, True),
-                             "fig_captions")
+                             "fig_captions.parts")
         if cap.kind == FIG and style.get("figures.legend_part_labels", True):
             out += _legend_parts(p, m.start("rest"), cap.number, style)
         sep = style.get("figures.caption_separator", ": ")
@@ -480,11 +480,11 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
             new_label = new_rest_prefix
         old_label = p.text[m.end("lead"):rest_start]
         if new_label != old_label:
-            out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions")
+            out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions.label")
         # S: 'followed by caption content in bold style and Sentence Case' (table captions; figures.table_caption_case)
         if cap.kind == TABLE and style.get("figures.table_caption_case") == "sentence":
             from .rules_sections import sentence_case_changes
-            out += sentence_case_changes(ms, p, "fig_captions", start=rest_start,
+            out += sentence_case_changes(ms, p, "fig_captions.case", start=rest_start,
                                          hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
         # The final period, per kind: add | delete | keep (figures.table_caption_end_period / figure_caption_end_period);
         # unset: the older caption_end_period / caption_end_period_keep switches (delete unless kept).
@@ -498,14 +498,14 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if body and not body.endswith((".", "?", "!", ":")):
                 from .rules import _change
                 k = m.start("rest") + len(body)
-                out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions"))
+                out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions.period_added"))
         elif end_mode == "delete":
             i = _end_period(rest)
             if i is not None:
                 from .rules import _change
                 k = m.start("rest") + i
                 end = len(p.text) if not p.text[k + 1:].strip() else k + 1  # "folds. " -> "folds"
-                out.append(_change(p, k, end, "", Layer.TABLES_FIGURES, "fig_captions"))
+                out.append(_change(p, k, end, "", Layer.TABLES_FIGURES, "fig_captions.end_period"))
     return out
 
 

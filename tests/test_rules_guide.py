@@ -39,6 +39,12 @@ def fix(text, rule, **cfg):
     ("unary_minus", "aged 10 -20 years, an anti-VEGF agent, IL-6", "aged 10 -20 years, an anti-VEGF agent, IL-6"),
     ("unary_comparison", "large holes (> 400 μm) and 20 to < 30 ng/mL", "large holes (>400 μm) and 20 to <30 ng/mL"),
     ("unary_comparison", "significant (P < 0.05), BMI > 30, scores < 7", "significant (P < 0.05), BMI > 30, scores < 7"),
+    # the word before is the left operand: binary, spaces kept; "aged" is not an operand
+    ("unary_comparison", "A P value < 0.05, a p-value < 0.01, (age ≥ 6 years)", "A P value < 0.05, a p-value < 0.01, (age ≥ 6 years)"),
+    ("unary_comparison", "adults aged ≥ 60 years", "adults aged ≥60 years"),
+    ("bracket_inner_space", "mean ( 80 ) and", "mean (80) and"),
+    ("bracket_inner_space", 'query: TITLE ( digital ) OR TITLE ( "cardiac rehab" ) AND PUBYEAR > 2015',
+     'query: TITLE ( digital ) OR TITLE ( "cardiac rehab" ) AND PUBYEAR > 2015'),
     ("value_unit_space", "10mm ports, 20mg daily and 5µg", "10 mm ports, 20 mg daily and 5 µg"),
     ("value_unit_space", "2.5cm lesion at 3000rpm, 532nm laser", "2.5 cm lesion at 3000 rpm, 532 nm laser"),
     ("value_unit_space", "10 mm, 120mmHg, 5mmol, T2mm, 10-mm, mg/dL", "10 mm, 120mmHg, 5mmol, T2mm, 10-mm, mg/dL"),

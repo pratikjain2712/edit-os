@@ -461,3 +461,18 @@ def test_abbreviation_list_is_not_a_second_definition(tmp_path):
     ])
     qs = abbrev.collect(ms, journal("jehp", abbreviations={}))[1]
     assert not [q for q in qs if q.check in ("abbrev.defined_twice", "abbrev.before_definition")]
+
+
+def test_full_form_kept_in_an_abbreviation_list(tmp_path):
+    # "CBE = Competency-Based Education" in a table note is the definition itself, not a use of the full form.
+    ms = make(tmp_path, [
+        "Introduction",
+        "Competency-based education (CBE) is common. CBE helps; CBE works; CBE is new.",
+        "Students liked competency-based education.",
+        "CE = Concrete Experience; CBE = Competency-Based Education.",
+        "Competency-Based Education: CBE",
+    ])
+    on = journal(abbreviations={"full_form_after_definition": "change"})
+    changes = [c for c in abbrev.collect(ms, on)[0] if c.reason == "use abbreviation after its definition"]
+    assert apply(ms, changes)[2:] == ["Students liked CBE.", "CE = Concrete Experience; CBE = Competency-Based Education.",
+                                      "Competency-Based Education: CBE"]

@@ -535,7 +535,8 @@ def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if re.match(r"\s*[\[(⁰¹²³⁴⁵⁶⁷⁸⁹\d]", text[point:]):
                     continue
                 edits = []
-            if point >= s or not text[point:s].strip() or len(_SENTENCE_GAP.findall(text[point:s])) >= max_sentences:
+            if point >= s or not text[point:s].strip(" \u00a0.,;:") or len(_SENTENCE_GAP.findall(text[point:s])) >= max_sentences:
+                # already at the name: "by Braun and Clarke.[15]" (only punctuation between)
                 continue
             out += edits
             out.append(_change(p, point, point, new_cite, Layer.REFERENCES, "author_citations", sup))

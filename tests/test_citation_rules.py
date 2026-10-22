@@ -53,9 +53,11 @@ def test_citation_moves_next_to_matching_author(tmp_path):
         "Gray et al. found it [5].",                             # reference 5 is by Hall: stays
         "Ames et al. and Brook et al. both agree on this point [1].",  # two names: stays
         "Hall et al. [5] reported the same in a later cohort.",  # already at the name: stays
+        "Themes were coded as described by Evans and Frost.[4] NVivo was used.",  # only "." between: stays
     ]
     path = _save(tmp_path, body + _refs("Ames JB, Kay T", "Brook A, Lee B", "Dunn C", "Evans D, Frost E", "Hall F"))
     _, t = _run(path, _style(), tmp_path, CITE_RULES)
+    assert t[7] == "Themes were coded as described by Evans and Frost.[4] NVivo was used."
     assert t[1] == "Ames et al.[1] showed the drug works in rats. They found more in mice."
     assert t[2] == "In a study by Brook et al.,[2] values fell (P = 0.02). Later work is new."
     assert t[3] == "The report by Dunn et al.[3] in 2013 was rare. Evans and Frost[4] described two cases."
