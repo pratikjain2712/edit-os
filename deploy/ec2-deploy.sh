@@ -42,6 +42,8 @@ SHEETS_ARGS=()
 if [ -n "$SHEETS_S3" ] && aws s3 ls "$SHEETS_S3" --region "$REGION" >/dev/null 2>&1; then
   mkdir -p "$SHEETS_DIR" && chmod 700 "$SHEETS_DIR"
   aws s3 sync "$SHEETS_S3" "$SHEETS_DIR" --region "$REGION" --delete --only-show-errors
+  # Readable by the container's user only (uid 10001, see Dockerfile); umask 077 above made them root-only.
+  chown -R 10001:10001 "$SHEETS_DIR" && chmod -R u+rX,go-rwx "$SHEETS_DIR"
   SHEETS_ARGS=(-v "$SHEETS_DIR:/stylesheets:ro" -e EDITOS_STYLESHEETS=/stylesheets)
   GUIDE=$(ls "$SHEETS_DIR"/guide/*.txt 2>/dev/null | head -1 || true)
   [ -n "$GUIDE" ] && SHEETS_ARGS+=(-e "EDITOS_PREEDIT_GUIDE=/stylesheets/guide/$(basename "$GUIDE")")
