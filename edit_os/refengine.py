@@ -121,7 +121,33 @@ def _best(p: Parsed, records: list[biblio.Record]) -> biblio.Record | None:
     return max(ok, key=lambda r: score(p, r)[0]) if ok else None
 
 
+def _usable(r: biblio.Record | None) -> bool:
+    return r is not None and bool(r.volume and r.year)
+
+
+def _confirmed(p: Parsed, r: biblio.Record) -> bool:
+    """A record found by the wider searches must, besides passing `accept`, carry the entry's first
+    author and have its title written in the entry itself: a title that only matches Claude's split
+    of the entry, or a shorter title contained in the author's, is not enough."""
+    _, author, _ = score(p, r)
+    return author and fuzz.partial_ratio(fold(r.title), fold(p.text)) >= 90
+
+
 def find(p: Parsed) -> tuple[biblio.Record | None, str]:
+    found, why = _find(p)
+    if _usable(found) or why.endswith("points to a different article"):
+        return found, why
+    # Nothing accepted, or only a record without volume (ahead of print, a CrossRef deposit without
+    # one): wider searches, each candidate held to the same strict acceptance.
+    for records in biblio.fallback_candidates(p.title, p.authors[0] if p.authors else "", p.year, p.text, found):
+        r = _best(p, [r for r in records if _confirmed(p, r)])
+        if _usable(r):
+            return r, ""
+        found = found or r
+    return (found, "") if found else (None, why)
+
+
+def _find(p: Parsed) -> tuple[biblio.Record | None, str]:
     if p.pmid:
         for r in biblio.pubmed_fetch([p.pmid]):
             if accept(p, r, by_id=True):

@@ -10,9 +10,12 @@ import hashlib
 import json
 import os
 import sqlite3
+import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from lxml import etree
@@ -96,6 +99,15 @@ def _ncbi(endpoint: str, **params) -> str | None:
 
 def pubmed_search(term: str, retmax: int = 5) -> list[str]:
     body = _ncbi("esearch.fcgi", db="pubmed", retmode="json", retmax=retmax, term=term)
+    try:
+        return json.loads(body)["esearchresult"]["idlist"] if body else []
+    except (ValueError, KeyError):
+        return []
+
+
+def pubmed_best_match(term: str, retmax: int = 10) -> list[str]:
+    """PubMed search in Best Match order (esearch's default order is newest first)."""
+    body = _ncbi("esearch.fcgi", db="pubmed", retmode="json", retmax=retmax, sort="relevance", term=term)
     try:
         return json.loads(body)["esearchresult"]["idlist"] if body else []
     except (ValueError, KeyError):
@@ -188,3 +200,140 @@ def crossref_search(text: str, rows: int = 5) -> list[Record]:
         return [_crossref_record(i) for i in json.loads(body)["message"]["items"]] if body else []
     except (ValueError, KeyError):
         return []
+
+
+
+# --- fallback searches -------------------------------------------------------------------
+#
+# Tried only when the plain searches found no usable record. They cast a wider net (part of the
+# title, typo-prone words left out, first author / year / journal to stay specific); every
+# candidate still has to pass the caller's strict acceptance, so a wider net never means a
+# looser match.
+
+STOPWORDS = frozenset("""
+a about after against all also among an and any are as at be been before being between both but by can
+did do does during each either for from had has have how however if in into is it its may more most
+new no non nor not of on or other our over per should so some such than that the their them then there
+these they this those through to too under upon use used using versus via vs was we were what when where
+whether which while who whom why will with within without would yet
+""".split())
+# British / American spellings (colour, paediatric, oesophageal, randomised, analyse) and
+# words with digits, hyphens or symbols are often written differently in the database.
+_VARIANT = re.compile(r"our|ae|oe|is(?:e|ed|es|ing|ation)s?$|ys(?:e|ed|es|ing)$|tre$|ogue$|ll(?:ed|ing)$")
+_FIELD_TERMS = re.compile(r"[\[\]()\"]")
+MAX_FALLBACK_REQUESTS = 4
+
+
+def title_words(title: str) -> list[str]:
+    """Distinctive title words, in order: no stopwords, punctuation or short words, and none of
+    the words that are often spelled or typed differently in the database."""
+    letters = [c for c in title if c.isalpha()]
+    if letters and sum(c.isupper() for c in letters) > 0.6 * len(letters):
+        title = title.lower()  # an ALL-CAPS title: its words are not acronyms
+    out = []
+    for w in re.split(r"[\s/–—:;,.?!()\[\]{}\"“”‘’]+", title):
+        w = w.strip("'-")
+        if len(w) < 3 or w.lower() in STOPWORDS:
+            continue
+        if not w.isascii() or not w.isalpha() or "-" in w or (w.isupper() and len(w) > 1):
+            continue  # COVID-19, IL-6, Sjögren, acronyms, "children's": spelled many ways
+        if _VARIANT.search(w.lower()):
+            continue
+        out.append(w.lower())
+    return out
+
+
+def first_author_surname(author: str) -> str:
+    """"Di Martino E" -> "Di Martino"; "Shields CL" -> "Shields"; group names and initials-only -> ""."""
+    parts = [x for x in re.split(r"[\s,]+", author.replace(".", " ").strip()) if x]
+    while len(parts) > 1 and re.fullmatch(r"[A-Z]{1,3}(?:-[A-Z])?", parts[-1]):
+        parts.pop()
+    name = " ".join(parts)
+    if len(parts) > 3 or not re.search(r"[A-Za-z][a-z]", name) or re.search(r"\d", name) or _FIELD_TERMS.search(name):
+        return ""
+    return name
+
+
+def journal_hint(text: str, title: str) -> str:
+    """The journal name as the author wrote it, right after the title ("... outcomes. Int J Art Ther. 2022;")."""
+    words = [w for w in re.split(r"\W+", title) if w][-3:]
+    if not words:
+        return ""
+    m = re.search(r"\W+".join(map(re.escape, words)) + r"\W*", text, re.I)
+    if not m:
+        return ""
+    j = re.match(r"\s*([A-Za-z][A-Za-z .&'-]{2,80}?)[.,]?\s*(?:\(?(?:19|20)\d{2}|\d|;)", text[m.end():])
+    if not j:
+        return ""
+    name = re.sub(r"\s+", " ", j.group(1).replace(".", " ")).strip()
+    return name if 1 <= len(name.split()) <= 8 and not re.search(r"\b(?:et al|doi|available|accessed)\b", name, re.I) else ""
+
+
+def _fold(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+def _share(words: list[str], frac: float) -> list[str]:
+    return words[:max(3, round(len(words) * frac))]
+
+
+def partial_title_query(title: str, surname: str, year: str, journal: str = "") -> str:
+    """One PubMed query OR-ing partial-title searches, each held to the paper by author, year or journal:
+    80% of the title words with the first author; the last 60% with first author and year (a typo
+    early in the title); 50% with year and journal (first author misspelled or missing)."""
+    words = title_words(title)
+    if len(words) < 3:
+        return ""
+    au = f'"{_fold(surname)}"[1au]' if surname else ""
+    yr = f"{year}[dp]" if re.fullmatch(r"(?:19|20)\d{2}", year or "") else ""
+    ta = f'"{_fold(journal)}"[ta]' if journal else ""
+    groups = []
+    if au:
+        groups.append([" ".join(_share(words, 0.8)), au])
+        groups.append([" ".join(words[-max(3, round(len(words) * 0.6)):]), au, yr])
+    if yr and ta:
+        groups.append([" ".join(_share(words, 0.5)), yr, ta])
+    elif yr and not au and len(words) >= 5:
+        groups.append([" ".join(_share(words, 0.6)), yr])
+    clauses = []
+    for g in groups:
+        c = "(" + " AND ".join(f"({x})" if i == 0 else x for i, x in enumerate(g) if x) + ")"
+        if c not in clauses:
+            clauses.append(c)
+    return " OR ".join(clauses)
+
+
+def fallback_candidates(title: str, first_author: str, year: str, text: str = "", known: Record | None = None,
+                        max_requests: int = MAX_FALLBACK_REQUESTS) -> Iterator[list[Record]]:
+    """Candidate records from the fallback searches, one batch per search, surest first: the other
+    database by DOI when `known` (a record found without volume: ahead of print, or a CrossRef deposit
+    without one) has a DOI; PubMed by partial title; CrossRef by title, first author and year.
+    At most `max_requests` HTTP requests in all (cached ones included)."""
+    left = max_requests
+    seen = {known.pmid} if known and known.pmid else set()
+
+    def fetch(ids: list[str]) -> list[Record]:
+        nonlocal left
+        new = [i for i in ids if i not in seen]
+        if not new or left <= 0:
+            return []
+        left -= 1
+        seen.update(new)
+        return pubmed_fetch(new)
+
+    if known and known.doi:
+        left -= 1
+        if known.source == "pubmed":
+            yield [r for r in [crossref_doi(known.doi)] if r]
+        else:
+            yield fetch(pubmed_search(f'"{known.doi}"[aid]', retmax=1))
+    surname = first_author_surname(first_author)
+    term = partial_title_query(title, surname, year, journal_hint(text, title) if text else "")
+    if term and left >= 2:
+        left -= 1
+        yield fetch(pubmed_best_match(term))
+    if title and left >= 1:
+        left -= 1
+        flat = re.sub(r"\s*[:.]\s+", ": ", title.strip().rstrip("."))  # title and subtitle as one
+        yield crossref_search(" ".join(x for x in (flat, surname, year) if x))
