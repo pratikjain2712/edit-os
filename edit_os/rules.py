@@ -619,15 +619,6 @@ _ET_AL_DOUBLE = re.compile(r"\bet al\.\.")
 _PAGES = re.compile(r":\s*([A-Za-z]?)(\d+)\s*[–—\-]\s*([A-Za-z]?)(\d+)(?=\.?\s*$)")
 
 
-def _compress(first: str, last: str) -> str:
-    if len(last) != len(first) or int(last) <= int(first):
-        return last
-    i = 0
-    while i < len(first) - 1 and first[i] == last[i]:
-        i += 1
-    return last[i:]
-
-
 def _journal_span(text: str, lo: int, hi: int):
     """Find the journal name ending at `hi` (just before the year): try each sentence boundary
     from the furthest back, so "J. Orthop. Rehabil." wins over "Rehabil."."""
@@ -695,9 +686,8 @@ def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if style.get("references.page_range_compress", True):
             m = _PAGES.search(text)
             if m:
-                first, last = m.group(2), m.group(4)
-                new_last = _compress(first, last)
-                new = f":{m.group(1)}{first}{style.get('references.page_range_dash', '-')}{m.group(3)}{new_last}"
+                # as a rebuilt entry writes them: "e123-e130" -> "e123-30", "123-123" -> "123"
+                new = ":" + refengine.format_pages(f"{m.group(1)}{m.group(2)}-{m.group(3)}{m.group(4)}", style)
                 if new != m.group(0):
                     out.append(_change(p, base + m.start(), base + m.end(), new, Layer.REFERENCES, "ref_pages"))
     return out
