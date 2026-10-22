@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from . import references
 from .docmodel import Manuscript
-from .rules import _ROUND, _SQUARE, body_paragraphs
+from .rules import _SQUARE, body_paragraphs, not_citation_before, round_citations
 from .style import JournalStyle
 
 ERROR, WARNING = "error", "warning"
@@ -57,33 +57,16 @@ def _heading_key(text: str) -> str:
     return re.sub(r"^<H\d>|:$", "", text.strip()).strip().lower()
 
 
-def _citations(ms: Manuscript) -> list[tuple[str, list[int]]]:
-    """(para_id, numbers) for each square-bracket citation in the body and in tables, in citation
-    order (a table's citations count at its first callout: renumber.citation_key)."""
-    from .renumber import citation_key, citation_paragraphs
+def _citations(ms: Manuscript, style: JournalStyle) -> list[tuple[str, list[int]]]:
+    """(para_id, numbers) for each citation, in citation order: what renumbering reads as citations
+    (renumber.occurrences: the citation rule's own decisions), so QC, the queries and renumbering agree
+    (a table's citations count at its first callout: renumber.citation_key)."""
+    from .renumber import occurrences
 
-    found = []
-    for p in citation_paragraphs(ms):
-        for m in re.finditer(r"\[(\d[\d,\-–\s]*)\]", p.text):
-            nums = []
-            for part in re.split(r"\s*,\s*", m.group(1).strip()):
-                r = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", part)
-                if r:
-                    nums += list(range(int(r.group(1)), int(r.group(2)) + 1))
-                elif part.isdigit():
-                    nums.append(int(part))
-            found.append((citation_key(ms, p.id, m.start()), p.id, nums))
-    return [(pid, nums) for _, pid, nums in sorted(found, key=lambda x: x[0])]
+    return [(o.para_id, o.numbers) for o in occurrences(ms, style, 0)]
 
 
-_LIST_ITEM = re.compile(r"\((\d{1,2})\)\s+[A-Za-z]")
 _STAT_WORDS = {"or", "rr", "hr", "ci", "sd", "se", "df", "auc", "icc", "ar", "aor"}
-
-
-def _enumeration(text: str) -> bool:
-    """Round-bracket numbers that run 1, 2, 3 ... each before a word: a numbered list inside the sentence."""
-    nums = [int(m.group(1)) for m in _LIST_ITEM.finditer(text)]
-    return len(nums) >= 2 and nums == list(range(1, len(nums) + 1))
 
 
 def _unary_after_word(text: str, m: re.Match) -> bool:
@@ -103,19 +86,17 @@ def check(ms: Manuscript, style: JournalStyle) -> Report:
     if not refs:
         issues.append(Issue(ERROR, "references.present", "No reference list found"))
 
-    # Citations: brackets, order, and every reference cited.
+    # Citations: brackets, order, and every reference cited. A round-bracket number is a citation when the
+    # citation rule would convert it (counts, list markers, degrees of freedom and numbers beyond the list
+    # are not), so the check and the rule never disagree.
+    for p, m in round_citations(ms, style):
+        issues.append(Issue(ERROR, "citations.brackets", f"Citation in round brackets: {m.group(0).strip()}", p.id))
     for p in body_paragraphs(ms):
-        if _enumeration(p.text):  # "aims were: (1) describing ... (2) assessing ..." is a list, not citations
-            continue
-        for m in _ROUND.finditer(p.text):
-            prev = p.text[:m.start()].rstrip()
-            if prev and not re.search(r"(\d|%|table|figure|fig\.)$", prev, re.I) and style.get("citations.brackets") == "square":
-                issues.append(Issue(ERROR, "citations.brackets", f"Citation in round brackets: {m.group(0).strip()}", p.id))
         for m in _SQUARE.finditer(p.text):
-            if re.search(r"\s", m.group(2)):
+            if re.search(r"\s", m.group(2)) and not not_citation_before(p.text[:m.start()].rstrip(), False):
                 issues.append(Issue(ERROR, "citations.format", f"Space inside citation: [{m.group(2)}]", p.id))
     cited, seen_max = set(), 0
-    for para_id, nums in _citations(ms):
+    for para_id, nums in _citations(ms, style):
         for n in nums:
             if n not in cited and n > seen_max + 1:
                 issues.append(Issue(ERROR, "citations.order",
@@ -152,8 +133,10 @@ def check(ms: Manuscript, style: JournalStyle) -> Report:
         break
 
     # Required back matter and expected sections.
+    from .rules_sections import section_headings
+
     for sec in style.get("required_sections", []):
-        if sec["heading"].lower() not in headings:
+        if not section_headings(sec) & headings:  # the journal's heading, or a variant it keeps as written
             issues.append(Issue(ERROR, "sections.required", f"Missing section: {sec['heading']}"))
     for h in style.get("expected_h1", []):
         if h not in headings and f"{h}s" not in headings:

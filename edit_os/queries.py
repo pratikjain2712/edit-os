@@ -75,33 +75,6 @@ class QuerySet:
         return self
 
 
-def _expand(nums: str) -> list[int]:
-    out = []
-    for part in re.split(r"\s*,\s*", nums.strip()):
-        r = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", part)
-        if r and int(r.group(2)) - int(r.group(1)) < 100:
-            out += list(range(int(r.group(1)), int(r.group(2)) + 1))
-        elif part.isdigit():
-            out.append(int(part))
-    return out
-
-
-def _citations(ms: Manuscript):
-    """(paragraph, start, end, numbers) for each [n] citation in the body and in tables."""
-    from .renumber import citation_paragraphs
-
-    for p in citation_paragraphs(ms):
-        for m in re.finditer(r"\[(\d[\d,\-–\s]*)\]", p.text):
-            nums = []
-            for part in re.split(r"\s*,\s*", m.group(1).strip()):
-                r = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", part)
-                if r:
-                    nums += list(range(int(r.group(1)), int(r.group(2)) + 1))
-                elif part.isdigit():
-                    nums.append(int(part))
-            yield p, m.start(), m.end(), nums
-
-
 def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     from .rules import lookup_references  # rules imports this module's neighbours; avoid a cycle
 
@@ -109,21 +82,23 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     refs = references.extract(ms)
     numbered = {r.number: r for r in refs if r.number is not None}
 
-    # Citations against the reference list. Round-bracket citations are converted by the rules
-    # first, so both forms count as cited.
-    cited: set[int] = set()
-    for p, s, e, nums in _citations(ms):
-        cited.update(nums)
-        for n in nums:
-            if numbered and n not in numbered:
-                qs.add(p.id, "references.missing_entry", s, e, n=n)
-    from .rules import superscript_citations
+    # Citations against the reference list: the citations renumbering reads (renumber.occurrences: the
+    # citation rule's own decisions on round brackets and superscripts), so the queries, renumbering and QC
+    # agree. Counts, list markers, statistics and the reference list's own "(4)" issues are not citations.
+    from .renumber import occurrences
 
-    for m_p in ms.paragraphs:
-        for m in re.finditer(r"\((\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*)\)", m_p.text):
-            cited.update(_expand(m.group(1)))
-        for _, _, nums in superscript_citations(m_p):
-            cited.update(_expand(nums))
+    cited: set[int] = set()
+    for o in occurrences(ms, style, 0):
+        cited.update(o.numbers)
+        missing = [n for n in o.numbers if numbered and n not in numbered]
+        if missing:
+            # anchored on the brackets as the author wrote them (a converted citation's own text)
+            text = ms.by_id(o.para_id).text
+            lo = o.start if o.end > o.start else max(0, o.start - 40)
+            spans = list(re.finditer(r"[\[(][^\[\]()]*[\])]", text[lo:max(o.end, o.start)]))
+            s, e = (lo + spans[-1].start(), lo + spans[-1].end()) if spans else (o.start, o.end)
+            for n in missing:
+                qs.add(o.para_id, "references.missing_entry", s, e, n=n)
     if cited:
         for n, r in numbered.items():
             if n not in cited:

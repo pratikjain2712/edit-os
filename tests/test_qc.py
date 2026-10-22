@@ -1,9 +1,7 @@
 
 
-def test_qc_skips_enumerations_and_unary_signs():
+def test_qc_skips_unary_signs():
     from edit_os import qc
-    assert qc._enumeration("The aims were: (1) describing use; (2) assessing cost; and (3) estimating effect.")
-    assert not qc._enumeration("as reported earlier (3) and later (5).")
     import re
     t = "Most patients showed >90 percent recovery while p >0.05 here."
     ms = [m for m in re.finditer(r"(?<=[A-Za-z0-9)]) [=<>≤≥](?=\d)", t)]

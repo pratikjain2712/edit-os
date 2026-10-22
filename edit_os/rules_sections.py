@@ -887,6 +887,12 @@ def back_matter_plan(ms: Manuscript, style: JournalStyle, run: bool = False) -> 
     return plan
 
 
+def section_headings(sec: dict) -> set[str]:
+    """The headings (lower case) that stand for a required section: the journal's own and the variants
+    it keeps as written (`keep_labels`: JEHP keeps the author's "Conflict of interest")."""
+    return {sec["heading"].lower()} | {k.lower() for k in (sec.get("keep_labels") or [])}
+
+
 def rule_back_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not _on(style, "back_matter.enabled"):
         return []
@@ -1059,8 +1065,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if label != want:
                     out.append(_change(p, s, e, want, Layer.STRUCTURE, "sections_back_matter"))
             continue
-        kept_labels = {k.lower() for k in (std[kind].get("keep_labels") or [])} if kind in std else set()
-        standard = kind in std and m.group("label").lower() in {std[kind]["heading"].lower()} | kept_labels
+        kept_labels = section_headings(std[kind]) - {std[kind]["heading"].lower()} if kind in std else set()
+        standard = kind in std and m.group("label").lower() in section_headings(std[kind])
         if nil and content_p is not None and standard:
             # The standard heading with a "None" under it: keep both, word the statement as the journal does.
             satisfied.add(kind)

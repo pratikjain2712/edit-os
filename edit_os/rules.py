@@ -46,16 +46,16 @@ def normalise_citation(inner: str, style: JournalStyle) -> str | None:
         m = re.fullmatch(r"(\d+)\s*[–—\-]\s*(\d+)", item)
         if m:
             a, b = int(m.group(1)), int(m.group(2))
-            if b <= a:
-                return None  # not a citation range
+            if b <= a or a == 0:
+                return None  # not a citation range ("items (0-2)" is a scale)
             if b == a + 1 and style.get("citations.two_number_range_as_list", True):
                 parts += [str(a), str(b)]
             else:
                 parts.append(f"{a}{style.get('citations.range_dash', '-')}{b}")
-        elif item.isdigit():
+        elif item.isdigit() and int(item):
             parts.append(str(int(item)))
         else:
-            return None
+            return None  # "(0)" is never a reference number
     return style.get("citations.multiple_delimiter", ",").join(parts)
 
 
@@ -68,7 +68,8 @@ _UNICODE_SUP = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*[,˒⁻–\-]\s*
 _PLAIN_NUMS = re.compile(r"\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*")
 
 
-_UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/cm|/mm)|[\d^×x])\s*$")
+# "10⁻⁸": the minus of a negative power stands between the base and the digits.
+_UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/cm|/mm)|[\d^×x]|\d\s*[⁻−])\s*$")
 # A statistic letter standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5";
 # any Greek letter too: "η² = 0.42", "partial η²", "χ²".
 _STAT_BEFORE = re.compile(r"(?<![\w.])[pPnNrRtFzZdUHI\u0370-\u03ff]$")
@@ -158,13 +159,23 @@ _ENUMERATION = re.compile(r"\(1\)\s+[a-z].*\(2\)\s+[a-z]", re.S)
 _ENUMERATION_COLON = re.compile(r"[:;]\s*\(1\)\s+[A-Za-z].*?\(2\)\s+[A-Za-z]", re.S)
 
 
+def _other_citations(p: Paragraph) -> list[tuple[int, list[int]]]:
+    """(offset, numbers) of the square-bracket and superscript citations in a paragraph."""
+    out = [(m.start(), renumber.expand(m.group(2)) or []) for m in _SQUARE.finditer(p.text)
+           if not not_citation_before(p.text[:m.start()].rstrip(), False)]
+    out += [(s, renumber.expand(n) or []) for s, e, n in superscript_citations(p)]
+    return sorted((s, n) for s, n in out if n)
+
+
 def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]) -> set[tuple[str, int]]:
     """Round-bracket numbers that are list markers or counts, not citations: "(1) a history of
     ... (2) recent ..."; and, in a manuscript that cites in square brackets or superscript,
     "RTA (77) followed by head injury (8)": in a paragraph with no other citation, round-bracket
-    numbers count as citations only when they rise in order ("lens (33), ... ring (34)")."""
+    numbers count as citations only when they rise in order ("lens (33), ... ring (34)"); next to
+    the paragraph's other citations, only when they fit their order ("[1] ... (2) ... [3]", not
+    "[2] ... Klebsiella (3) ... [3]")."""
     out = set()
-    n_other = sum(len(_SQUARE.findall(p.text)) + len(superscript_citations(p)) for p in body_paragraphs(ms))
+    n_other = sum(len(_other_citations(p)) for p in body_paragraphs(ms))
     dominant = n_other >= len(found)
     by_para: dict[str, list[re.Match]] = {}
     paras = {}
@@ -173,13 +184,23 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
         paras[p.id] = p
     for pid, matches in by_para.items():
         p = paras[pid]
+        # A list marker stands before its item, with no punctuation after the bracket: "(2) assessing",
+        # not "engagement (5). Similarly".
+        markers = [m for m in matches if len(m.group(2)) == 1 and m.group(2) != "0" and not m.group(3)]
         if _ENUMERATION.search(p.text):
-            out.update((pid, m.start()) for m in matches
-                       if m.group(2) in "123456789" and re.match(r"\s+[a-z]", p.text[m.end():]))
+            out.update((pid, m.start()) for m in markers if re.match(r"\s+[\"“‘']?[a-z]", p.text[m.end():]))
         if _ENUMERATION_COLON.search(p.text):
-            out.update((pid, m.start()) for m in matches
-                       if m.group(2) in "123456789" and re.match(r"\s+[A-Za-z]", p.text[m.end():]))
-        if not dominant or _SQUARE.search(p.text) or superscript_citations(p):
+            out.update((pid, m.start()) for m in markers if re.match(r"\s+[\"“‘']?[A-Za-z]", p.text[m.end():]))
+        if not dominant:
+            continue
+        others = _other_citations(p)
+        if others:
+            for m in matches:
+                nums = renumber.expand(m.group(2)) or [0]
+                before = [max(n) for s, n in others if s < m.start()]
+                after = [min(n) for s, n in others if s > m.start()]
+                if (before and min(nums) <= max(before)) or (after and max(nums) >= min(after)):
+                    out.add((pid, m.start()))
             continue
         nums = [int(m.group(2)) for m in matches if m.group(2).isdigit()]
         if any(y <= x for x, y in zip(nums, nums[1:])):
@@ -202,30 +223,101 @@ def _trailing_space(p: Paragraph, end: int, rule: str) -> list[Change]:
     return [_change(p, end, len(p.text), "", Layer.REFERENCES, rule)]
 
 
-def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
+# What stands right before a bracketed number that makes it something other than a citation.
+# A label: "Table (2)", "Fig. [3]", "Ref. 4", "n (12)".
+_LABEL_BEFORE = re.compile(r"\b(?:table|tables|fig|figure|figures|ref|reference|n|no|eq|equation)\.?$", re.I)
+# A test statistic's degrees of freedom: "t(48)", "F (1,57)", "F[4,164]", "r (198)", "χ²(2)", "df (3)".
+_STAT_BEFORE_BRACKET = re.compile(r"(?:(?<![\w.])(?:[tFrHUWZQ]|χ²|χ2|Χ²|X²|X2)|\bdf)$")
+# A number spelt out and repeated in figures: "six (6) weeks" (round brackets only).
+_NUMBER_WORDS = {w: i for i, w in enumerate("one two three four five six seven eight nine ten eleven twelve".split(), 1)}
+
+
+def not_citation_before(prev: str, is_round: bool, inner: str = "") -> bool:
+    """Is a bracketed number after `prev` (the text before it, right-stripped) a label, a statistic or a
+    count rather than a citation? One answer for the citation rule, renumbering and QC."""
+    if not prev:
+        return is_round  # "(1) ..." starting a paragraph is list numbering; "[23, 39]" alone in a table cell cites
+    if _LABEL_BEFORE.search(prev) or _STAT_BEFORE_BRACKET.search(prev):
+        return True
+    word = re.search(r"([A-Za-z]+)$", prev)
+    return is_round and bool(word) and inner.strip().isdigit() and _NUMBER_WORDS.get(word.group(1).lower()) == int(inner)
+
+
+def _citation_candidates(ms: Manuscript, style: JournalStyle) -> tuple[int, list[Paragraph], list[tuple]]:
+    """(number of references, the paragraphs whose citations count, (paragraph, match, is_round) for each
+    bracketed number the citation rule reads as a citation)."""
+    cached = getattr(ms, "_citation_candidates", None)
+    if cached is not None and cached[0] is style:
+        return cached[1]
     refs = references.extract(ms)
     n_refs = max((r.number or 0 for r in refs), default=len(refs)) or len(refs)
-    if not n_refs:
-        return []
-    sup = rules_format.citation_format(style)
     front = front_matter_ids(ms)
     # The body and the tables (wherever they are; their notes too): "Garg et al., 2018[10]".
     paras = [p for p in renumber.citation_paragraphs(ms)
-             if not p.style.lower().startswith("heading") and p.id not in front]
+             if not p.style.lower().startswith("heading") and p.id not in front] if n_refs else []
     candidates: list[tuple[Paragraph, re.Match, bool]] = []
+    after_number: list[tuple[Paragraph, re.Match]] = []  # "alpha of 0.88 (19)": a count, unless the sequence says not
     for p in paras:
         for pattern, is_round in ((_ROUND, True), (_SQUARE, False)):
             if is_round and (style.get("citations.brackets") != "square" or p.in_table):
                 continue  # in tables, "Male (12)" is a count
             for m in pattern.finditer(p.text):
                 prev = p.text[:m.start()].rstrip()
-                if not prev:  # list numbering at paragraph start
-                    continue
-                if re.search(r"(\d|%|\b(table|tables|fig|figure|figures|ref|reference|n|no|eq|equation)\.?)$", prev, re.I):
-                    continue  # statistics "45 (12)" or "Table (2)"-style labels, not citations
+                if not prev or not_citation_before(prev, is_round, m.group(2)):
+                    continue  # (the rule leaves a paragraph's opening "[23, 39]" as written)
+                if re.search(r"[\d%]$", prev):
+                    if is_round and re.search(r"\d\.\d+$", prev):
+                        after_number.append((p, m))
+                    continue  # counts "45 (12)"; the rule also leaves "1985[64]" as written
                 candidates.append((p, m, is_round))
+    # Numbers beyond the list still tell counts apart ("RTA (77) followed by head injury (8)"), then go:
+    # "Germany (178)" in a list of 26 references, "items (0-2)".
     not_cited = _round_not_citations(ms, [(p, m) for p, m, r in candidates if r])
-    candidates = [(p, m, r) for p, m, r in candidates if not (r and (p.id, m.start()) in not_cited)]
+    candidates = [(p, m, r) for p, m, r in candidates if not (r and (
+        (p.id, m.start()) in not_cited or _max_number(m.group(2)) > n_refs or normalise_citation(m.group(2), style) is None))]
+    after_number = [(p, m) for p, m in after_number
+                    if _max_number(m.group(2)) <= n_refs and normalise_citation(m.group(2), style) is not None]
+    candidates += _next_in_sequence(ms, candidates, after_number)
+    result = (n_refs, paras, candidates)
+    ms._citation_candidates = (style, result)
+    return result
+
+
+def _next_in_sequence(ms: Manuscript, candidates: list[tuple], after_number: list[tuple]) -> list[tuple]:
+    """Round-bracket numbers after a decimal ("Cronbach's alpha was 0.88 (19).") in a manuscript that cites
+    in round brackets: a citation when it is the next reference in order and cited nowhere else
+    (... (18) ... 0.88 (19) ... (21)); otherwise a value, as "mean 3.2 (4)" usually is."""
+    rounds = [(p, m) for p, m, r in candidates if r]
+    if not after_number or len(rounds) <= sum(not r for _, _, r in candidates) + \
+            sum(len(superscript_citations(p)) for p in body_paragraphs(ms)):
+        return []
+    items = [(renumber.citation_key(ms, p.id, m.start()), renumber.expand(m.group(2)) or [], (p, m))
+             for p, m, _ in candidates]
+    cited = {n for _, nums, _ in items for n in nums}
+    out = []
+    for p, m in after_number:
+        nums = renumber.expand(m.group(2)) or []
+        key = renumber.citation_key(ms, p.id, m.start())
+        before = max((n for k, ns, _ in items if k < key for n in ns), default=0)
+        if nums and not cited & set(nums) and min(nums) == before + 1:
+            out.append((p, m, True))
+            cited.update(nums)
+            items.append((key, nums, (p, m)))
+    return out
+
+
+def round_citations(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, re.Match]]:
+    """The round-bracket numbers the citation rule converts: "(12)" after a word, not a count, a list
+    marker, a statistic's degrees of freedom or a number beyond the reference list. QC reads its
+    "citations in round brackets" from here, so it never disagrees with the rule."""
+    return [(p, m) for p, m, r in _citation_candidates(ms, style)[2] if r]
+
+
+def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    n_refs, paras, candidates = _citation_candidates(ms, style)
+    if not n_refs:
+        return []
+    sup = rules_format.citation_format(style)
     # Adjacent bracket citations become one: "[2], [3], [5]" -> "[2,3,5]", "[3][4]" -> "[3,4]".
     units: list[list] = []  # [paragraph, start, end, inner, punct]
     for p, m, is_round in sorted(candidates, key=lambda x: (x[0].id, x[1].start())):
