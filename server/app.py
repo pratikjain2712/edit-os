@@ -16,9 +16,10 @@ import re
 import shutil
 from contextlib import asynccontextmanager
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,7 +30,8 @@ from . import db
 from .config import Settings
 from .jobqueue import ThreadQueue
 from .storage import LocalStorage, make_storage
-from .worker import compact_summary, job_lock, out_dir, process, review_url
+from . import submission_files
+from .worker import compact_summary, input_file, job_lock, out_dir, process, review_url
 
 log = logging.getLogger("editos.api")
 
@@ -452,6 +454,53 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         disposition = "inline" if kind == "qc_report" else "attachment"
         return FileResponse(path, media_type=media, filename=os.path.basename(path),
                             content_disposition_type=disposition)
+
+    # --- submission files (title page, figures, XML, forms, ...) ----------------------------
+
+    def submission_input(job: dict = Depends(require_job)) -> str:
+        if not storage.restore(job["id"]):
+            raise HTTPException(410, "Job files are no longer available")
+        try:
+            return input_file(storage, job, settings)
+        except FileNotFoundError:
+            raise HTTPException(410, "The submission is no longer available")
+
+    def _sub(fn, *args):
+        try:
+            return fn(*args)
+        except (submission_files.NotFound, KeyError):
+            raise HTTPException(404, "No such file in the submission")
+        except submission_files.Refused as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/api/jobs/{job_id}/submission")
+    def submission_list(job: dict = Depends(require_job), src: str = Depends(submission_input)):
+        """The files of the submission as received (zip members, or the single .docx): path, name, kind
+        (manuscript | title_page | figure | table | xml | metadata | form | cover_letter | other), size, media
+        type, how the review screen shows it (`view`), and which one is the manuscript."""
+        return {"job_id": job["id"], "input_name": job["input_name"], "files": submission_files.list_files(src)}
+
+    @app.get("/api/jobs/{job_id}/submission/raw/{path:path}")
+    def submission_raw(path: str, src: str = Depends(submission_input), original: bool = False):
+        """One file, by its exact path in the listing. Images and PDFs inline (TIFF / BMP converted to PNG),
+        everything else as an attachment; sandboxed so nothing in it can run on this origin. `original=true`:
+        the file exactly as sent, as an attachment."""
+        data, media, inline, name = _sub(submission_files.read, src, path, not original)
+        disp = "inline" if inline else "attachment"
+        ascii_name = re.sub(r'[^\x20-\x7e]|["\\]', "_", name)  # header values are latin-1; filename* has the real one
+        headers = {"Content-Disposition": f"{disp}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}",
+                   "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"}
+        if media != "application/pdf":  # Chrome's PDF viewer does not open in a sandboxed document
+            headers["Content-Security-Policy"] = "sandbox"
+        if not inline and (media.startswith("text/") or "xml" in media or "svg" in media or "javascript" in media):
+            media = "application/octet-stream"  # never rendered as a page on this origin
+        return Response(data, media_type=media, headers=headers)
+
+    @app.get("/api/jobs/{job_id}/submission/view/{path:path}")
+    def submission_view(path: str, src: str = Depends(submission_input)):
+        """A viewable form: `docx` with paragraphs like /document, `metadata` with a card parsed from the XML or
+        article_metadata.json, or `image` / `pdf` / `download` (fetch /raw)."""
+        return _sub(submission_files.view, src, path)
 
     # --- review screen ----------------------------------------------------------------------
 

@@ -72,15 +72,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def manuscript_from_zip(path: str, outdir: str) -> str:
-    """Write the manuscript .docx from a submission zip into OUTDIR; the one named "manuscript", else the largest."""
-    z = zipfile.ZipFile(path)
+def manuscript_member(z: zipfile.ZipFile) -> str | None:
+    """The manuscript .docx inside a submission zip: the one named "manuscript", else the largest."""
     docs = [n for n in z.namelist() if n.lower().endswith(".docx") and not n.startswith("__MACOSX")
             and not frontmatter._FIRST_PAGE.search(os.path.basename(n))]
     if not docs:
-        raise ValueError(f"{os.path.basename(path)}: no manuscript .docx in the zip")
+        return None
     named = [n for n in docs if "manuscript" in os.path.basename(n).lower()]
-    pick = (named or sorted(docs, key=lambda n: -z.getinfo(n).file_size))[0]
+    return (named or sorted(docs, key=lambda n: -z.getinfo(n).file_size))[0]
+
+
+def manuscript_from_zip(path: str, outdir: str) -> str:
+    """Write the manuscript .docx from a submission zip into OUTDIR (`manuscript_member`)."""
+    z = zipfile.ZipFile(path)
+    pick = manuscript_member(z)
+    if pick is None:
+        raise ValueError(f"{os.path.basename(path)}: no manuscript .docx in the zip")
     os.makedirs(outdir, exist_ok=True)
     out = os.path.join(outdir, os.path.basename(pick))
     with open(out, "wb") as f:

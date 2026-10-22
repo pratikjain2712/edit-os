@@ -222,9 +222,9 @@ function ParaEditor({ p, base, caret, onSave, onCancel }) {
 
 const sameArr = (a, b) => a === b || (a.length === b.length && a.every((x, i) => x === b[i]));
 
-const Para = memo(function Para({ p, changes, queries, sel, anim, revealIdx, editing, onEditStart, onEditEnd, onDirectEdit, Tag = "div" }) {
+const Para = memo(function Para({ p, changes, queries, sel, anim, revealIdx, editing, onEditStart, onEditEnd, onDirectEdit, readOnly, Tag = "div" }) {
   const ref = useRef(null);
-  const cls = ["blk", p.kind, p.kind === "heading" ? `h${Math.min(p.level ?? 1, 6)}` : "", !["empty", "image"].includes(p.kind) ? "editable" : ""].join(" ");
+  const cls = ["blk", p.kind, p.kind === "heading" ? `h${Math.min(p.level ?? 1, 6)}` : "", !readOnly && !["empty", "image"].includes(p.kind) ? "editable" : ""].join(" ");
   useEffect(() => {
     if (!ref.current) return;
     ref.current.querySelectorAll(".chg.sel").forEach((n) => n.classList.remove("sel"));
@@ -243,7 +243,7 @@ const Para = memo(function Para({ p, changes, queries, sel, anim, revealIdx, edi
   return (
     <Tag ref={ref} className={cls} data-pid={p.id}
       onClick={(e) => {
-        if (e.target.closest("[data-cid]") || p.kind === "empty" || p.kind === "image") return;
+        if (readOnly || e.target.closest("[data-cid]") || p.kind === "empty" || p.kind === "image") return;
         if (window.getSelection && String(window.getSelection()).length) return; // selecting text to copy
         onEditStart(p.id, caretOffset(e, ref.current, base.length));
       }}>
@@ -338,7 +338,8 @@ function Margin({ queries, onDecide, gridRef, layoutKey }) {
 // --- the page --------------------------------------------------------------------------------
 
 export default function DocView({ doc, items, queries, selId, scrollKey, anim, reveal, wide, article, journal,
-  onSelect, onDirectEdit, onDecideQuery }) {
+  onSelect, onDirectEdit, onDecideQuery, readOnly = false }) {
+  // readOnly: a page with no suggestions and no editing (submission files such as the title page)
   const gridRef = useRef(null);
   const [editing, setEditing] = useState(null); // {pid, caret}
 
@@ -400,7 +401,7 @@ export default function DocView({ doc, items, queries, selId, scrollKey, anim, r
       <Para key={p.id} p={p} Tag={Tag} changes={ch} queries={qByPara[p.id] || EMPTY}
         sel={selPid === p.id ? selId : null} anim={anim} animKey={animKey} revealIdx={revealIdx}
         editing={editing && editing.pid === p.id ? editing : null}
-        onEditStart={startEdit} onEditEnd={endEdit} onDirectEdit={onDirectEdit} />
+        onEditStart={startEdit} onEditEnd={endEdit} onDirectEdit={onDirectEdit} readOnly={readOnly} />
     );
   };
 

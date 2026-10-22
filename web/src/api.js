@@ -82,3 +82,35 @@ export async function download(id, kind) {
   }
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+
+// --- submission files (title page, figures, XML, forms, ...) -----------------------------------
+
+const subPath = (p) => p.split("/").map(encodeURIComponent).join("/");
+
+export const submission = {
+  list: (id) => call("GET", `/api/jobs/${id}/submission`),
+  view: (id, path) => call("GET", `/api/jobs/${id}/submission/view/${subPath(path)}`),
+  /** An object URL for the file (images, PDFs); the caller revokes it. */
+  async blobUrl(id, path) {
+    const r = await fetch(`/api/jobs/${id}/submission/raw/${subPath(path)}`, { headers: headers() });
+    if (!r.ok) {
+      let msg = `Could not open the file (${r.status})`;
+      try { msg = (await r.json()).detail || msg; } catch { /* not json */ }
+      throw new Error(msg);
+    }
+    return URL.createObjectURL(await r.blob());
+  },
+  /** Save the file exactly as the author sent it. */
+  async download(id, file) {
+    const r = await fetch(`/api/jobs/${id}/submission/raw/${subPath(file.path)}?original=true`, { headers: headers() });
+    if (!r.ok) throw new Error(`Download failed (${r.status})`);
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  },
+};

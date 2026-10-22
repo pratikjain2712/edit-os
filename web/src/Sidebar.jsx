@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCheck, CheckCircle2, Layers, ListChecks, MessageSquareText, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCheck, CheckCircle2, FolderOpen, Layers, ListChecks, MessageSquareText, ShieldCheck, XCircle } from "lucide-react";
+import FilesPanel from "./FilesPanel.jsx";
 import { LAYERS, ruleLabel, show } from "./labels.js";
 
 function Suggestions({ items, counts, layer, setLayer, onlyPending, setOnlyPending, nav, selId, onPick, bulk }) {
@@ -120,6 +121,7 @@ export default function Sidebar(props) {
     ["changes", <ListChecks size={15} key="i" />, "Suggestions", pending],
     ["queries", <MessageSquareText size={15} key="i" />, "Queries", liveQ],
     ["qc", <ShieldCheck size={15} key="i" />, "QC", report ? (report.qc.passed ? "✓" : "!") : ""],
+    ["files", <FolderOpen size={15} key="i" />, "Files", props.files ? props.files.length : ""],
   ];
   return (
     <aside className={`sidebar ${open ? "open" : ""}`} aria-label="Review panel">
@@ -136,6 +138,7 @@ export default function Sidebar(props) {
         {tab === "changes" && <Suggestions {...props} />}
         {tab === "queries" && <Queries items={queries} onDecide={props.decideQuery} onPick={props.onPickQuery} />}
         {tab === "qc" && <QC report={report} />}
+        {tab === "files" && <FilesPanel files={props.files} error={props.filesError} active={props.activeFile} canSplit={props.canSplit} onOpen={props.onOpenFile} />}
       </div>
     </aside>
   );

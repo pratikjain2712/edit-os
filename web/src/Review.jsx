@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, FileText, LayoutList, PanelRightClose, PanelRightOpen, Plane, RefreshCw, ScrollText, Wand2 } from "lucide-react";
-import { api, download } from "./api.js";
+import { api, download, submission } from "./api.js";
 import { AutopilotSheet } from "./Autopilot.jsx";
 import { Brand } from "./App.jsx";
 import DocView from "./DocView.jsx";
+import FileViewer from "./FileViewer.jsx";
 import ListView from "./ListView.jsx";
 import Popover from "./Popover.jsx";
 import Processing from "./Processing.jsx";
@@ -14,6 +15,30 @@ import { ProgressRing, ThemeButton, useMedia, useOutside, useToast } from "./ui.
 
 const DOWNLOADS = [["tracked", "Tracked .docx"], ["clean", "Clean .docx"], ["queries", "Query sheet (.xlsx)"], ["qc_report", "QC report"]];
 const VIEW_KEY = "editos.view";
+const PANE_KEY = "editos.filePaneW";
+
+/** Drag handle between the manuscript and a file opened beside it (arrow keys resize too). */
+function SplitHandle({ width, setWidth, max }) {
+  const drag = useRef(null);
+  const clamp = (w) => Math.round(Math.min(Math.max(w, 320), Math.max(320, max)));
+  return (
+    <div className="split-handle" role="separator" aria-orientation="vertical" aria-label="Resize file pane" tabIndex={0}
+      aria-valuenow={width} aria-valuemin={320} aria-valuemax={max}
+      onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, w: width }; e.currentTarget.classList.add("drag"); }}
+      onPointerMove={(e) => { if (drag.current) setWidth(clamp(drag.current.w + drag.current.x - e.clientX)); }}
+      onPointerUp={(e) => { drag.current = null; e.currentTarget.classList.remove("drag"); }}
+      onPointerCancel={(e) => { drag.current = null; e.currentTarget.classList.remove("drag"); }}
+      onDoubleClick={() => setWidth(clamp(560))}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") setWidth(clamp(width + 32));
+        else if (e.key === "ArrowRight") setWidth(clamp(width - 32));
+        else return;
+        e.preventDefault();
+      }}>
+      <i />
+    </div>
+  );
+}
 
 function DownloadMenu({ id, final, setFinal, onError }) {
   const [open, setOpen] = useState(false);
@@ -66,6 +91,13 @@ export default function Review({ id, theme, nextTheme }) {
   const [stageW, setStageW] = useState(1200);
   const stageRef = useRef(null);
   const ranRef = useRef(false);
+  const reviewRef = useRef(null);
+  const [files, setFiles] = useState(null); // the submission's files (Files tab)
+  const [filesError, setFilesError] = useState("");
+  const [fileOpen, setFileOpen] = useState(null); // {path, mode: overlay | beside}
+  const [paneW, setPaneW] = useState(() => { try { return Number(localStorage.getItem(PANE_KEY)) || 520; } catch { return 520; } });
+  const [reviewW, setReviewW] = useState(1440);
+  useEffect(() => { try { localStorage.setItem(PANE_KEY, String(paneW)); } catch { /* private mode */ } }, [paneW]);
 
   useEffect(() => { try { localStorage.setItem(VIEW_KEY, view); } catch { /* private mode */ } }, [view]);
 
@@ -117,6 +149,21 @@ export default function Review({ id, theme, nextTheme }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [job && job.status, doc]);
+
+  const jobDone = job && job.status === "done";
+  useEffect(() => {
+    if (!jobDone) return;
+    submission.list(id).then((r) => setFiles(r.files)).catch((e) => setFilesError(e.message));
+  }, [id, jobDone]);
+  useEffect(() => {
+    const el = reviewRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => setReviewW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const openFile = useCallback((f, mode = "overlay") => setFileOpen({ path: f.path, mode }), []);
+  const closeFile = useCallback(() => setFileOpen(null), []);
 
   const items = data ? data.items : [];
   const counts = useMemo(() => {
@@ -220,13 +267,13 @@ export default function Review({ id, theme, nextTheme }) {
       else if (e.key === "a") decideSelected("accepted");
       else if (e.key === "r") decideSelected("rejected");
       else if (e.key === "u") decideSelected("suggested");
-      else if (e.key === "Escape") { if (popOpen) setPopOpen(false); else setSelId(null); }
+      else if (e.key === "Escape") { if (popOpen) setPopOpen(false); else if (fileOpen) setFileOpen(null); else setSelId(null); }
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [move, decideSelected, popOpen]);
+  }, [move, decideSelected, popOpen, fileOpen]);
 
   // Close the popover on a click outside it (and outside a suggestion).
   useEffect(() => {
@@ -314,6 +361,17 @@ export default function Review({ id, theme, nextTheme }) {
   // Comment margin only when the side panel is closed: with the panel open the page stays centred
   // and author queries show under their paragraph (they are also in the panel's Queries tab).
   const wide = wideScreen && stageW >= 1020 && !showSide;
+  const openedFile = fileOpen && files ? files.find((f) => f.path === fileOpen.path) : null;
+  // Beside the manuscript only where there is room; phones get the file full screen with a back button.
+  const canSplit = wideScreen && reviewW >= 900;
+  const fileMode = openedFile ? (!wideScreen ? "full" : fileOpen.mode === "beside" && !canSplit ? "overlay" : fileOpen.mode) : null;
+  const paneMax = reviewW - (showSide ? 372 : 0) - 520; // the manuscript keeps at least ~520px
+  const paneWidth = Math.round(Math.min(Math.max(paneW, 320), Math.max(320, paneMax)));
+  const viewerProps = openedFile && {
+    jobId: id, file: openedFile, files, canSplit, onClose: closeFile, onError: (m) => toast(m, "error"),
+    onMode: (m) => setFileOpen((o) => o && { ...o, mode: m }),
+    onOpenPath: (p) => setFileOpen((o) => ({ path: p, mode: o ? o.mode : "overlay" })),
+  };
 
   return (
     <>
@@ -355,8 +413,8 @@ export default function Review({ id, theme, nextTheme }) {
         )}
       </header>
 
-      <div className="review">
-        <main className="stage" ref={stageRef}>
+      <div className="review" ref={reviewRef}>
+        <main className={`stage ${wideScreen && stageW < 700 ? "narrow" : ""}`} ref={stageRef}>
           {error && !job && <div className="list-wrap"><div className="error-box">{error}</div></div>}
           {!job && !error && <div className="list-wrap muted">Loading…</div>}
           {job && job.status === "failed" && (
@@ -382,14 +440,28 @@ export default function Review({ id, theme, nextTheme }) {
             )}
           </AnimatePresence>
         </main>
+        <AnimatePresence>
+          {done && fileMode === "beside" && (
+            <motion.div key="fpane" className="fpane" style={{ width: paneWidth }}
+              initial={{ opacity: 0, x: 48 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 48 }}
+              transition={{ type: "spring", stiffness: 420, damping: 40 }}>
+              <SplitHandle width={paneWidth} setWidth={setPaneW} max={paneMax} />
+              <FileViewer {...viewerProps} mode="beside" />
+            </motion.div>
+          )}
+        </AnimatePresence>
         {showSide && (
           <Sidebar tab={tab} setTab={setTab} items={items} queries={queries} report={report} counts={counts}
             layer={layer} setLayer={setLayer} onlyPending={onlyPending} setOnlyPending={setOnlyPending}
             nav={nav} selId={selId} onPick={(i) => { if (!wideScreen) setSheetOpen(false); if (view === "list") setSelId(i); else select(i, true); }}
             bulk={bulk} decideQuery={decideQuery} onPickQuery={pickQuery}
+            files={files} filesError={filesError} activeFile={openedFile ? openedFile.path : null} canSplit={canSplit} onOpenFile={openFile}
             open={wideScreen ? true : sheetOpen} setOpen={setSheetOpen} />
         )}
       </div>
+      <AnimatePresence>
+        {done && openedFile && fileMode !== "beside" && <FileViewer key="fv" {...viewerProps} mode={fileMode} />}
+      </AnimatePresence>
       <AnimatePresence>
         {ap && (
           <AutopilotSheet key="ap" phase={ap.phase} report={ap.report} error={ap.error} onRun={runAutopilot}

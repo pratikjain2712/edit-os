@@ -78,6 +78,11 @@ bold / italic / superscript / subscript runs, for the page view) and `POST /api/
 correction of one paragraph, `{para_id, base, text}`: diffed word by word by `edit_os/docview.py` into accepted
 `Change` records, source `editor`, saved in the job's records so every render includes them; 409 when it touches an
 accepted suggestion or the paragraph changed since it was shown; overlapping pending suggestions are set aside).
+Submission files (`server/submission_files.py`): `GET /api/jobs/{id}/submission` lists what the author sent (zip members
+or the single .docx) with kind -- manuscript, title page, figure, table, XML, metadata, form, cover letter, other;
+`.../submission/raw/{path}` returns one file by its exact listed name (TIFF / BMP as PNG; `?original=true` as sent; nested
+archives never opened); `.../submission/view/{path}` gives a .docx as page paragraphs or an XML / article_metadata.json
+as a metadata card (parsed in code). The review screen's Files tab opens them read-only, or beside the manuscript.
 
 The review screen (`web/`, React + Vite) opens on the manuscript as a page with every suggestion inline as a tracked
 change: click one for Accept / Reject / Edit, click into any paragraph to type a correction, author queries sit in
