@@ -74,7 +74,7 @@ def test_reference_list_heading_renamed(tmp_path):
 
 
 def test_table_caption_sentence_case(tmp_path):
-    path = make(tmp_path, ["Introduction", BODY + " The Wilcoxon test was used [Table 1].",
+    path = make(tmp_path, ["Introduction", BODY + " The Wilcoxon test compared the within-group change [Table 1].",
                            "Table 1. Within-Group Comparison of Pain Scores (Wilcoxon Signed-Rank Test)",
                            "Table 2: comparison of scores: path coefficients by Group", BODY,
                            "References", "1. Lee K, Rao S. Back pain in adolescents. Spine 1997;22:1380-4."])
@@ -164,3 +164,15 @@ def test_table_footnote_final_period_deleted(tmp_path):
     doc.save(path)
     out = run(str(path), jehp(), ["fig_captions"])
     assert "SD, standard deviation; SE, standard error" in out and "*P < 0.05." in out and BODY in out
+
+
+def test_sentence_case_keeps_names_and_expansions(tmp_path):
+    path = make(tmp_path, ["Introduction", BODY + " A long follow-up was planned with the Kaplan_ Meier plot.",
+                           "Methods", ("Kaplan-Meier Survival Analysis",), BODY + BODY,
+                           ("Long-Term Follow-Up of Patients",), BODY + BODY,
+                           ("Arm and Hand Activity Inventory-7 (CAHAI-7)",), BODY + BODY,
+                           "References", "1. Lee K, Rao S. Back pain in adolescents. Spine 1997;22:1380-4."])
+    out = run(path, jehp(), ["heading_tags", "subheadings"])
+    assert "<H2>Kaplan-Meier survival analysis" in out
+    assert "<H2>Long-term follow-up of patients" in out
+    assert any(t.startswith("<H2>Arm and hand activity Inventory-7 (CAHAI-7)") for t in out)

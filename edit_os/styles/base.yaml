@@ -31,6 +31,7 @@ headings:
   subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
   back_matter_subheadings: false  # after the Conclusion: a short bold (or Word heading style) line over a statement
                                   # ("Data availability", "Consent for publication") -> <H2>
+  sentence_case_hyphen_parts: false  # sentence case also after a hyphen: "Long-Term Follow-Up" -> "Long-term follow-up"
   subheading_case: sentence  # keep | sentence: <H2> / <H3> heads "Statistical Analysis" -> "Statistical analysis"
                              # (S: "H2 | Sentence Case, Bold" / "H3 | Sentence Case", all 41 sheets)
 

@@ -22,6 +22,8 @@ headings:
   # AI-assisted writing"): <H2> as the listed ones (S: "H2 | Sentence Case, Bold, Roman, flush left"); the editors
   # tag every bold back-matter head they keep (H2 in 14 of 17 articles), the sheet does not list them.
   back_matter_subheadings: true
+  sentence_case_hyphen_parts: true  # S: "H2 | Sentence Case" (and table captions): "Within-Group Comparison" ->
+                                    # "Within-group comparison"; names never in lower case in the text keep it
   # subheading_case: sentence as base (S: "H2 | Sentence Case"; editors lowered Title Case sub-heads in 5 of 6)
 
 # statistics.unary_after_word: false as base (G301: unary "><space>10 -> >10"; editors 0 of 20 spaced)

@@ -484,7 +484,8 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         # S: 'followed by caption content in bold style and Sentence Case' (table captions; figures.table_caption_case)
         if cap.kind == TABLE and style.get("figures.table_caption_case") == "sentence":
             from .rules_sections import sentence_case_changes
-            out += sentence_case_changes(ms, p, "fig_captions", start=rest_start)
+            out += sentence_case_changes(ms, p, "fig_captions", start=rest_start,
+                                         hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
         # The final period, per kind: add | delete | keep (figures.table_caption_end_period / figure_caption_end_period);
         # unset: the older caption_end_period / caption_end_period_keep switches (delete unless kept).
         end_mode = style.get("figures.table_caption_end_period" if cap.kind == TABLE else

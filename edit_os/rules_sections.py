@@ -368,7 +368,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         key = _key(p.text)
         if key in main:
             # The statement heads after the Conclusion ("Conflicts of interest") do not open a body section.
-            in_body = key not in ("conclusion", "conclusions") and not (in_back and _levels(style).get(key) == "H2")
+            in_body = key not in ("conclusion", "conclusions") and not (
+                back_matter and in_back and _levels(style).get(key) == "H2")
             in_back = not in_body and (in_back or key in ("conclusion", "conclusions"))
             section += 1
             continue
@@ -405,7 +406,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
         out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
         if style.get("headings.subheading_case", "keep") == "sentence":
-            out += sentence_case_changes(ms, p, "subheadings")
+            out += sentence_case_changes(ms, p, "subheadings",
+                                         hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
             k = len(p.text.rstrip()) - 1  # with the spaces after it
             out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
@@ -414,7 +416,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     return out
 
 
-def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 0) -> list[Change]:
+def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 0,
+                          hyphen_parts: bool = False) -> list[Change]:
     """A Title Case heading in sentence case, word by word ("Statistical Analysis" -> "Statistical analysis").
     The first word and the word after a colon keep their capital; a word is lowered unless the manuscript's
     running text capitalises it inside a sentence more often than not (so "Iran", "Bandura" stay); acronyms and
@@ -439,10 +442,20 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 
         if m.start() < start or w.startswith("<H") or re.fullmatch(r"[\d.]+", w):
             continue  # before `start`: a caption's "Table 1:" label
         hyphened = re.fullmatch(r"\(?[A-Za-z0-9]+(?:[-‐‑][A-Za-z0-9]+)+\W*", w)
-        if hyphened and m.start() not in keep and p.text[:m.start()].count("(") <= p.text[:m.start()].count(")"):
+        if hyphen_parts and hyphened and m.start() not in keep and p.text[:m.start()].count("(") <= p.text[:m.start()].count(")"):
             # "Within-Group Comparison", "Cross-Sectional Study": the parts after a hyphen too, unless the text
             # writes them capitalised after a hyphen ("Kaplan-Meier", "Mann-Whitney").
-            for k, part in enumerate(re.finditer(r"[^-‐‑]+", w)):
+            after = p.text[m.end():].lstrip()
+            parts = list(re.finditer(r"[^-‐‑]+", w))
+            head0 = re.search(r"[A-Za-z]+", parts[0].group(0))
+            # "Kaplan-Meier", "Mann-Whitney": a name (never lower case in the text) keeps its capitals;
+            # "Activity Inventory-7 (CAHAI-7)": an expansion before its abbreviation keeps its capitals.
+            name = head0 is not None and re.fullmatch(r"[A-Z][a-z]+", head0.group(0)) is not None and \
+                _counts(head0.group(0), body)[0] == 0  # never written in lower case: a name
+            if name or re.match(r"\([A-Z]", after):
+                first = w.endswith(":")
+                continue
+            for k, part in enumerate(parts):
                 text_part = part.group(0)
                 if not re.fullmatch(r"\(?[A-Z][a-z]+\W*", text_part) or (k == 0 and first):
                     continue
