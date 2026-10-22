@@ -211,9 +211,9 @@ def find_technetium(text: str, cfg: dict) -> list:
 
 
 def find_p_value(text: str, cfg: dict) -> list:
-    """5. probability "p" -> "P" ("p = 0.03", "p<0.05", "p value", "p-value")."""
+    """5. probability "p" -> "P" ("p = 0.03", "p<0.05", "p = NS", "p value", "p-value")."""
     return [(m.start(), m.end(), "P")
-            for m in re.finditer(r"(?<![\w.\-])p(?=" + _SP + r"*[=<>≤≥]" + _SP + r"*[0.]|[\- ]values?\b)", text)]
+            for m in re.finditer(r"(?<![\w.\-])p(?=" + _SP + r"*[=<>≤≥]" + _SP + r"*(?:[0.]|NS\b)|[\- ]values?\b)", text)]
 
 
 _NUM_RANGE = re.compile(r"(?<![\w\-/.\[,:])(\d+(?:\.\d+)?)( ?)-( ?)(\d+(?:\.\d+)?)(?![\w\-/\]]|\.\d)")

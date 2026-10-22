@@ -157,3 +157,13 @@ def test_spacing_finders_follow_the_guide():
     assert not any(cfg.get(k) for k in ("double_space", "smart_quotes", "abbreviation_colon"))  # not in the guide
     assert all(rules_guide.settings(style.load("jehp")).get(k)
                for k in ("trailing_space", "leading_space", "double_space", "smart_quotes", "p_value_capital"))
+
+
+def test_p_value_only_the_probability():
+    from edit_os import rules_format, rules_guide
+    hits = lambda t: [t[s:e] for s, e, _ in rules_guide.find_p_value(t, {})]
+    for t in ["(p = 0.03)", "p<0.001", "the p-value", "p values", "(p = .04)", "p=NS"]:
+        assert hits(t) == ["p"] and rules_format._P_VALUE.search(t), t
+    for t in ["p53 mutation", "pH 7.4", "see p. 465-78", "pp. 12-15", "p-ANCA", "p.o.", "the p wave", "5p deletion",
+              "IL-6p", "group p and q"]:
+        assert hits(t) == [] and not rules_format._P_VALUE.search(t), t
