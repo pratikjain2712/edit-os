@@ -679,6 +679,7 @@ RULES = {
     "sections_back_matter": rules_sections.rule_back_matter,
     "sections_salutation": rules_sections.rule_salutation,
     "citations": rule_citations,
+    "fig_renumber": rules_figures.rule_renumber,  # before fig_citations / fig_captions: renumbered numbers win
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,
     "statistics": rule_statistics,

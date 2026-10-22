@@ -100,6 +100,9 @@ RULES: dict[str, Locator] = {
     "renumber": L("Reference renumbering", "References numbered in order of first citation",
                   (r"number|order",), (r"number|order",), "references numbered consecutively order first mentioned "
                   "renumbering chronological"),
+    "fig_renumber": L("Table / figure renumbering", "Tables and figures numbered in order of first citation",
+                      (r"(?:figure|table)", r"chronological|order"), (r"(?:figure|table)", r"order"),
+                      "figure table citations chronological order"),
     "fig_citations": L("Figure / table citation", "Figure and table citations in the journal's form",
                        (r"(?:figure|table|fig)", r"citation|cite"), (r"(?:figure|table)", r"citation|cite"),
                        "table figure citation bracket order"),

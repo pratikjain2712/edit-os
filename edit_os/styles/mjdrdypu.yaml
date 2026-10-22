@@ -52,3 +52,9 @@ text:
 
 submission:
   copyright_notice_prefix: "Query: "  # S: the MJDRDYPU stylesheet writes every query as "(Query: ...)"
+
+header:
+  renumber:  # the MJDRDYPU editors' header wording and columns (mjdrdypu_796, _831, _502; label "Query: " as above)
+    references: "Reference citations are not in sequential order. Therefore, the references and citations have been
+      renumbered. Please check and confirm."
+    columns: {references: [References, Renumber], tables: [Table, Renumber], figures: [Figure, Renumber]}

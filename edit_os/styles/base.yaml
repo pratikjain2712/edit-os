@@ -163,6 +163,11 @@ figures:                        # figure and table citations and captions (rules
   figure_caption_end_period: null # add | delete | keep; null: as above (delete: G261 "The period if present at end of
                                   # caption should be deleted"; the stylesheets are silent but SGMJ)
   queries: true                 # out of order, cited without caption, caption never cited
+  renumber: true                # tables / figures first cited out of order -> renumbered in citations and captions and put
+                                # in the new order (rules_figures.renumber_plan, header.move_blocks). S (every sheet but
+                                # KJO): "All the reference, figure and table citations are to be cited ... in chronological
+                                # order". Editors: 8 of 16 such articles renumbered, 8 queried (owner's list); only when
+                                # safe (each cited number has one caption, all cited), else the guide's query (G8)
   insert:                       # figures sent as separate files in the zip -> picture above its legend (figures_insert.py)
     enabled: false              # off: of 58 edited articles with figure files in the zip and no picture in the
                                 # manuscript, editors inserted them in 4 (IDOJ 3 of 3; NJCP 1, legends missing)
@@ -172,6 +177,38 @@ figures:                        # figure and table citations and captions (rules
     parts_per_row: 2            # "1a.jpg" + "1b.jpg": one paragraph, side by side
     max_pixels: 2400            # longer side above this is downscaled (keeps the .docx small); 0 = never
     align: center
+
+header:  # top of the tracked and clean copies (edit_os/header.py); measured on the 236 style editors' files
+  enabled: true
+  signoff:
+    enabled: true
+    # G286 "Please add signature as follows: Technical Editing done on <date>:- <name>. E.g.: Technical Editing done
+    # on 08-March-2012:- Vikram S." (all 236 editor files sign off; they write the date many ways and the name in 5)
+    technical_editing: "Technical Editing done on {date}:- {name}"
+    date_format: "%d-%B-%Y"
+    copyediting: "Copyediting done on {date}"  # when the copy-edit stage ran; the guide is silent: the copy editors'
+    copyediting_date_format: "%d-%m-%y"         # wording and their most common date form (44 of 154 files)
+    timezone: Asia/Kolkata
+    placeholder: "???"           # no editor known: QC (signoff.name) blocks delivery until the name is in
+  query_label: null              # "AQ: " / "Query: "; null: submission.copyright_notice_prefix
+  renumber:                      # query + old -> new table when references / tables / figures are renumbered
+    enabled: true                # (editors: 37 of 236 files; the queries leave the comments for the header)
+    references: "References are renumbered in text and list for citation sequence"  # editors' most common (9 of 26)
+    references_duplicates: "References {pairs} are identical, so duplicate reference has been removed and references
+      are renumbered in text and list"
+    tables: "Table citations are not in sequential order. Therefore, the Tables and citations have been renumbered.
+      Please check and confirm."  # the editors' only header wording for tables (MJDRDYPU)
+    figures: "Figure citations are not in sequential order. Therefore, the figure captions and citations have been
+      renumbered. Please check and confirm."
+    columns: {references: [Old, New], tables: [Old, New], figures: [Old, New]}  # "Old | New": 30 of 37 tables
+  editor_queries:                # added by one style editor in all her files (18 of 236), in no stylesheet: off
+    names_affiliations: false    # MJDRDYPU 9 of 29, IJNMR 3 of 6, JEHP 4 of 33, JOMFP 1 of 5, SJA 1 of 6
+    heading_levels: false        # MJDRDYPU 10 of 29, IJNMR 3 of 6, JEHP 6 of 33, JOMFP 1 of 5
+  texts:
+    names_affiliations: "Please ensure that the author names and affiliations are treated correctly. Kindly check
+      and correct if necessary."
+    heading_levels: "Please ensure that the section heading levels are treated correctly. Kindly check and correct if
+      necessary."
 
 renumber:                       # duplicate references and citation-order renumbering (renumber.py)
   enabled: true

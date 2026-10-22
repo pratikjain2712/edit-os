@@ -36,7 +36,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, frontmatter, qc, queries, rules, style as style_mod, submission, tracked
+from . import docmodel, figures_insert, frontmatter, header, qc, queries, rules, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -185,12 +185,13 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
          first_page: str | None = None, xml: str | None = None, lt_client=_DEFAULT,
          copyedit_only: list[str] | None = None, rules_only: list[str] | None = None,
          accept_all: bool = False, progress: Callable[[str], None] | None = None,
-         counts: Callable[[dict], None] | None = None) -> Outputs:
+         counts: Callable[[dict], None] | None = None, editor: str | None = None) -> Outputs:
     """Run the stages on a manuscript .docx or a submission .zip and write every output into OUTDIR.
 
     All proposals are saved as `suggested` (the editor decides) unless `accept_all` (a preview run,
     like the `style` command). `progress(message)` is called as each step starts, and
     `counts({"changes": n, "queries": n, "inserts": n})` as proposals accumulate (for live progress).
+    `editor` signs the technical editing (header.py); without it the sign-off has a placeholder QC flags.
     """
     say = progress or (lambda msg: None)
     tally = counts or (lambda d: None)
@@ -261,6 +262,8 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
             "warnings": len(res.warnings), "by_rule": dict(Counter(c.reason for c in res.changes.changes)),
         }
 
+    head_info = header.plan(ms, st) if "style" in stages else {"renumbering": [], "after": None}
+
     # a cover letter or reply to the reviewers that is deleted gets no heading tags or copy edits
     changes.changes = submission.drop_inside_deleted(changes.changes)
     _unique_ids(changes.changes)
@@ -275,6 +278,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         "version": 1, "created_at": _now(), "input_name": os.path.basename(input_path),
         "source": os.path.relpath(src, outdir), "stem": stem, "journal": st.code, "journal_name": st.name,
         "stages": list(stages), "stage_info": stage_info, "warnings": warnings, "notes": notes,
+        "header": head_info, "editor": editor or "",
     }
     with open(os.path.join(outdir, MANIFEST), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
@@ -287,9 +291,13 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
 
 # --- rendering ------------------------------------------------------------------------------
 
-def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyle | None = None) -> Outputs:
+def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyle | None = None,
+                   editor: str | None = None, when: datetime | None = None) -> Outputs:
     """Render tracked and clean copies, the query sheet and the QC report from the saved records
-    and their current statuses. Changes whose text no longer matches are skipped and reported."""
+    and their current statuses. Changes whose text no longer matches are skipped and reported.
+
+    `editor` (else the one saved with the job) signs the technical editing at the top of both copies, dated
+    `when` (default: now, in the journal's sign-off time zone); see header.py."""
     man, changes, inserts, qdicts = load_records(outdir)
     st = style or style_mod.load(man["journal"])
     src = os.path.join(outdir, man["source"])
@@ -309,6 +317,13 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
     save_records(outdir, qdicts=qdicts)
 
     conflicts: list[dict] = []
+    editor = (editor or man.get("editor") or "").strip()
+    head_info = man.get("header") or {"renumbering": [], "after": None}
+    if when is None:
+        from zoneinfo import ZoneInfo
+        when = datetime.now(ZoneInfo((st.get("header.signoff", {}) or {}).get("timezone", "Asia/Kolkata")))
+    rev_date = _now()
+    head_notes: list[str] = []
 
     def conflict(kind):
         return lambda para_id, err: conflicts.append({"output": kind, "para_id": para_id, "error": str(err)})
@@ -322,6 +337,12 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
                                    tracked=is_tracked, statuses=statuses)
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
                               align=st.get("figures.insert.align", "center"))
+        author = editor or header.AUTHOR
+        notes = header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
+        if kind == "clean":
+            head_notes.extend(notes)
+        header.render(ms, header.lines(st, head_info, changes, statuses, stages=man["stages"], editor=editor, when=when),
+                      tracked=is_tracked, author=author, date=rev_date, after=head_info.get("after"))
         if kind == "clean":
             tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
         return ms
@@ -341,7 +362,8 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         qc_doc = docmodel.load(paths["clean"])
     report = qc.check(qc_doc, st)
 
-    summary = build_report(man, changes, inserts, qdicts, report, conflicts, n_pending)
+    summary = build_report(dict(man, notes=man.get("notes", []) + head_notes), changes, inserts, qdicts, report,
+                           conflicts, n_pending)
     with open(paths["qc_json"], "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
     with open(paths["qc_html"], "w", encoding="utf-8") as f:

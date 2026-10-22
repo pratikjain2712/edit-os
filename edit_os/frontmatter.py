@@ -1376,10 +1376,27 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     for b in blocks:
         by_role.setdefault(b.role, []).append(b)
     placed: dict[int, tuple[str, str]] = {}  # block index -> (para id, "in place")
+    # Paragraphs rewritten in place keep their position, so they must already stand in the blocks' order: an
+    # "Article type:" line below the title cannot become the article type above it. Keep the heaviest run of
+    # paragraphs in block order (`_in_order`); the others are deleted and their blocks inserted where they belong.
+    pos = {p.id: i for i, p in enumerate(ms.paragraphs)}
+    assign = []  # (block index, paragraph, role)
+    for role, paras in have.items():
+        outs = [i for i, b in enumerate(blocks) if b.role == role]
+        assign += [(outs[k], p, role) for k, p in enumerate(paras) if k < len(outs)]
+    assign.sort(key=lambda a: a[0])
+    keep = _in_order([pos[p.id] for _, p, _ in assign], [len(blocks[i].text) + 1 for i, _, _ in assign])
+    moved = {id(assign[k][1]) for k in range(len(assign)) if k not in keep}
     for role, paras in have.items():
         outs = [i for i, b in enumerate(blocks) if b.role == role]
         for k, p in enumerate(paras):
-            if k < len(outs):
+            if k < len(outs) and id(p) in moved:
+                pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=p.id, start=0, end=len(p.text), old=p.text,
+                                         new="", layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="front_matter",
+                                         provenance=provenance.make("manuscript", "Manuscript", f"the {role.replace('_', ' ')} "
+                                                                    "is moved to its place in the front matter",
+                                                                    para_id=p.id, role=role)))
+            elif k < len(outs):
                 b = blocks[outs[k]]
                 prov = dict(b.provenance, role=role) if b.provenance else {"kind": "manuscript", "label": "Manuscript",
                                                                            "para_id": p.id, "role": role}
@@ -1400,7 +1417,10 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
                                          provenance=provenance.make("manuscript", "Manuscript", "repeats the "
                                                                     f"{role.replace('_', ' ')} given above",
                                                                     para_id=p.id, role=role)))
-    first_any = next((p for p in ms.paragraphs if p.text.strip()), ms.paragraphs[0] if ms.paragraphs else None)
+    # The portal's copyright notice on top stays above the running head (it becomes the first author query there).
+    notice = {p.id for p in ms.paragraphs[:5] if not p.in_table and submission._COPYRIGHT.match(p.text)}
+    first_any = next((p for p in ms.paragraphs if p.text.strip() and p.id not in notice),
+                     ms.paragraphs[0] if ms.paragraphs else None)
     first_placed = next((placed[i][0] for i in sorted(placed)), None)
     last: tuple[str, str] | None = None
     from .references import find_heading
@@ -1429,6 +1449,25 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             pl.queries.append(queries.Query(anchor_q, 0, 0, queries.TEXT[check].format(**fmt), check))
     ms._front_plan = pl
     return pl
+
+
+def _in_order(positions: list[int], weights: list[int]) -> set[int]:
+    """Indexes of the heaviest strictly increasing subsequence of `positions` (ties: the earliest items)."""
+    n = len(positions)
+    best, prev = [0] * n, [-1] * n
+    for i in range(n):
+        best[i] = weights[i]
+        for j in range(i):
+            if positions[j] < positions[i] and best[j] + weights[i] > best[i]:
+                best[i], prev[i] = best[j] + weights[i], j
+    if not n:
+        return set()
+    i = max(range(n), key=lambda k: (best[k], -k))
+    out = set()
+    while i >= 0:
+        out.add(i)
+        i = prev[i]
+    return out
 
 
 _LABEL_ROLE = [(re.compile(r"^\s*corresponding\s*author", re.I), "correspondence"),
