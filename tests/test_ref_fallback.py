@@ -119,13 +119,13 @@ def test_fallback_request_budget(db):
 
 
 def test_shorter_title_by_another_author_is_not_taken(db, monkeypatch):
-    # "Grading of acne lesions: a simple system" is contained in the entry, same year: passes `accept`, but the first
-    # author differs, so a fallback search does not take it.
+    # "Grading of acne lesions: a simple system" is contained in the entry, same year, but the first author
+    # differs: neither `accept` nor a fallback search takes it.
     short = biblio.Record(source="pubmed", pmid="333", title="Grading of acne lesions: a simple system.", authors=[("Moreau", "P")],
                           journal="Skin", year="2004", volume="3", pages="1-2")
     monkeypatch.setattr(biblio, "pubmed_fetch", lambda ids: [short] if ids else [])
     p = refengine.parse(TEXT)
-    assert refengine.accept(p, short)
+    assert not refengine.accept(p, short)
     assert refengine.find(p)[0] is None
 
 

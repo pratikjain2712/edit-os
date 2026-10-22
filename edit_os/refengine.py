@@ -1,7 +1,9 @@
 """Reference engine: parse an entry, find the published record, and rebuild it in journal style.
 
-A record is used only when it matches strictly (title, first author, year). Anything less
-becomes a query for the editor; the entry text is never replaced on a guess.
+A record is used only when it matches strictly: its title in the entry, the entry's first author
+(accents, case, particles and compound surnames aside), and the year (one year apart at most: an
+epub and its issue). An entry without authors needs a near-complete title, the year and the journal.
+Anything less becomes a query for the editor; the entry text is never replaced on a guess.
 """
 
 from __future__ import annotations
@@ -74,14 +76,21 @@ def parse(text: str) -> Parsed:
 
 
 def from_fields(text: str, f: dict) -> Parsed:
-    """Parsed entry from Claude's fields; identifiers are kept only if they really occur in the text."""
+    """Parsed entry from Claude's fields. Each field must occur in the entry's own text (Claude can hand
+    an entry its neighbour's fields); one that does not is dropped and the regex parse used instead."""
     p = parse(text)  # regex DOI / PMID / year as a base
+    no_authors = f.get("authors") == [] and bool(f.get("title"))
+    f = ai_refs.check_fields(text, f)
+    if f is None:  # nothing of Claude's split is in this entry: it belongs to another one
+        return p
     p.kind = f.get("kind", "")
     if f.get("title"):
         p.title = f["title"].strip().rstrip(".")
     authors = [a.strip() for a in f.get("authors", []) if a.strip()]
     if authors:
         p.authors = authors
+    elif no_authors and f.get("title"):  # an entry that starts with its title: the regex took title words for names
+        p.authors = []
     if re.fullmatch(r"(19|20)\d{2}", f.get("year", "").strip()):
         p.year = f["year"].strip()
     if f.get("doi") and f["doi"].lower() in text.lower():
@@ -97,23 +106,202 @@ def looks_like_journal_article(text: str) -> bool:
     return bool(YEAR_VOL.search(text)) or bool(DOI.search(text) or PMID.search(text))
 
 
+_PARTICLES = frozenset("van von der den de del della di da dos das du la le ten ter al el bin ben st".split())
+_LETTERS = str.maketrans({"ø": "o", "Ø": "O", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE", "ß": "ss", "ł": "l",
+                          "Ł": "L", "đ": "d", "Đ": "D", "ı": "i", "þ": "th", "ð": "d"})
+_GROUP_WORDS = re.compile(r"\b(?:group|collaborat\w*|committee|consortium|study|society|association|organi[sz]ation|"
+                          r"investigators|network|initiative|council|board|team|panel|working|task force|writing|"
+                          r"foundation|institute|centers?|centres?|college|academy|federation|world|national|international)\b|\d", re.I)
+
+
+def fold_name(s: str) -> str:
+    """A name for comparison: accents off, ø/æ/ß/ł/ı spelled out, hyphens and apostrophes as spaces."""
+    return fold(s.translate(_LETTERS).replace("-", " ").replace("'", " ").replace("’", " "))
+
+
+def _name_words(name: str) -> list[str]:
+    """Surname words of a name: initials after the first word ("Shields CL", "Rife DC", "Smith J-P")
+    and particles ("de", "van der") left out, unless nothing else is left ("Du Z", "Le ANT")."""
+    words = [w for w in re.split(r"[\s,]+", name.translate(_LETTERS).strip()) if w]
+    words = words[:1] + [w for w in words[1:]
+                         if not re.fullmatch(r"(?:[A-Z]\.?-?){1,4}|(?:[A-Z]\.)+[A-Z]?|Jr\.?|Sr\.?|II|III|IV|\d+(?:st|nd|rd|th)?", w)]
+    if len(words) > 1 and re.fullmatch(r"(?:[A-Z]\.){1,3}", words[0]):  # "A. Roddy Mitchell"
+        words = words[1:]
+    out = [x for w in words for x in fold_name(w).split()]
+    return [x for x in out if x not in _PARTICLES] or out
+
+
+def _is_group(name: str, initials: str = "") -> bool:
+    return not initials and (bool(_GROUP_WORDS.search(name)) or len(name.split()) > 3)
+
+
+def same_surname(a: str, b: str) -> bool:
+    """Two surnames are one person's: accents, case, hyphens and particles aside ("De Potter" / "Potter",
+    "Jørgensen" / "Jorgensen", "Abdel-Latif" / "Abdel Latif"), one part of a compound surname ("Lucas
+    Espeza" / "Lucas"), or a one-letter slip in a long name ("Maiwaid" / "Maiwald")."""
+    wa, wb = _name_words(a), _name_words(b)
+    if not wa or not wb:
+        return False
+    ja, jb = "".join(wa), "".join(wb)
+    if ja == jb:
+        return True
+    if any(len(w) >= 3 and w in wb for w in wa):
+        return True
+    return min(len(ja), len(jb)) >= 5 and fuzz.ratio(ja, jb) >= 80
+
+
+def _acronym(name: str) -> str:
+    return "".join(w[0] for w in re.findall(r"[A-Za-z][\w'’-]*", name) if w[0].isupper())
+
+
+def _group_match(a: str, b: str) -> bool:
+    """Two group names are one group: most words shared, or one the other's acronym ("ADA" for
+    "American Diabetes Association Professional Practice Committee")."""
+    stop = {"the", "of", "and", "for", "on"}
+    wa, wb = set(fold(a).split()) - stop, set(fold(b).split()) - stop
+    if wa and wb and len(wa & wb) >= 0.6 * min(len(wa), len(wb)):
+        return True
+    for x, y in ((a, b), (b, a)):
+        x = x.strip().rstrip(".")
+        if re.fullmatch(r"[A-Z]{3,8}", x) and _acronym(y).startswith(x):
+            return True
+    return False
+
+
+def author_agrees(p: Parsed, r: biblio.Record) -> bool:
+    """The record's first author is the entry's first author. A group author the record lists first
+    may stand before the people ("GBD 2019 Collaborators"), or come after them in the entry."""
+    if not r.authors or not p.authors:
+        return False
+    first = p.authors[0]
+    s, i = r.authors[0]
+    if _is_group(s, i):
+        if _group_match(first, s):
+            return True
+        people = [(s2, i2) for s2, i2 in r.authors if not _is_group(s2, i2)]
+        if not people:
+            return False
+        s, i = people[0]
+    if _is_group(first) and any(_group_match(first, g) for g, gi in r.authors if _is_group(g, gi)):
+        return True
+    if not re.search(r"[a-z]{2}", fold_name(s)):  # "S.B.", "K": not a surname to compare
+        return False
+    entry = _name_words(first)
+    if same_surname(s, p.first_surname) or same_surname(s, first):
+        return True
+    return any(len(w) >= 3 and same_surname(s, w) for w in entry)  # "A. Roddy Mitchell", "Karl Kingsley"
+
+
+def year_close(p: Parsed, r: biblio.Record) -> bool:
+    """Same year, or one year apart (published online one year, in an issue the next)."""
+    return bool(p.year and r.year[:4].isdigit()) and abs(int(p.year) - int(r.year[:4])) <= 1
+
+
+def journal_agrees(text: str, r: biblio.Record) -> bool:
+    """The record's journal is written in the entry, in full or abbreviated ("J Clin Med" in
+    "Journal of Clinical Medicine")."""
+    names = [r.journal]
+    j = _record_journal(r)
+    if j:
+        names += [j.title, j.med_abbr, j.iso_abbr]
+    t = fold(text.replace("&", " and ")).split()
+    skip = {"the", "of", "and", "for", "in", "on", "de", "la"}
+    for name in names:
+        words = [w for w in fold(re.sub(r"\s*\([^)]*\)\s*$", "", name or "")).split() if w not in skip]
+        if words and any(_abbreviates(words, t, i) for i in range(len(t))):
+            return True
+    return False
+
+
+def _abbreviates(abbr: list[str], words: list[str], i: int) -> bool:
+    """`abbr` ("j", "clin", "med") abbreviates the entry's words from position i ("journal of clinical
+    medicine"); a letter or two may differ ("gynaecol" / "gynecology")."""
+    for a in abbr:
+        while i < len(words) and words[i] in ("the", "of", "and", "for", "in", "on", "de", "la") and not words[i].startswith(a):
+            i += 1
+        if i >= len(words):
+            return False
+        w = words[i]
+        if not (w.startswith(a) or len(a) >= 4 and fuzz.ratio(a, w[:len(a) + 1]) >= 80):
+            return False
+        i += 1
+    return True
+
+
+def _first_page(pages: str) -> str:
+    m = re.match(r"\s*[A-Za-z]?0*(\d+)", pages or "")
+    return m.group(1) if m else ""
+
+
+def citation_conflicts(text: str, r: biblio.Record) -> bool:
+    """The entry's own volume and first page both differ from the record's ("Lancet 2012;380:1419"
+    against "Semin Reprod Med 2012;30:432"): the same title in another journal, a reply, a reprint.
+    One of the two differing is the author's slip and no conflict."""
+    m = YEAR_VOL.search(text)
+    vol, page = re.sub(r"\D.*", "", r.volume or ""), _first_page(r.pages)
+    if not m or not vol or not page:
+        return False
+    return m.group(2).lstrip("0") != vol.lstrip("0") and _first_page(m.group(4)) != page
+
+
+def _record_journal(r: biblio.Record):
+    d = journals.directory()
+    if not d:
+        return None
+    return next((x for x in map(d.lookup, r.issn) if x), None) or d.lookup(r.journal)
+
+
+def journal_conflicts(p: Parsed, r: biblio.Record) -> bool:
+    """The entry names a journal that NLM knows and it is not the record's ("Am J Prev Med" against
+    "J Gen Intern Med"): a guideline or statement printed in several journals, or another paper.
+    An unknown or unrecognised journal name is no conflict."""
+    d = journals.directory()
+    hint = biblio.journal_hint(p.text, p.title) if d and p.title else ""
+    if not hint or journal_agrees(p.text, r) or same_citation(p.text, r):
+        return False
+    named, rec = d.lookup(hint), _record_journal(r)
+    return bool(named and rec) and rec.nlm_id != named.nlm_id
+
+
+def same_citation(text: str, r: biblio.Record) -> bool:
+    """The entry's own volume and first page are the record's: the same paper, whatever the journal
+    name the author wrote ("J Mens Health 2025;25:1150" for BMC Public Health 2025;25:1150)."""
+    m = YEAR_VOL.search(text)
+    vol, page = re.sub(r"\D.*", "", r.volume or ""), _first_page(r.pages)
+    return bool(m and vol and page) and m.group(2).lstrip("0") == vol.lstrip("0") and _first_page(m.group(4)) == page
+
+
 def score(p: Parsed, r: biblio.Record) -> tuple[float, bool, bool]:
     """(title similarity 0-100, first author matches, year matches)."""
     t = fuzz.token_sort_ratio(fold(p.title), fold(r.title)) if p.title else 0
     if len(r.title) > 25:  # our title split can stop early ("Melanoma. Clinical features...")
         t = max(t, fuzz.partial_ratio(fold(r.title), fold(p.text)))
-    author = bool(r.authors) and bool(p.first_surname) and fold(r.authors[0][0]).split()[-1:] == fold(p.first_surname).split()[-1:]
-    if r.authors and p.first_surname and not author:  # compound surnames: "van der Berg" vs "Berg"
-        author = fold(p.first_surname) in fold(r.authors[0][0]) or fold(r.authors[0][0]) in fold(p.first_surname)
-    year = bool(p.year) and p.year == r.year
-    return t, author, year
+    return t, author_agrees(p, r), bool(p.year) and p.year == r.year
 
 
 def accept(p: Parsed, r: biblio.Record, by_id: bool = False) -> bool:
+    """The record is the entry's paper. Title, first author and year must all agree (the title may be
+    a shorter one contained in the entry's only because author and year agree too). An entry without
+    authors needs its title almost word for word, the year and the journal. A DOI / PMID the author
+    gave is checked the same way, with more room on the title (translated or retitled papers)."""
     t, author, year = score(p, r)
-    if by_id:  # the author gave a DOI/PMID: only check it points at the same paper
-        return t >= 70 or (author and year)
-    return t >= 95 and (author or year) or t >= 90 and author and year
+    near = year or year_close(p, r)
+    if not p.authors or not r.authors:  # nobody to compare: the title, year and journal must carry it
+        whole = fuzz.token_sort_ratio(fold(p.title), fold(r.title)) if p.title else 0
+        if by_id:
+            return max(whole, t) >= 90 and (near or not p.year)
+        return whole >= 97 and near and journal_agrees(p.text, r) and not citation_conflicts(p.text, r)
+    if not author:
+        return False
+    if not by_id and (citation_conflicts(p.text, r) or journal_conflicts(p, r)):
+        return False
+    if by_id:  # the author may leave out a subtitle: their title is then the start of the record's
+        if len(p.title) > 25:
+            t = max(t, fuzz.partial_ratio(fold(p.title), fold(r.title)))
+        return t >= 70 and (near or not p.year)
+    if not p.year:
+        return t >= 95 and journal_agrees(p.text, r)
+    return t >= 90 and year or t >= 95 and near
 
 
 def _best(p: Parsed, records: list[biblio.Record]) -> biblio.Record | None:
@@ -147,19 +335,28 @@ def find(p: Parsed) -> tuple[biblio.Record | None, str]:
     return (found, "") if found else (None, why)
 
 
+DIFFERS = "differs from the published article"
+
+
+def _id_mismatch(p: Parsed, r: biblio.Record, what: str) -> str:
+    """Why a record found by the entry's DOI / PMID was not used: another paper, or the paper with a
+    first author or year the entry does not have (the author's slip or a wrong identifier)."""
+    t, author, _ = score(p, r)
+    if t >= 90:
+        diff = [x for x, ok in (("first author", author or not p.authors), ("year", year_close(p, r) or not p.year)) if not ok]
+        return f"{what}: the {' and '.join(diff) or 'entry'} {DIFFERS}"
+    return f"{what} points to a different article"
+
+
 def _find(p: Parsed) -> tuple[biblio.Record | None, str]:
     if p.pmid:
         for r in biblio.pubmed_fetch([p.pmid]):
-            if accept(p, r, by_id=True):
-                return r, ""
-            return None, f"PMID {p.pmid} points to a different article"
+            return (r, "") if accept(p, r, by_id=True) else (None, _id_mismatch(p, r, f"PMID {p.pmid}"))
     if p.doi:
         ids = biblio.pubmed_search(f'"{p.doi}"[aid]', retmax=1)
         recs = biblio.pubmed_fetch(ids) or [r for r in [biblio.crossref_doi(p.doi)] if r]
         for r in recs:
-            if accept(p, r, by_id=True):
-                return r, ""
-            return None, f"DOI {p.doi} points to a different article"
+            return (r, "") if accept(p, r, by_id=True) else (None, _id_mismatch(p, r, f"DOI {p.doi}"))
     if not p.title:
         return None, "Could not identify the title"
     words = " ".join(w for w in re.sub(r"[^\w\s-]", " ", p.title).split() if len(w) > 2)
@@ -216,8 +413,31 @@ def journal_name(r: biblio.Record, style: JournalStyle) -> str:
     return name.replace(".", "")
 
 
+def _bad_name(surname: str, initials: str) -> bool:
+    """A record's author that is not a usable name: no surname, initials only ("S.B.", "B" in "B S"),
+    or a person's full name in the surname with no initials ("Saima Zeb")."""
+    letters = re.sub(r"[^A-Za-z\u00C0-\u024F]", "", surname)
+    if not surname.strip() or len(letters) <= 1:
+        return True
+    if initials and (re.search(r"[,;]", surname) or re.fullmatch(r"(?:[A-Z]\.?\s*){1,3}", surname.strip())):
+        return True  # "Sulistyorini,", "P S", "AP": initials or a split-up name in the surname field
+    if re.fullmatch(r"\s*(?:[A-Z]\.\s*){1,4}", surname) or (not initials and re.fullmatch(r"[A-Z]{1,2}", letters)):
+        return True
+    if not initials and re.search(r"\b(?:department|university|hospital|faculty|school|division)\b", surname, re.I) \
+            and "," in surname:
+        return True  # an affiliation in the author list ("Department of ..., ... University, Tehran")
+    return not initials and not _is_group(surname) and len(surname.split()) in (2, 3) \
+        and all(re.fullmatch(r"[A-Z][a-z]+", w) for w in surname.split())
+
+
+def malformed_authors(r: biblio.Record) -> bool:
+    return any(_bad_name(s, i) for s, i in r.authors)
+
+
 def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
     names = [f"{s} {i}".strip() for s, i in r.authors]
+    if p and p.authors and (malformed_authors(r) or not r.authors):
+        return p.authors  # the record's list is broken: keep the author's names (and query them)
     if p and r.source == "crossref" and len(names) < min(len(p.authors), 6):
         return p.authors  # CrossRef author lists are often incomplete; keep the author's
     return names
@@ -359,7 +579,8 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     pages = format_pages(r.pages, style)
     cite = f"{journal_name(r, style)} {r.year};{volume}{issue}"
     cite += f":{pages}" if pages else ""
-    return f"{author_text}. {title}{end} {cite}."
+    lead = f"{author_text}. " if author_text else ""  # a paper without authors starts with its title
+    return f"{lead}{title}{end} {cite}."
 
 
 _ERRATUM = re.compile(
@@ -394,11 +615,15 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         return Resolution(QUERY, p, message=why)
     if not (record.volume and record.year):
         return Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)")
+    queries = []
+    if malformed_authors(record) or not record.authors and p.authors:
+        if not p.authors:
+            return Resolution(QUERY, p, record, message="Record's author names are malformed")
+        queries.append(("references.author_names", {}))  # the author's names are kept: ask to check them
     formatted = format_record(record, style, p) + errata(text, style)
     t, _, _ = score(p, record)
-    if fold(formatted) == fold(text) and formatted.rstrip() == text.rstrip():
-        return Resolution(MATCHED, p, record, formatted, score=t)
-    return Resolution(FORMAT_FIXED, p, record, formatted, score=t)
+    status = MATCHED if fold(formatted) == fold(text) and formatted.rstrip() == text.rstrip() else FORMAT_FIXED
+    return Resolution(status, p, record, formatted, score=t, queries=queries)
 
 
 def resolve_all(texts: list[str], style: JournalStyle) -> list[Resolution]:

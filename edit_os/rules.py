@@ -613,7 +613,7 @@ def lookup_references(ms: Manuscript, style: JournalStyle) -> list[tuple[referen
     cached = getattr(ms, "_ref_resolutions", None)
     if cached is None:
         refs = references.extract(ms)
-        cached = list(zip(refs, refengine.resolve_all([r.text for r in refs], style)))
+        cached = list(zip(refs, refengine.resolve_all([r.full_text for r in refs], style)))
         ms._ref_resolutions = cached
     return cached
 
@@ -639,6 +639,9 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     for ref, res in lookup_references(ms, style):
         if res.status == refengine.FORMAT_FIXED:
             out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup")
+            for pid, text in ref.continuation:  # the rebuilt entry holds the rest ("doi:..." on its own line)
+                p = ms.by_id(pid)
+                out.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_lookup"))
         elif res.formatted and res.formatted != ref.text:  # books, links, reports: template fixes
             out += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other")
     return out

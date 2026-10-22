@@ -27,6 +27,8 @@ TEXT = {
     "references.not_found": "Reference not found in PubMed or CrossRef. Kindly check and provide complete details.",
     "references.wrong_id": "The {what} given points to a different article. Kindly check the reference.",
     "references.no_volume": "Kindly provide volume and page numbers.",
+    "references.record_differs": "The {what} given here differs from the published article. Kindly check.",
+    "references.author_names": "The author names could not be verified against PubMed / CrossRef. Kindly check.",
     "references.book_et_al": "Kindly provide minimum 6 author names before et al.",
     "references.link_dead": "Link is not working. Kindly check.",
     "references.link_redirect": "The link now opens a different page ({url}). Kindly check and provide the correct URL.",
@@ -135,6 +137,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
             if "points to a different article" in res.message:
                 what = "PMID" if res.message.startswith("PMID") else "DOI"
                 qs.add(ref.para_id, "references.wrong_id", what=what, **span)
+            elif refengine.DIFFERS in res.message:
+                what = res.message.split(": the ", 1)[1].split(" " + refengine.DIFFERS)[0]
+                qs.add(ref.para_id, "references.record_differs", what=what, **span)
             elif "no volume" in res.message:
                 qs.add(ref.para_id, "references.no_volume", **span)
             elif has_et_al and few_authors:

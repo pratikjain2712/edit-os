@@ -3,12 +3,17 @@
 Each Word paragraph is one entry, so a reference that wraps across lines stays
 one reference. Leading labels ("1.", "[1]", "(1)", "1)") are recorded and kept
 out of the entry text so edits target the reference itself.
+
+A paragraph that only continues the entry above it -- a "doi:..." or PMID line, or the
+rest of an entry broken by a hard return ("Expert Rev Respir" / "Med. 2021;15:931-48.") --
+is not an entry of its own: it is joined to the previous entry as `continuation`, which the
+lookup reads with the entry (`Reference.full_text`).
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .docmodel import Manuscript
 
@@ -26,6 +31,20 @@ _LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|\d+(?=\s))\s*")
 # "Riazi-Esfahani H, Masoomian B, ...": a surname and initials, as a reference entry starts.
 _LOOKS_LIKE_REFERENCE = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}[,.]")
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# "doi:10.1016/...", "https://doi.org/10...", "10.4103/...", "PMID: 123; PMCID: PMC456": identifiers only.
+_ID_ONLY = re.compile(
+    r"^\s*[.,;]?\s*(?:(?:doi\s*:?\s*|https?://(?:dx\.)?doi\.org/|doi\.org/)?10\.\d{4,9}/\S+"
+    r"|(?:PMID|PMCID)\s*:?\s*\S+)(?:\s*[.;,]?\s*(?:(?:PMID|PMCID)\s*:?\s*\S+|\[?Epub[^\]]*\]?))*\s*\.?\s*$", re.I)
+_URL_ONLY = re.compile(r"^\s*(?:https?://|www\.)\S+\s*$", re.I)
+# The citation part of an entry: "2021;15(8):931-48", "2019;6:242", "2002; 11: 346".
+_CITATION = re.compile(r"\b(?:19|20)\d{2}[^;:\n]{0,20};\s*\d+\s*(?:\([^)]*\))?\s*:\s*[A-Za-z]?\d+")
+_PARTICLE_START = re.compile(r"^\s*(?:(?:van|von|de|der|den|da|di|del|della|dos|das|du|la|le|ten|ter|al|el)[\s-]+)+[A-Z]")
+_APA_START = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?,\s*(?:[A-Z]\.\s*-?)+[,(&]")
+_NOTE = re.compile(r"^\s*(?:conflicts? of interests?|funding|financial support|sources? of support|IEC|ethic|"
+                   r"declaration|data availability|author'?s?'? contributions?)\b", re.I)
+_AUTHORS_ONLY = re.compile(r"^\s*(?:[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}\s*,\s*)+"
+                           r"(?:[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}|et al)\s*[.,]?\s*$")
+_PAGES_OR_YEAR = re.compile(r"\b(?:19|20)\d{2}\b|\d+\s*[-–]\s*\d+")
 
 
 @dataclass
@@ -35,6 +54,39 @@ class Reference:
     label: str  # e.g. "12. "; empty for auto-numbered or author-year lists
     text: str  # entry without the label
     offset: int  # where `text` starts in the paragraph's text view
+    continuation: list[tuple[str, str]] = field(default_factory=list)  # (para_id, text) joined to this entry
+
+    @property
+    def full_text(self) -> str:
+        """The entry with the paragraphs that continue it: what the lookup reads."""
+        return " ".join([self.text] + [t.strip() for _, t in self.continuation])
+
+
+def continues(prev: str, raw: str) -> bool:
+    """`raw` (a paragraph without a label) is the rest of the entry `prev`, not an entry of its own:
+    identifiers only (doi / PMID), a link after "Available from:", or the tail of an entry broken by
+    a hard return -- `prev` has no citation yet ("...; 2019;6:242") and `raw` brings one, starting
+    lower case, with a year, or after an unfinished `prev`."""
+    if _ID_ONLY.match(raw):
+        return True
+    if _URL_ONLY.match(raw):
+        return bool(re.search(r"(?:available (?:from|at)|url)\s*:?\s*$", prev, re.I))
+    if _NOTE.match(raw) or _NOTE.match(prev) or len(prev.split()) < 4:
+        return False  # "IEC approval: Yes, 2022" after "Funding received: None"
+    if _CITATION.search(prev) or _LOOKS_LIKE_REFERENCE.match(raw) or _PARTICLE_START.match(raw) \
+            or _APA_START.match(raw):
+        return False
+    if _AUTHORS_ONLY.match(prev) and not _YEAR.search(prev):
+        return True  # "Siransy L, Dembele B, Sekongo Y." on a line of its own: the title follows
+    if not _PAGES_OR_YEAR.search(raw) or len(raw) > 200:
+        return False
+    if prev.rstrip().endswith((":", ",", ";", "(", "-", "–")):
+        return True
+    if _YEAR.search(prev):
+        return False
+    start = raw.lstrip()[:1]
+    unfinished = not prev.rstrip().endswith((".", "?", "!"))
+    return start.islower() or unfinished or bool(re.match(r"\s*(?:19|20)\d{2}\s*[;:(,]", raw))
 
 
 def find_heading(ms: Manuscript) -> int | None:
@@ -58,6 +110,9 @@ def extract(ms: Manuscript) -> list[Reference]:
         if _STOP.match(raw) or p.style.lower().startswith("heading"):
             break
         m = _LABEL.match(raw)
+        if not m and refs and continues(refs[-1].full_text, raw):
+            refs[-1].continuation.append((p.id, raw))
+            continue
         if m:
             digits = re.sub(r"\D", "", m.group(1))
             number, label = int(digits), m.group(0)

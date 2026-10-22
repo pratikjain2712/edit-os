@@ -14,7 +14,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
+import unicodedata
 
 from .journals import DEFAULT_DB
 
@@ -57,6 +59,70 @@ correct any fact that is not in the entry: if a field is missing, return an empt
 - title: the full article or chapter title, including any part after an inner full stop.
 - year: four digits. doi and pmid: only if present in the entry.
 - kind: journal_article, book, book_chapter, website, report, thesis, conference or other."""
+
+
+def _fold(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    return " ".join(re.sub(r"[^\w\s]", " ", s).split())
+
+
+def _in_text(value: str, text: str, min_ratio: int = 90) -> bool:
+    """`value` is written in `text` (case, accents, punctuation and small typing slips aside)."""
+    from rapidfuzz import fuzz
+
+    v, t = _fold(value), _fold(text)
+    if not v:
+        return False
+    if re.search(r"(?<!\w)" + re.escape(v) + r"(?!\w)", t):
+        return True
+    if len(v) >= 12 and v.replace(" ", "") in t.replace(" ", ""):  # "Oralhealthconsequencesof...": spaces lost
+        return True
+    return len(v) >= 12 and fuzz.partial_ratio(v, t) >= min_ratio
+
+
+def _surname(author: str) -> str:
+    """"Shields CL" -> "Shields"; "World Health Organization" stays whole."""
+    words = author.replace(".", " ").split()
+    while len(words) > 1 and re.fullmatch(r"[A-Z]{1,3}(?:-[A-Z])?", words[-1]):
+        words.pop()
+    return " ".join(words)
+
+
+def _names_in_text(authors: list[str], text: str) -> bool:
+    """The first author's surname is in the entry, and so are most of the others: a list borrowed from a
+    neighbouring entry can share a short name ("Li", "F") but not the whole list."""
+    found = [_in_text(_surname(a), text) for a in authors[:10]]
+    return found[0] and sum(found) >= 0.8 * len(found)
+
+
+def check_fields(text: str, fields: dict | None) -> dict | None:
+    """Claude's fields for `text`, keeping only those written in the entry itself: the title, the first
+    author's surname, the year and the journal. Fields that are not are emptied (the regex parse is used
+    for them); None when neither title nor first author is in the entry, so the split belongs to some
+    other entry and none of it is used."""
+    if not fields:
+        return fields
+    f = dict(fields)
+    title_ok = _in_text(f.get("title", ""), text)
+    authors = [a for a in f.get("authors", []) if a and a.strip()]
+    author_ok = bool(authors) and _names_in_text(authors, text)
+    if (f.get("title") or authors) and not title_ok and not author_ok:
+        return None
+    if not title_ok:
+        f["title"] = ""
+    if not author_ok:
+        f["authors"] = []
+    for key in ("year", "journal"):
+        if f.get(key) and not _in_text(f[key], text):
+            f[key] = ""
+    return f
+
+
+def _matches(text: str, fields: dict) -> bool:
+    """Every field Claude gave for this entry is written in it."""
+    f = check_fields(text, fields)
+    return f is not None and all(f.get(k) == fields.get(k) for k in ("title", "authors", "year", "journal"))
 
 
 def _api_key() -> str:
@@ -133,7 +199,14 @@ def parse_batch(texts: list[str], batch_size: int = 40) -> list[dict | None]:
         numbered = "\n".join(f"{k + 1}. {texts[i]}" for k, i in enumerate(chunk))
         for entry in _call(numbered):
             k = entry.get("index", 0) - 1
-            if 0 <= k < len(chunk):
-                out[chunk[k]] = entry
-                _cache.put(texts[chunk[k]], entry)
+            # Claude can number its answers off by one (an entry skipped or two merged): each answer
+            # goes to the entry whose text it matches, its own index first, then the neighbours.
+            for j in (k, k - 1, k + 1):
+                if 0 <= j < len(chunk) and out[chunk[j]] is None and _matches(texts[chunk[j]], entry):
+                    out[chunk[j]] = entry
+                    _cache.put(texts[chunk[j]], entry)
+                    break
+            else:
+                if 0 <= k < len(chunk) and out[chunk[k]] is None:
+                    out[chunk[k]] = entry  # used for what it shares with the entry (check_fields); not cached
     return out

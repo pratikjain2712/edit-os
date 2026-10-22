@@ -33,7 +33,9 @@ accepts or rejects every suggestion.
    editor's checklist.
 8. **References engine** (`edit_os/refengine.py`, `biblio.py`, `journals.py`, `ai_refs.py`): Claude Haiku
    splits entries into fields, PubMed / CrossRef verify them, NLM's list gives journal abbreviations;
-   only strict matches are rebuilt, everything else becomes a query.
+   only strict matches are rebuilt (first author, title and year agree, and the journal, volume and pages the
+   entry gives; Claude's fields are used only where they occur in the entry's own text; a "doi:..." line or
+   a broken-off tail is read with the entry above it), everything else becomes a query.
 9. **Author queries** (`edit_os/queries.py`): the pre-editing guide's wording, numbered AQ1..., written as
    Word comments in the tracked file and listed on a query sheet (`_queries.xlsx`).
 10. **Evaluation** (`tools/evaluate.py`, `tools/eval_refs.py`): runs the rules on original manuscripts and scores them
