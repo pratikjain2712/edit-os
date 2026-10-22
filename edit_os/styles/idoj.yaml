@@ -2,21 +2,18 @@
 # Tuned against 3 style-edited articles: closure 23.4% (hurt 8) -> 24.0% (hurt 7) (base only -> this file).
 name: Indian Dermatology Online Journal
 
-references:
-  journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
-
 # not yet automated:
-#   - letters to the editor open with 'Dear Editor' (not 'Sir')
+#   - letters: add 'Dear Editor' when there is no salutation (an existing 'Sir,' is replaced)
 #   - structured abstracts also for brief reports and review articles
-#   - article title in Title Case
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - history dates: 'Received: Month, Year. Accepted: Month, Year.'
 
 sections:
+  letter_salutation: "Dear editor,"  # S: "For letter to Editor articles always have “Dear editor” instead of “Sir”"
   back_matter:
     contributions:  # editors copy the title page's "Authors' Contributions:" statement (2 of 2 given as text)
       heading: "Authors’ contributions"
       from_sources: true
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
 
 figures:
   insert:

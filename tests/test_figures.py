@@ -41,24 +41,33 @@ BODY = [
 
 
 def test_ijo_figure_citations(tmp_path):
+    # The guide (the IJO sheet is silent): G240 "Figure" for "Fig.", G245 part labels in uppercase; the sheet's
+    # "Tables 1–6" for runs of tables.
     t = _apply(_doc(tmp_path, BODY), _style("ijo"), tmp_path)
+    assert t[1] == "Lesions were seen [Figure 1A]. Figure 2 shows the scan [Table 2, Figure 1]."
+    assert t[2] == "Both eyes [Figures 1 and 2] and parts [Figure 3A-B]; see [Figure 3A and 3B]."
+    assert t[3] == "Montage in Figure 4A-D; Figure 5 shows it [Table 2], as in Tables 1–3 for 71] [Figure 1]."
+    assert t[4] == "Table 1 and 25 patients were seen; a figure 1a and a 3-mm cut [Figure 1]. Table 1 depicts it."
+    assert t[5] == "Results were in [Supplementary Table 1]. Delayed [Figures 1–3]."
+
+
+def test_fig_label_lower_parts_and_lists_switches(tmp_path):
+    st = _style("base")
+    st.settings["figures"].update(figure_label="Fig.", figure_label_plural="Figs.", part_labels="lower",
+                                  compress_lists=False)
+    t = _apply(_doc(tmp_path, BODY), st, tmp_path)
     assert t[1] == "Lesions were seen [Fig. 1a]. Fig. 2 shows the scan [Table 2, Fig. 1]."
     assert t[2] == "Both eyes [Figs. 1 and 2] and parts [Fig. 3a-b]; see [Fig. 3a and 3b]."
-    assert t[3] == ("Montage in Fig. 4a-d; Fig. 5 shows it [Table 2], as in Tables 1–3 for 71] [Fig. 1].")
-    assert t[4] == "Table 1 and 25 patients were seen; a figure 1a and a 3-mm cut [Fig. 1]. Table 1 depicts it."
-    assert t[5] == "Results were in [Supplementary Table 1]. Delayed [Figs. 1–3]."
-
-
-def test_base_figure_citations(tmp_path):
-    t = _apply(_doc(tmp_path, BODY), _style("base"), tmp_path)
-    assert t[1] == "Lesions were seen [Figure 1a]. Figure 2 shows the scan [Table 2, Figure 1]."
-    assert t[2] == "Both eyes [Figures 1 and 2] and parts [Figure 3a-b]; see [Figure 3a and 3b]."
-    assert t[3] == "Montage in Figure 4a-d; Figure 5 shows it [Table 2], as in Tables 1, 2 and 3 for 71] [Figure 1]."
+    assert t[3] == "Montage in Fig. 4a-d; Fig. 5 shows it [Table 2], as in Tables 1, 2 and 3 for 71] [Fig. 1]."
+    assert t[5] == "Results were in [Supplementary Table 1]. Delayed [Figs. 1, 2, 3]."
 
 
 def test_parse_groups_ranges_and_roman():
     st = _style("base")
     render = lambda s: [rules_figures.render_group(g, st) for g in rules_figures.parse_groups(s)]  # noqa: E731
+    assert render("Figure 1a to 1d") == ["Figure 1A-D"]  # G245 / G247
+    assert render("Figure 2a and b") == ["Figure 2A and B"]
+    st.settings["figures"]["part_labels"] = "lower"
     assert render("Figure 1a to 1d") == ["Figure 1a-d"]
     assert render("Figures 1 to 3") == ["Figures 1–3"]
     assert render("Table IV and Table V") == ["Tables 4 and 5"]
@@ -93,9 +102,9 @@ def test_captions(tmp_path):
     assert t[6] == "(b) B-scan, et al."  # run-on part of Figure 1; "et al." keeps its period
     assert t[7] == "Figure 2: Fundus photograph"  # captions keep "Figure", even for IJO
     assert t[8] == "Figure 3: Montage"
-    assert t[9] == "Table 2: Baseline characteristics"
-    assert t[10] == "Table 4: Outcomes"
-    assert t[11] == "Table 5: Costs"
+    assert t[9] == "Table 2: Baseline characteristics."  # S: table "caption should end with a period"
+    assert t[10] == "Table 4: Outcomes."
+    assert t[11] == "Table 5: Costs."
     assert t[12] == "Figure 6 A) axial and B) sagittal views"
 
 

@@ -2,7 +2,14 @@
 name: Indian Journal of Pathology and Microbiology
 
 # not yet automated:
-#   - American spelling
-#   - 'ABSTRACT' and 'KEYWORDS:' headings in capitals; H1 in ALL CAPS
 #   - editorials: Editor-in-Chief affiliation with degrees and e-mail
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+sections:
+  headings:
+    case: upper  # S: "H1 | All caps, Bold, Roman"
+  abstract:
+    heading: ABSTRACT  # S: 'The word "ABSTRACT" should be added as heading'
+  keywords:
+    heading: "KEYWORDS:"  # S: 'Heading should be "KEYWORDS:"'
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

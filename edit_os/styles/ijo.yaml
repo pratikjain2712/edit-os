@@ -1,68 +1,68 @@
 # Indian Journal of Ophthalmology (StyleSheet_Sample_IJO.docx), tuned against the
-# style editor's completed IJO articles.
+# style editor's completed IJO articles; the stylesheet and the pre-editing guide win where they speak.
 name: Indian Journal of Ophthalmology
 
 headings:
+  # No "Introduction" and no "Abstract" tag: the editors' habit (the sheet is silent).
   h1: [materials and methods, methods, methodology, patients and methods, subjects and methods,
        results, discussion, conclusion, conclusions, references, case report, case reports,
        case presentation, review of literature]
 
-references:
-  journal_drop_qualifier: false  # IJO editors keep NLM's qualifier: Eye (Lond), Clinics (Sao Paulo), ... (Engl Ed)
+# references.journal_drop_qualifier: as base (Index Medicus titles keep "Eye (Lond)")
+# statistics.space_around_operators: as base (G297 "add space on either side of operators"; the IJO editors leave
+#   p=0.03 as typed: owner's list)
+# formatting.p_values / n_variable_italic: as base (G294 / G296; the IJO editors leave p and n roman: owner's list)
 
-statistics:
-  space_around_operators: false  # the editor does not add these for IJO
-
-formatting:  # the IJO style editor leaves p and n as typed (lowercase, roman)
-  p_values: false
-  n_variable_italic: false
-  body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles)
+formatting:
+  body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles; sheet silent)
 
 figures:
-  # In-text citations: the IJO stylesheet says nothing on Fig./Figure (only "Picture" -> "Figure" in captions);
-  # the generic guide's G203 asks for "Figure", but the IJO style editors write "Fig." / "Figs.": 64 of 75
-  # citations in 19 te.docx files, 16 of 17 articles that cite figures, across editors and article types
-  # (case reports, originals, reviews). The exception is one review (one editor, 8 "Figure" kept). Captions
-  # keep "Figure 1:".
-  figure_label: Fig.
-  figure_label_plural: Figs.
+  # figure_label: as base, "Figure". The IJO sheet says nothing on Fig./Figure in citations; the guide does: G240 'The
+  # word "Figure" should be used in case it is abbreviated'. The IJO editors write "Fig." / "Figs." (64 of 75 citations,
+  # 16 of 17 articles): owner's list.
   compress_lists: true          # stylesheet: "Tables 1–6"
 
-sections:  # IJO prints no "Introduction" heading and uses "Methods" (stylesheet and editors)
+front_matter:
+  initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
+
+sections:
+  letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
   headings:
-    rename: {materials and methods: Methods, material and methods: Methods, materials and method: Methods,
+    # S: 'Materials and Methods”, “Subject and Methods”, “Patient and Methods” etc. change as only “Methods'
+    rename: {methods: Methods, method: Methods,
+             materials and methods: Methods, material and methods: Methods, materials and method: Methods,
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, methodology: Methods}
-    drop: [introduction]
+    case: upper  # S: "H1 | Caps, Bold, Roman" (the IJO editors keep Title case: owner's list)
+    drop: [introduction]  # the IJO editors delete the Introduction heading (the sheet is silent)
   abstract:
+    # S: 'Change “Aim” to “Purpose' and 'Materials and Methods”, “Subject and Methods”, “Patient and Methods” etc.
+    # change as only “Methods'
     rename: {materials and methods: Methods, material and methods: Methods, methodology: Methods,
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, aim: Purpose, aims: Purpose}
+    word_limit_query: false  # the IJO sheet has no word-limit line
   back_matter:  # IJO editors (19 + 2 articles): consent, contributions, financial support, conflicts
-    consent:
-      # The heading the IJO editor gave an unheaded statement, and the IJO reviewers' wording (the stylesheet says
-      # "Declaration of patient consent"); authors' own headings are kept as written (7 of 7).
-      heading: "Author’s declaration statement of patient consent"
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+    # consent heading: as base, S 'Declaration of Patient Consent | “Declaration of patient consent” should be present'
+    # (the IJO editors' "Author’s declaration statement of patient consent" is not the sheet's); authors' own
+    # headings are kept as written (rename_heading off: the sheet is silent).
     contributions:
-      heading: "Authors’ contributions"  # 7 of 12 editor-final headings
+      heading: "Authors’ contributions"  # 7 of 12 editor-final headings (the sheet is silent)
       from_sources: true             # title page / contribution form: the editors have it in all 11 articles whose
                                      # submission lists contributions (one more found: a review the editor left)
 
-guide_replace:
-  multiplication: false  # the IJO editors leave "4.5x4.5 mm" as typed
+# guide_replace.multiplication: as base (G315 "10x20" -> "10 × 20"; the IJO editors leave "4.5x4.5 mm": owner's list)
 
 copyedit:
-  abbreviations:
-    # Ophthalmic abbreviations the IJO editors never ask authors to expand (0 abbreviation queries in 19 te/ce files).
-    allow: [OCT, OCTA, AS-OCT, ASOCT, SD-OCT, SS-OCT, BCVA, UCVA, CDVA, UDVA, VA, IOP, IOL, RNFL, GCL, IPL, GCIPL,
-            ONH, RPE, ILM, ERM, PVR, ROP, RRD, TRD, YAG, Nd, UBM, FFA, ICGA, ERG, VEP, HFA, SITA, ETDRS, AMD, ARMD,
-            DME, DR, PDR, NPDR, CNV, CSC, CSCR, POAG, PACG, OAG, PAC, LASIK, PRK, SMILE, DALK, PK, PKP, DSAEK, DMEK,
-            DSEK, ICL, PPV, SLET, LSCD, KPro, BKPro, VEGF]
-    full_form_after_definition: "off"  # IJO copy editors leave the full form (19 articles: precision 36%, closure -0.8%)
+  # abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by abbreviation
+  # in parentheses (only abbreviation should be used thereafter)" and "Look for undefined acronyms and raise query":
+  # the ophthalmic allow-list (OCT, BCVA, IOP, ...) and full_form_after_definition: off are gone (the IJO copy
+  # editors never query them: owner's list).
   claude:
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article
 
-text:  # copy-edit text rules (rules_text.py), measured on the IJO copy editors' text (19 articles)
+text:  # copy-edit text rules (rules_text.py), measured on the IJO copy editors' text (19 articles; the sheet is silent)
   prefixes: {enabled: true}         # 98 proposed, 93% (with copyedit.claude.close_prefixes)
   number_words: {enabled: true}     # "three months" -> "3 months": 61, 77%
   stat_semicolons: {enabled: true}  # "(p = 0.065); at 3 months": 2 of 2

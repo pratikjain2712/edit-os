@@ -42,12 +42,13 @@ def test_ijo_rules(manuscript, tmp_path):
     t = apply(manuscript, style.load("ijo"), tmp_path)
     assert t[0] == "Abstract"  # IJO does not tag "Abstract" and deletes "Introduction" (paragraph and all)
     assert t[1] == "Keywords: Amblyopia, cataract, retina"
-    assert t[6:11] == ["<H1>Conclusion", "<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
+    assert t[6:11] == ["<H1>CONCLUSION", "<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
                        "There are no conflicts of interest."]
     del t[7:11]
     assert t[2] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
-    assert t[3] == "Mean age was 45 (12) years and p=0.03."  # statistics, not a citation; spacing off for IJO
-    assert t[4] == "<H1>Methods" and t[5] == "<H1>Results" and t[7] == "<H1>References"
+    # statistics, not a citation: operators spaced (G297), P capital (G294); H1 in capitals (S: "H1 | Caps")
+    assert t[3] == "Mean age was 45 (12) years and P = 0.03."
+    assert t[4] == "<H1>METHODS" and t[5] == "<H1>RESULTS" and t[7] == "<H1>REFERENCES"
     assert t[8] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
     assert t[9] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
                     "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")
@@ -58,7 +59,8 @@ def test_base_rules_space_operators_and_tag_all_h1(manuscript, tmp_path):
     t = apply(manuscript, style.load("base"), tmp_path)
     del t[8:12]  # back matter added before the references
     assert t[0] == "<H1>Abstract" and t[2] == "<H1>Introduction"
-    assert t[4] == "Mean age was 45 (12) years and p = 0.03."
+    assert t[4] == "Mean age was 45 (12) years and P = 0.03."
+    assert "<H1>Materials and Methods" in t  # G138: "Methods" -> "Materials and Methods"
     assert t[9].endswith("2002;21:295-9.")
 
 
@@ -203,7 +205,7 @@ def test_greek_and_operator_superscripts_are_not_citations(tmp_path):
     doc.save(path)
     t = apply(str(path), _no_lookup(), tmp_path)
     assert t[1] == ("Effects were large (F = 74.8, η² = 0.42; χ² = 23.2) with partial η² of 0.5, "
-                    "and R²=0.45. Falls are common in older adults.[2]")
+                    "and R² = 0.45. Falls are common in older adults.[2]")
 
 
 def test_numbered_questions_after_colon_are_not_citations(tmp_path):
@@ -229,9 +231,9 @@ def test_comparison_after_a_word_left_as_typed_when_switched_off(tmp_path):
     doc.add_paragraph("Patients aged ≥18 years with a score >5 were included (P<0.05, n=28, BMI ≥30).")
     path = tmp_path / "s.docx"
     doc.save(path)
-    st = _no_lookup("base")
-    assert apply(str(path), st, tmp_path)[1] == \
-        "Patients aged ≥ 18 years with a score > 5 were included (P < 0.05, n = 28, BMI ≥ 30)."
-    st.settings["statistics"]["unary_after_word"] = False
+    st = _no_lookup("base")  # base: unary signs closed (G301)
     assert apply(str(path), st, tmp_path)[1] == \
         "Patients aged ≥18 years with a score >5 were included (P < 0.05, n = 28, BMI ≥ 30)."
+    st.settings["statistics"]["unary_after_word"] = True
+    assert apply(str(path), st, tmp_path)[1] == \
+        "Patients aged ≥ 18 years with a score > 5 were included (P < 0.05, n = 28, BMI ≥ 30)."

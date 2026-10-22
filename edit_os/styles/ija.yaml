@@ -13,10 +13,8 @@ copyedit:
     convention: british  # from the copy editors' practice (tools/eval_ce.py)
 
 # not yet automated:
-#   - UK spelling
 #   - no serial comma
 #   - lists with round bullets
-#   - H1 in ALL CAPS; 'Materials and Methods' / 'Patients and Methods' -> 'Methods'
 #   - structured abstract (Background and Aims, Methods, Results, Conclusion), run-on, max 250 words
 #   - original articles: add '<H2>Statement on data sharing' with the journal's standard text before references
 #   - ORCID iDs for all authors (query if missing); salutations in correspondence
@@ -27,3 +25,11 @@ copyedit:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   remove_font_color: false  # editors keep the author's colours (0 of 40)
+
+sections:
+  headings:  # S: "Methods (not Materials and Methods or Patients and Methods)"; "H1 | All Caps"
+    case: upper
+    rename: {methods: Methods, method: Methods, methodology: Methods, materials and methods: Methods,
+             material and methods: Methods, patients and methods: Methods, patient and methods: Methods}
+  abstract:  # S: "Background and Aims / Methods / Results / Conclusion"; "Abstract should not be more than 250 words"
+    word_limit: {structured: 250, unstructured: 250}

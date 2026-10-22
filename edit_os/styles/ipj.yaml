@@ -14,22 +14,33 @@ headings:
        data availability statement, ethical approval, ethics approval, statistical analysis,
        limitations]
 
-references:
-  page_range_dash: "–"  # the editor sets page ranges with an en dash
-  journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
+# references.page_range_dash: as base "-" (S example "J Pharm Bioall Sci 2017;9:80-7"; the editor's en dash: owner's list)
 
 # not yet automated:
 #   - no 'Case Report' article type: editor query to confirm the type
-#   - abstract sub-headings: Background, Aim, Materials and Methods, Results, Conclusion; 'ABSTRACT' heading in capitals
 #   - before references: Acknowledgments, Authors' contributions (initials only), Ethical statement, Financial disclosure, Conflict of interest, Data availability statement, Patients' consent
-#   - H1 in capitals
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - patient consent query in all case reports and in original articles with patient photographs
 
-formatting:  # measured with tools/eval_format.py against the style editors' tracked files
-  table_head_bold: false  # editors leave column heads as typed (7 of 31)
+# formatting.table_head_bold: as base (S: "Column heads | Sentence case, bold"; editors 7 of 31: owner's list)
+
+required_sections:  # S: "... Financial disclosure / Conflict of interest / Data availability statement / Patients' consent"
+  - {heading: Financial disclosure, default: "Nil."}
+  - {heading: Conflict of interest, default: "There are no conflicts of interest."}
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it
 
 sections:
+  headings:
+    case: upper  # S: "H1 | Capital case, Bold, Roman"
+  abstract:
+    heading: ABSTRACT  # S: 'The word "ABSTRACT" should be added as heading'
+    # S: "All Original articles should have the same subheadings in the ABSTRACT as under: Background: / Aim: /
+    # Materials and Methods: / Results: / Conclusion:" (over the template's "... changed to “Methods”")
+    rename: {materials and methods: Materials and Methods, material and methods: Materials and Methods,
+             materials and method: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}
   back_matter:
     order: [contributions, funding, conflict, consent]  # editors: ... Conflicts of interest, Data availability, Patients' consent
     consent: {heading: "Patients' consent"}           # editors' heading (2 of 2)

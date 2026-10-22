@@ -2,8 +2,10 @@
 name: Annals of Cardiac Anaesthesia
 
 # not yet automated:
-#   - article title in Title Case
 #   - structured abstract: sub-headings in separate paragraphs
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
 #   - history dates: Received / Revised / Accepted / Publication
+
+sections:
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

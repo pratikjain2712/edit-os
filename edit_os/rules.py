@@ -653,6 +653,7 @@ RULES = {
     "sections_abstract": rules_sections.rule_abstract,
     "sections_keywords": rules_sections.rule_keywords,
     "sections_back_matter": rules_sections.rule_back_matter,
+    "sections_salutation": rules_sections.rule_salutation,
     "citations": rule_citations,
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,

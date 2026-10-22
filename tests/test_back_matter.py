@@ -57,7 +57,7 @@ def test_unlabelled_consent_statement_gets_heading_and_declarations_go(tmp_path)
                            "Ethics: Not required for single case report.", statement,
                            "Conflict of Interest: None.", "Funding: None."] + REFS)
     t = run(path, article_type="Case Report")
-    i = t.index("<H2>Author’s declaration statement of patient consent")
+    i = t.index("<H2>Declaration of patient consent")  # the IJO sheet's heading (not the editors' wording)
     assert t[i + 1] == statement
     assert t[i + 2:i + 6] == STD and t[i + 6] == "<H1>References"
     assert "Declarations" not in t and not any(x.startswith("Ethics") for x in t)
@@ -225,18 +225,24 @@ def test_nil_ethics_inline_only_and_standard_wording(tmp_path):
 
 # --- acknowledgement, supplementary material ------------------------------------------------
 
-def test_acknowledgement_spelling_kept_and_supplementary_heading_setting(tmp_path):
+def test_acknowledgement_singular_and_supplementary_heading_from_the_stylesheet(tmp_path):
     paras = ["Discussion", BODY, "Acknowledgements", "We thank the staff of the eye clinic for their help.",
              "Supplementary Table 1: Search strategy", "Supplementary Figure 1: Forest plot"] + REFS
     path = make(tmp_path, paras)
+    # IJO sheet: 'If heading "Acknowledgements" is present, then please delete "s"' and 'please add the heading
+    # “Supplementary Material” after Acknowledgement'
     t = run(path)
-    assert "<H2>Acknowledgements" in t and "Supplementary Material" not in str(t)  # defaults: what editors do
-    st = style.load("ijo")
-    st.settings["sections"]["back_matter"]["acknowledgement_heading"] = "Acknowledgement"
-    st.settings["sections"]["back_matter"]["supplementary_heading"] = "Supplementary Material"
-    t = run(path, st)
     assert "<H2>Acknowledgement" in t
     assert t[t.index("<H2>Supplementary Material") + 1] == "Supplementary Table 1: Search strategy"
+    # KJO follows the guide: "Acknowledgements" keeps its "s", supporting information as it is.
+    t = run(path, "kjo")
+    assert "<H2>Acknowledgements" in t and "Supplementary Material" not in str(t)
+    # "singular" drops the s only: the author's US spelling stays.
+    path2 = make(tmp_path, ["Discussion", BODY, "Acknowledgments", "We thank the staff."] + REFS, name="m2.docx")
+    assert "<H2>Acknowledgment" in run(path2)
+    st = style.load("ijo")
+    st.settings["sections"]["back_matter"]["acknowledgement_heading"] = None
+    assert "<H2>Acknowledgments" in run(path2, st)
 
 
 def test_added_consent_has_its_own_reason(tmp_path):

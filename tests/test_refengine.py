@@ -140,7 +140,10 @@ def test_sentence_case_of_title_cased_titles():
 def test_journal_qualifier_kept_for_ijo():
     rec = _record("A study of glaucoma drugs.", journal="Clinics (Sao Paulo)")
     assert "Clinics (Sao Paulo) 2020;75:e1874." in refengine.format_record(rec, style.load("ijo"))
-    assert "Clinics 2020;75:e1874." in refengine.format_record(rec, style.load("ija"))
+    assert "Clinics (Sao Paulo) 2020;75:e1874." in refengine.format_record(rec, style.load("ija"))  # Index Medicus
+    st = style.load("ija")
+    st.settings["references"]["journal_drop_qualifier"] = True
+    assert "Clinics 2020;75:e1874." in refengine.format_record(rec, st)
 
 
 def test_erratum_kept_and_styled(fake_pubmed):

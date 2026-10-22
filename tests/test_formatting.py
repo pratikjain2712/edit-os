@@ -243,13 +243,14 @@ def test_rule_p_values(tmp_path):
     path = make(tmp_path, ["Rates differed (p<0.05; P = .03; p-value; p value) but p. 12, pp. 3-4, "
                            "p53, 5p, Hb-p=4 and the p wave did not.", "Table note: *P < 0.001"] + REFS)
     st = base()
+    st.settings["formatting"]["p_capital"] = False
     got, _ = proposals(path, st)
     assert [(o, n) for r, o, n, f in got] == [("p", "p"), ("P", "P"), ("p", "p"), ("p", "p"), ("P", "P")]
-    st.settings["formatting"]["p_capital"] = True
+    st.settings["formatting"]["p_capital"] = True  # base: G294 "capital case with italics style"
     got, _ = proposals(path, st)
     assert [(o, n) for r, o, n, f in got] == [("p", "P"), ("P", "P"), ("p", "P"), ("p", "P"), ("P", "P")]
     assert {r for r, *_ in got} == {"fmt_p_value"} and all(f == {"italic": True} for *_, f in got)
-    assert not proposals(path, style.load("ijo"))[0]  # IJO: the editor leaves p alone
+    assert proposals(path, style.load("ijo"))[0] == got  # IJO too: G294 (its editors leave p alone: owner's list)
 
 
 def test_rule_n_variable(tmp_path):
@@ -314,8 +315,8 @@ def test_style_run_end_to_end(tmp_path):
     ms = docmodel.load(path)
     queries.write_comments(ms, queries.collect(ms, base()))
     tracked.render(ms, cs, tracked=True).save(out)
-    i = [p.text for p in docmodel.load(str(out)).paragraphs].index("Smith et al. found p < 0.05 in vitro.[1]")
-    assert formatted_text(out, "w:i", para=i) == "et al.pin vitro"
+    i = [p.text for p in docmodel.load(str(out)).paragraphs].index("Smith et al. found P < 0.05 in vitro.[1]")
+    assert formatted_text(out, "w:i", para=i) == "et al.Pin vitro"
     assert formatted_text(out, "w:vertAlign", "superscript", para=i) == "[1]"
 
 

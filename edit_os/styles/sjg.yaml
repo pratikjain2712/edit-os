@@ -16,9 +16,7 @@ headings:
 
 # not yet automated:
 #   - affiliations start at 1
-#   - H1 in ALL CAPS
 #   - no author queries for missing history dates
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 
 copyedit:
   claude:
@@ -26,3 +24,9 @@ copyedit:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files
   remove_font_color: false  # editors keep the author's colours (0 of 52)
+
+sections:
+  headings:
+    case: upper  # S: "H1 | All capital case, Bold, Roman"
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

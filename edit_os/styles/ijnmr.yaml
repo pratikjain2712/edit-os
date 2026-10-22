@@ -2,12 +2,18 @@
 name: Iranian Journal of Nursing and Midwifery Research
 
 # not yet automated:
-#   - article title in Title Case
 #   - affiliation links start at 1; country not repeated
 #   - abstract for original articles only, structured as Background, Methods, Results, Conclusion
-#   - H1 'Methods' (not 'Materials and Methods')
 #   - no author queries about history dates
 
 sections:
+  headings:  # S: "H1 | Heading should be Methods as per journal specification"
+    rename: {methods: Methods, method: Methods, methodology: Methods, materials and methods: Methods,
+             material and methods: Methods, patients and methods: Methods, subjects and methods: Methods}
+  abstract:
+    word_limit_query: false  # the IJNMR sheet has no word-limit line
   back_matter:
     consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

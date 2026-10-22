@@ -16,7 +16,9 @@ headings:
        ethical considerations]
 
 # not yet automated:
-#   - article title in Title Case
 #   - affiliation links start at 0; country repeated
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - history dates: 'Received: 16 Jan 18'
+
+sections:
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

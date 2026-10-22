@@ -258,7 +258,8 @@ def test_full_form_after_definition_becomes_abbreviation(tmp_path):
         "Mean IOP was 12 mmHg; IOP fell. IOPs were stable.",
     ]
     assert {c.reason for c in changes} == {"use abbreviation after its definition"}
-    assert abbrev.collect(ms, journal())[0] == []  # off for IJO: its copy editors leave the full form
+    assert abbrev.collect(ms, journal())  # IJO: on (S: "only abbreviation should be used thereafter")
+    assert abbrev.collect(ms, journal(abbreviations={"full_form_after_definition": "off"}))[0] == []
 
 
 def test_full_form_kept_when_the_author_mostly_writes_it_out(tmp_path):

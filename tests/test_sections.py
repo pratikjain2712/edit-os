@@ -108,7 +108,7 @@ def test_keywords_missing_added_and_queried(tmp_path):
 def test_headings_ijo(article):
     t, _, _ = run(article, style.load("ijo"), only=["heading_tags", "sections_headings"])
     assert "Introduction" not in t  # IJO prints no Introduction heading: the paragraph goes
-    assert t[8] == "<H1>Methods" and t[10] == "<H1>Results"
+    assert t[8] == "<H1>METHODS" and t[10] == "<H1>RESULTS"  # S: "H1 | Caps"
 
 
 def test_headings_base_numbering_and_minor_words(article):
@@ -212,7 +212,8 @@ def test_jehp_abstract_and_headings(tmp_path):
                            "Ethical consideration", BODY])
     t, _, _ = run(path, style.load("jehp"), only=["heading_tags", "sections_abstract"])
     assert t[1] == "Abstract"  # not tagged; colon gone
-    assert t[3].startswith("Materials and Methods: ") and t[4].startswith("Conclusion: ")
+    # S: 'The sub-headings “Materials and Methods” or “Methodology” should be changed to “Methods”'
+    assert t[3].startswith("Methods: ") and t[4].startswith("Conclusion: ")
     assert t[6] == "<H1>Introduction" and t[8] == "<H2>Ethical consideration"
 
 
@@ -230,3 +231,15 @@ def test_subheadings_in_sentence_case(tmp_path):
     assert t[9] == "<H2>Ethical considerations"
     st.settings["headings"]["subheading_case"] = "keep"
     assert run(path, st, only=["heading_tags", "subheadings"])[0][3] == "<H2>Statistical Analysis"
+
+
+def test_letter_salutation_from_the_stylesheet(tmp_path):
+    # IJO sheet: 'Every LTE article should start with “Dear Editor” ... replace with ‘Dear Editor’'
+    path = make(tmp_path, ["Letter to the Editor", "Sir,", BODY, "Sir Ronald Fisher showed it."])
+    t, _, _ = run(path, style.load("ijo"), only=["sections_salutation"])
+    assert t[1] == "Dear Editor," and t[3] == "Sir Ronald Fisher showed it."
+    path = make(tmp_path, ["Dear Sir/Madam, We read the article with interest.", BODY], name="m2.docx")
+    t, _, _ = run(path, style.load("ijo"), only=["sections_salutation"])
+    assert t[0] == "Dear Editor, We read the article with interest."
+    t, _, _ = run(path, style.load("abr"), only=["sections_salutation"])  # no such rule in the ABR sheet
+    assert t[0] == "Dear Sir/Madam, We read the article with interest."

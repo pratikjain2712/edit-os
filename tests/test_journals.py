@@ -70,5 +70,8 @@ def test_reference_journal_rule(directory, tmp_path):
     found = {(c.old, c.new) for c in rules.rule_references(ms, style.load("ijo")) if c.reason == "ref_journal"}
     # IJO keeps NLM's qualifier, as its editors do ("Eye (Lond)", "Clinics (Sao Paulo)"); unknown left alone.
     assert found == {("Indian Journal of Ophthalmology", "Indian J Ophthalmol"), ("Spine", "Spine (Phila Pa 1976)")}
-    found = {(c.old, c.new) for c in rules.rule_references(ms, style.load("ija")) if c.reason == "ref_journal"}
-    assert found == {("Indian Journal of Ophthalmology", "Indian J Ophthalmol")}  # the base style drops it
+    st = style.load("ija")  # every journal keeps it now (S: "abbreviated according to the style used in Index Medicus")
+    assert {(c.old, c.new) for c in rules.rule_references(ms, st) if c.reason == "ref_journal"} == found
+    st.settings["references"]["journal_drop_qualifier"] = True
+    found = {(c.old, c.new) for c in rules.rule_references(ms, st) if c.reason == "ref_journal"}
+    assert found == {("Indian Journal of Ophthalmology", "Indian J Ophthalmol")}  # the switch drops it

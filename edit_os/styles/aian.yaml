@@ -14,20 +14,16 @@ headings:
        data availability statement, ethical approval, ethics approval, statistical analysis,
        limitations, data collection]
 
-statistics:
-  space_around_operators: false  # the editor leaves p=0.03 as typed
-
-keywords:
-  alphabetical: false  # the sheet has no alphabetical-order rule; the editor keeps the author's order
+# statistics.space_around_operators and keywords.alphabetical as base: G297 "add space on either side of operators";
+# the sheet has no keyword-order rule, so G128 "The words in keywords should be in alphabetical order" applies.
 
 # not yet automated:
-#   - article title in Title Case
 #   - serial comma: yes; double quotes; punctuation inside quotes
 #   - references: delete DOIs if added
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
 
 sections:
   back_matter:
     consent: {rename_heading: true}  # "Patient Consent-" -> "Declaration of patient consent" (editors: 2 of 2 not
                                      # already standard)
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

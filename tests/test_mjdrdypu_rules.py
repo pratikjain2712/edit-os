@@ -80,7 +80,9 @@ def test_table_caption_gets_a_period_figure_legend_loses_it(tmp_path):
     t = run(path, styled(figures={"table_caption_end_period": "add"}), ["fig_captions"])
     assert "Table 1: Baseline characteristics (n = 20)." in t
     assert "Figure 1: Axial scan of the orbit" in t
-    t = run(path, style.load("ijo"), ["fig_captions"])
+    t = run(path, style.load("mjdrdypu"), ["fig_captions"])  # S: "The caption should end with a period"
+    assert "Table 1: Baseline characteristics (n = 20)." in t
+    t = run(path, style.load("abr"), ["fig_captions"])  # no such line in the ABR sheet: G200 deletes the period
     assert "Table 1: Baseline characteristics (n = 20)" in t
 
 
@@ -116,7 +118,7 @@ def test_subheading_sentence_case_is_switchable(tmp_path):
                            "Results", long] + REFS)
     t = run(path, style.load("mjdrdypu"), ["subheadings"])
     assert "<H2>Statistical analysis" in t
-    t = run(path, style.load("ijo"), ["subheadings"])
+    t = run(path, styled(headings={"subheading_case": "keep"}), ["subheadings"])
     assert "<H2>Statistical Analysis" in t
 
 

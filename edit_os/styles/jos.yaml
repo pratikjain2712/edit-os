@@ -7,5 +7,16 @@ name: Journal of Orthodontic Science
 #   - history dates: Received / Revised / Accepted as dd-mm-yyyy
 
 sections:
+  abstract:
+    # the sheet has no "... changed to “Methods”" line: G114 'The sub-heading "METHOD" or "METHODS" or "METHODOLOGY"
+    # should be changed to "MATERIALS AND METHODS"' (in the sheet's Title case)
+    rename: {materials and methods: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             material and methods: Materials and Methods, materials and method: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}
+    word_limit_query: false  # no word-limit line
   back_matter:
     consent: {enabled: false}  # the stylesheet has no "Declaration of patient consent" rule
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

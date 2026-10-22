@@ -6,10 +6,10 @@ copyedit:
     convention: british  # from the copy editors' practice (tools/eval_ce.py)
 
 # not yet automated:
-#   - British spelling
 #   - at most six authors: query for a justification letter when there are more
 #   - affiliations: 'Department of X, 1Department of Y' (repeat 'Department')
-#   - article title in Title Case
 #   - structured abstract run-on
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - abstracts also for case reports
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

@@ -3,5 +3,12 @@ name: National Journal of Maxillofacial Surgery
 
 # not yet automated:
 #   - ethical clearance query in every original article
-#   - 'ABSTRACT' heading in capitals; H1 in capitals
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+sections:
+  headings:
+    case: upper  # S: "H1 | Capital case, Bold, Roman"
+  abstract:
+    heading: ABSTRACT  # S: 'The word "ABSTRACT" should be added as heading'
+
+figures:
+  table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it

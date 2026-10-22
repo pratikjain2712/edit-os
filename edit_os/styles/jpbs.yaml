@@ -2,10 +2,16 @@
 name: Journal of Pharmacy and Bioallied Sciences
 
 # not yet automated:
-#   - American spelling
-#   - article title in Title Case, prepositions also capitalized
+#   - article title: prepositions also capitalized (Title case itself is automated)
 #   - author names in italics
 #   - H1 in Small Caps
 #   - supplement articles ('Recent Advances in Dental and Biorelated Sciences') keep the submitted abstract
 #   - structured abstract: Introduction/Background and Objective, Materials and Methods, Results, Conclusion
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+sections:
+  abstract:  # S: "Structured Abstract sub-headings should be Introduction/Background and Objective, Materials and
+             # Methods, Results and Conclusion" (over the template's "... changed to “Methods”")
+    rename: {materials and methods: Materials and Methods, material and methods: Materials and Methods,
+             materials and method: Materials and Methods, methodology: Materials and Methods,
+             methods and materials: Materials and Methods, methods and material: Materials and Methods,
+             methods: Materials and Methods, method: Materials and Methods}

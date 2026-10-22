@@ -2,7 +2,18 @@
 name: Journal of Anaesthesiology Clinical Pharmacology
 
 # not yet automated:
-#   - letters to the editor open with 'Dear Editor'; no running title for LTE
+#   - letters: add 'Dear Editor' when there is no salutation (an existing 'Sir,' is replaced)
 #   - structured abstract: Background and Aims, Material and Methods, Results, Conclusion; systematic reviews structured, narrative reviews not
 #   - no author queries about history dates
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
+
+sections:
+  letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
+  abstract:
+    # S: 'Material and Methods: (not materials and method)' (over the template's "... changed to “Methods”")
+    rename: {materials and methods: Material and Methods, material and method: Material and Methods,
+             material and methods: Material and Methods,
+             methods and materials: Material and Methods, methods and material: Material and Methods,
+             materials and method: Material and Methods, methodology: Material and Methods,
+             methods: Material and Methods, method: Material and Methods}
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'

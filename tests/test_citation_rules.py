@@ -179,7 +179,7 @@ def test_citation_at_paragraph_end_takes_trailing_space(tmp_path):
     _, t = _run(path, _style(), tmp_path, CITE_RULES)
     assert t[1] == "It is the main target in glaucoma.[1]"   # not "glaucoma.[1] "
     assert t[2] == "Ames et al.[2] showed it in rats."
-    assert t[3] == "Caption-free text with a citation[1] in the middle. "  # not at the end: spaces kept
+    assert t[3] == "Caption-free text with a citation[1] in the middle."  # the guide's paragraph-end spaces go (G143)
 
 
 def test_caption_end_period_takes_trailing_space(tmp_path):
@@ -196,7 +196,8 @@ def test_heading_tags_replace_leading_spaces(tmp_path):
     ] + _refs("Ames JB")
     path = _save(tmp_path, paras)
     _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
-    assert t[:5] == [LONG, "<H1>Methods", "<H2>Study design", LONG, "<H1>Results"]  # IJO drops "Introduction"
+    # IJO drops "Introduction" (editors); H1 in capitals (S: "H1 | Caps")
+    assert t[:5] == [LONG, "<H1>METHODS", "<H2>Study design", LONG, "<H1>RESULTS"]
 
 
 def test_caption_end_period_kept_when_set_to_keep(tmp_path):

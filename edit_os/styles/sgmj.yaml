@@ -9,10 +9,25 @@ headings:
        case reports, case presentation, review of literature]
 
 figures:
-  captions: false                # editors are inconsistent ("Table 1 Title", "Table 1.", "Figure 2:"): leave as typed
+  # captions on (base): S 'Figure caption | “Figure 1:” followed by caption in sentence case; bold; should have an end
+  # period' and "Table | Table 1; Sentence case; bold; should have an end period" (editors were inconsistent).
+  figure_caption_end_period: add
 
-references:
-  journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
+sections:
+  headings:
+    case: upper  # S: "H1 | All Caps, Bold, Roman"
+    # S: "H1 | INTRODUCTION (not BACKGROUND)"; "Original Articles should contain first-level headings as: Introduction,
+    # Methods, Results and Conclusion"
+    rename: {background: Introduction, methods: Methods, method: Methods, methodology: Methods,
+             materials and methods: Methods, material and methods: Methods, patients and methods: Methods,
+             subjects and methods: Methods}
+
+front_matter:  # (was front_matter.journals.smj in base.yaml: here it applies under either code)
+  cite_journal: Singapore Med J
+  correspondence_label: "Correspondence:"  # S: 'The word “Correspondence:” in bold'
+  capital_after_colon: false
+  affiliation_first_unnumbered: false  # S: "All affiliations are numbered"
+  dates: {labels: [Received, Accepted], keys: [received, accepted], format: "%d %b %Y", one_line: true}
 
 copyedit:
   spelling:
@@ -22,7 +37,6 @@ copyedit:
 #   - author names in full with surname last and underlined; keep up to 2 qualifications
 #   - correspondence with salutation ('Dr', no period); 'Correspondence:' label
 #   - structured abstract: Introduction, Methods, Results, Conclusion in separate paragraphs
-#   - abstract word limits: structured 250, unstructured 150 (query if exceeded)
 #   - H1 'INTRODUCTION' (not Background); original articles: Introduction, Methods, Results, Conclusion
 #   - lists: 1., 2. then (a), (b) or bullets; CME article label and CME quiz; opening/closing vignettes
 #   - edited books: '1995:465-78' (colon before pages, no 'p.')

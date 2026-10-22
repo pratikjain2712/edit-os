@@ -14,14 +14,10 @@ headings:
        data availability statement, ethical approval, ethics approval, statistical analysis,
        ethical considerations, limitations]
 
-statistics:
-  space_around_operators: false  # the editor leaves p=0.03 as typed
-
-references:
-  journal_drop_qualifier: false  # keeps NLM's qualifier, e.g. Spine (Phila Pa 1976)
+# statistics.space_around_operators as base (G297: "add space on either side of operators")
 
 # not yet automated:
-#   - letters to the editor open with 'Dear Editor'
+#   - letters: add 'Dear Editor' when there is no salutation (an existing 'Sir,' is replaced)
 #   - abstract for original articles only: Introduction, Methods, Results, Conclusions; under 250 words; avoid abbreviations
 #   - no author queries about history dates
 #   - Graph/Chart/Diagram/Video citations -> 'Figure X'
@@ -35,3 +31,8 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
 
 text:
   prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 27 proposed, 81%
+
+sections:
+  letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
+  back_matter:
+    supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
