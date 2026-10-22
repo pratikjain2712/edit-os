@@ -710,9 +710,18 @@ _UNIT_WORDS = re.compile(r"(?i)\b(department|departments|division|unit|units|ser
                          r"university|foundation|cell|wing|ward)\b")
 
 
+_DEPT_LEAD = re.compile(r"(?:deptt|dept|department)\b\.?(?:\s+of\b|\s*(?=[A-Z]))\s*", re.I)
+
+
 def department_form(d: str) -> str:
     """"Cornea Department" and a bare specialty ("ophthalmology") -> "Department of ..."."""
     d = d.strip()
+    lead = _DEPT_LEAD.match(d)
+    if lead and d[lead.end():].strip():  # "Dept. of Psychiatry", "Department Of Pathology" -> "Department of ..."
+        rest = d[lead.end():].strip()
+        while _DEPT_LEAD.match(rest) and rest[_DEPT_LEAD.match(rest).end():].strip():
+            rest = rest[_DEPT_LEAD.match(rest).end():].strip()  # "Department of Department of Pathology"
+        return "Department of " + rest
     m = re.fullmatch(r"(?i)(.+?)\s+department", d)
     if m and not _UNIT_WORDS.search(m.group(1)):
         return "Department of " + m.group(1)
@@ -839,6 +848,10 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     surnames = [" ".join(_name_case(w, False) for w in a.surname.split()) for a in f.authors]
     short = f.running_title or meta.running_title
     short = re.sub(r"^\s*(?:running|short)\s*(?:title|head)\s*[:\-–]?\s*", "", short, flags=re.I)
+    lead = re.match(r"^\s*([^:]{1,60}?)\s*:\s*(?=\S)", short)
+    names_part = re.sub(r"(?:,?\s*et\.?\s*al\.?|\s+(?:and|&)\s+\S+)$", "", lead.group(1), flags=re.I) if lead else ""
+    if lead and surnames and _norm(names_part) and _norm(names_part) == _norm(surnames[0]):
+        short = short[lead.end():]  # "Das, et al: OSA risk ..." given as the running title: the names are added below
     short = _drop_end_period(recase(re.sub(r"\s+", " ", short).strip(), "sentence", keep)) if short.strip() else ""
     rh: list[Run] = [("<RH>", plain)]
     if not surnames:

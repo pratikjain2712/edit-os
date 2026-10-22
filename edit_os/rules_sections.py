@@ -283,6 +283,42 @@ def _all_fmt(p: Paragraph, prop: str) -> bool:
     return bool(letters) and all(f.get(prop) for f in letters)
 
 
+_HEAD_WORD = re.compile(r"[A-Za-z][A-Za-z’'\-]*")
+
+
+def _plain_cap(w: str) -> bool:
+    """"Analysis", "Cut-off", "Socio-Demographic": capitalised word parts, the rest lower case (not "BPI", "TyG")."""
+    parts = [x for x in re.split(r"[-’']", w) if x]
+    return bool(parts) and w[0].isupper() and len(parts[0]) > 1 and all(x[1:].islower() or x.islower() for x in parts)
+
+
+def sentence_case_edits(text: str) -> list[tuple[int, int, str]]:
+    """Word edits that put a Title Case heading into sentence case ("Sex Differences in BPI Scores" ->
+    "Sex differences in BPI scores"): the first word and the word after a colon keep their capital, so do
+    abbreviations, mixed-case words and an expansion before its abbreviation ("Borderline Personality
+    Inventory (BPI)"). Only a heading whose words are all capitalised is changed: in "Prevalence of Vitamin D
+    deficiency" the capital is the author's proper noun."""
+    words = list(_HEAD_WORD.finditer(text))
+    if len(words) < 2:
+        return []
+    keep = {0}
+    for i, w in enumerate(words[1:], 1):
+        if text[words[i - 1].end():w.start()].strip().endswith(":"):
+            keep.add(i)
+    for m in re.finditer(r"\(([A-Z][A-Za-z]*[A-Z]s?)\)", text):
+        letters = re.sub(r"s$", "", m.group(1))
+        before = [i for i, w in enumerate(words) if w.end() <= m.start()][-len(letters):]
+        if len(before) == len(letters) and all(words[i].group(0)[0].upper() == c.upper() for i, c in zip(before, letters)):
+            keep.update(before)
+    cand = [i for i, w in enumerate(words) if i not in keep and w.group(0).lower() not in _MINOR
+            and not (len(w.group(0)) == 1 and w.group(0).isupper())
+            and (w.group(0).islower() or _plain_cap(w.group(0)))]
+    caps = [i for i in cand if _plain_cap(words[i].group(0))]
+    if not caps or len(caps) < len(cand):
+        return []
+    return [(words[i].start(), words[i].end(), words[i].group(0).lower()) for i in caps]
+
+
 def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("headings.tag") or not style.get("headings.subheadings", False):
         return []
@@ -338,6 +374,9 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         level = "H3" if (italic and not bold and has_bold) or (num and num.group(1).count(".") >= 2) else "H2"
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
         out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
+        if style.get("headings.subheading_case", "keep") == "sentence":
+            for s, e, w in sentence_case_edits(p.text):
+                out.append(_change(p, s, e, w, Layer.STRUCTURE, "subheadings"))
         if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
             k = len(p.text.rstrip()) - 1  # with the spaces after it
             out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
@@ -735,9 +774,51 @@ def contributions_from_sources(ms: Manuscript, skip: set[str] = frozenset()) -> 
     return []
 
 
+# Data availability statement: "Data availability statement: ...", "Availability of data and materials", "Data
+# sharing statement" (a heading line, or a label with the statement after it).
+_DATA_HEAD = re.compile(
+    r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>data\s+(?:availability|sharing)(?:\s+statements?)?"
+    r"|availability\s+of\s+(?:the\s+)?data(?:\s+and\s+materials?)?)(?P<sep>\s*[:.\-–—]\s*|\s*$)", re.I)
+_DATA_TEMPLATE = re.compile(r"\b(?:if\s+applicable|please\s+(?:state|provide|mention|specify)|e\.g\.|tick)\b", re.I)
+
+
+def _statement(text: str) -> str:
+    """"not applicable" -> "Not applicable.": first letter capital, a final period."""
+    text = re.sub(r"\s+", " ", text).strip(" -–—:")
+    if not text:
+        return ""
+    text = text[0].upper() + text[1:]
+    return text if text.endswith((".", "!", "?")) else text + "."
+
+
+def data_availability_from_sources(ms: Manuscript) -> str:
+    """The data availability statement given on the title page (the first-page file): the label's own text, or the
+    paragraph after a bare label. A form's prompt or an empty label gives nothing (nothing is invented)."""
+    src = getattr(ms, "front_sources", None)
+    paras = [t for t in (getattr(src, "first_page", None) or []) if t.strip()]
+    for i, text in enumerate(paras):
+        m = _DATA_HEAD.match(text)
+        if not m:
+            continue
+        content = text[m.end():].strip()
+        if not content and i + 1 < len(paras):
+            nxt = paras[i + 1].strip()
+            if not (_OTHER_LABEL.match(nxt) or _CONTRIB.match(nxt) or _LABEL.match(nxt) or _CONSENT_HEAD.match(nxt)
+                    or _ETHICS.match(nxt)) and len(nxt) <= 800:
+                content = nxt
+        if content and len(content) <= 800 and not _DATA_TEMPLATE.search(content):
+            return _statement(content)
+    return ""
+
+
+def has_data_availability(ms: Manuscript) -> bool:
+    ref_ids = {r.para_id for r in references.extract(ms)}
+    return any(_DATA_HEAD.match(p.text) for p in ms.paragraphs if p.id not in ref_ids and len(p.text) <= 1000)
+
+
 @dataclass
 class _Section:
-    kind: str           # consent | contributions | funding | conflict
+    kind: str           # consent | contributions | funding | conflict | data
     para: Paragraph     # its first paragraph (heading, or the statement itself)
     heading: bool       # para is a heading line (heading_tags may insert at its start)
     end: Paragraph | None = None  # its last paragraph, when known
@@ -754,7 +835,7 @@ def back_matter_plan(ms: Manuscript, style: JournalStyle, run: bool = False) -> 
     cached = getattr(ms, "_back_matter_plan", None)
     if cached is not None and cached[0] is style:
         return cached[1]
-    plan = {"consent": None, "contributions": None}
+    plan = {"consent": None, "contributions": None, "data": None}
     ms._back_matter_plan = (style, plan)
     if run and _on(style, "back_matter.enabled"):
         _statements(ms, style)
@@ -772,7 +853,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     tag = "<H2>" if style.get("headings.tag") else ""
     levels = _levels(style)
     plan = back_matter_plan(ms, style)
-    plan.update(consent=None, contributions=None)
+    plan.update(consent=None, contributions=None, data=None)
     std = {}
     for sec in style.get("required_sections", []) or []:
         h = sec["heading"].lower()
@@ -790,6 +871,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     contrib_cfg = _cfg(style, "back_matter.contributions") or {}
     consent_on = _cfg(style, "enabled", True) and consent_cfg.get("enabled", False)
     contrib_on = _cfg(style, "enabled", True) and contrib_cfg.get("enabled", False)
+    data_cfg = _cfg(style, "back_matter.data_availability") or {}
+    data_on = _cfg(style, "enabled", True) and data_cfg.get("enabled", False)
     nonempty = [p for p in region if p.text.strip()]
     by_text = {p.id: p.text for p in ms.paragraphs}
     ref_i = references.find_heading(ms)
@@ -839,6 +922,10 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             content = p.text[em.end():]
             if content.strip() and em.group("sep").strip() and _ETHICS_NIL.match(content) and _words(content) <= 25:
                 delete(p)
+            continue
+        # data availability: kept as written; it places the sections added around it
+        if data_on and _DATA_HEAD.match(p.text):
+            sections.append(_Section("data", p, not p.text[_DATA_HEAD.match(p.text).end():].strip()))
             continue
         # consent
         cm = _CONSENT_HEAD.match(p.text)
@@ -1024,8 +1111,18 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 plan["contributions"] = "added"
             else:
                 plan["contributions"] = "missing"
+    if data_on:
+        if "data" in have or has_data_availability(ms):
+            plan["data"] = "exists"
+        else:
+            text = data_availability_from_sources(ms) if data_cfg.get("from_sources", True) else ""
+            if text:
+                new["data"] = [f"{tag}{data_cfg.get('heading', 'Data availability statement')}", text]
+                plan["data"] = "added"
+            else:
+                plan["data"] = "missing"
     if not _on(style, "back_matter.add_missing"):
-        new = {k: v for k, v in new.items() if k in ("consent", "contributions")}
+        new = {k: v for k, v in new.items() if k in ("consent", "contributions", "data")}
     if anchor is None:
         # No reference list found: add the sections after the last statement read here.
         seen = [p for p in nonempty if p.id in deleted or p.id in consumed or any(x.para is p for x in sections)]
@@ -1131,6 +1228,7 @@ TEXT = {
     "sections.patient_consent": "Kindly confirm whether consent form obtained or not?",
     "sections.consent_added": "Please ensure that patient consent form has been obtained.",
     "sections.contributions_missing": "Please provide authors’ contributions.",
+    "sections.data_availability_missing": "Please provide the missing Data availability statement, if available.",
 }
 
 
@@ -1180,3 +1278,6 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         if plan.get("contributions") == "missing" and (_cfg(style, "back_matter.contributions") or {}).get(
                 "query_missing") and at:
             qs.add(at, "sections.contributions_missing")
+        if plan.get("data") == "missing" and (_cfg(style, "back_matter.data_availability") or {}).get(
+                "query_missing") and at:
+            qs.add(at, "sections.data_availability_missing")

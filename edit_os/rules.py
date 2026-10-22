@@ -89,6 +89,15 @@ def _is_statistic_index(text: str, start: int, end: int) -> bool:
     return bool(_STAT_BEFORE.search(text[max(0, start - 3):start])) and len(text[start:end].strip()) <= 2
 
 
+# "χ²", "η²H", "ω²": a Greek letter's power (chi-square, eta squared), not a citation.
+_GREEK = re.compile(r"[\u0370-\u03ff]")
+
+
+def _is_greek_power(text: str, start: int, end: int) -> bool:
+    """χ², η²H: a Unicode superscript right after a Greek letter is a power, not a citation."""
+    return start >= 1 and bool(_GREEK.match(text[start - 1])) and end - start <= 2
+
+
 def _sup_plain(s: str) -> str:
     return "".join(str(_SUP_DIGITS.index(c)) if c in _SUP_DIGITS else {"⁻": "-", "˒": ","}.get(c, c) for c in s)
 
@@ -111,6 +120,8 @@ def superscript_citations(p: Paragraph) -> list[tuple[int, int, str]]:
         if any(a <= m.start() < b for a, b in taken):
             continue
         if _is_exponent(p.text, m.start()) or _is_statistic_index(p.text, m.start(), m.end()):
+            continue
+        if _is_greek_power(p.text, m.start(), m.end()):
             continue
         if p.text[m.end():m.end() + 1].isdigit() or p.text[m.start() - 1:m.start()].isdigit() and m.start():
             continue  # part of a longer number written half in superscript
@@ -177,6 +188,12 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
     return out
 
 
+# A full stop (or comma) that already ends the words before a citation: "gets older. (1).", "features.[1]."
+# (not "et al. (5).": there the period is the abbreviation's).
+_PUNCT_BEFORE = re.compile(r"(?:(?<![\w.])(?!(?:al|etc|vs|approx|fig|figs|ref|refs|no|eq)\b)[A-Za-z]{3,}|[\])%\d])[.,;:]\s*$",
+                           re.I)
+
+
 def _trailing_space(p: Paragraph, end: int, rule: str) -> list[Change]:
     """A citation restyled at the end of a paragraph takes the spaces after it with it:
     "glaucoma [5]. " -> "glaucoma.[5]" (style editors: 79 of 84 such paragraph ends, 160 articles)."""
@@ -226,13 +243,19 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
         norm = normalise_citation(inner, style)
         if norm is None:
             continue
-        if style.get("citations.after_punctuation", True) and punct:
+        doubled = punct and _PUNCT_BEFORE.search(p.text, 0, start) and p.text[:start].rstrip().endswith(punct) \
+            and style.get("citations.after_punctuation", True)
+        if doubled:
+            new = f"[{norm}]"  # "older. (1). CVDs", "features.[1]. On" -> "older.[1] CVDs": the stop is there already
+        elif style.get("citations.after_punctuation", True) and punct:
             new = f"{punct}[{norm}]"
         else:
             new = f"[{norm}]{punct}"
         if new == p.text[start:end]:
             continue
-        if sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
+        if doubled:
+            out.append(_change(p, start, end, new, Layer.REFERENCES, "citations", sup))
+        elif sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
             out.append(_change(p, start, end, punct, Layer.REFERENCES, "citations"))
             out.append(_change(p, end, end, new[len(punct):], Layer.REFERENCES, "citations", sup))
         elif sup:
@@ -465,16 +488,21 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
 # --- statistics ----------------------------------------------------------------------
 
 _OPERATOR = re.compile(r"(?<=[A-Za-z0-9)\]])(\s*)([=<>≤≥])(\s*)(?=[-−–]?\d|\.\d)")
+# A running-text word (lower case, two letters or more) right before the spaces: "aged <108".
+_WORD_BEFORE = re.compile(r"(?:(?<!\w)[a-z]{2,}|\w[’']s)\s+$")
 
 
 def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("statistics.space_around_operators"):
         return []
+    keep_unary = style.get("statistics.keep_unary", False)
     out = []
     for p in body_paragraphs(ms):
         if "http" in p.text or "<" in p.text and ">" in p.text and re.search(r"<\w+>", p.text):
             continue
         for m in _OPERATOR.finditer(p.text):
+            if keep_unary and m.group(1) and not m.group(3) and _WORD_BEFORE.search(p.text, 0, m.start(2)):
+                continue  # "aged <108 months", "was ≥400 children": a unary sign after a word stays closed
             new = f" {m.group(2)} "
             if m.group(0) != new:
                 out.append(_change(p, m.start(), m.end(), new, Layer.NUMBERS, "statistics"))

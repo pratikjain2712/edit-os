@@ -216,6 +216,23 @@ def find_p_value(text: str, cfg: dict) -> list:
             for m in re.finditer(r"(?<![\w.\-])p(?=" + _SP + r"*[=<>≤≥]" + _SP + r"*[0.]|[\- ]values?\b)", text)]
 
 
+_NUM_RANGE = re.compile(r"(?<![\w\-/.\[,:])(\d+(?:\.\d+)?)( ?)-( ?)(\d+(?:\.\d+)?)(?![\w\-/\]]|\.\d)")
+
+
+def find_range_dash(text: str, cfg: dict) -> list:
+    """Numeric ranges with an en dash: "2-6 years", "(1.01-1.06)", "4 -6" -> "2–6", "(1.01–1.06)", "4–6".
+    Hyphenated terms (COVID-19, IL-6), citations ([6-9], kept with a hyphen), dates written 12-05-2024 and
+    spaced subtractions ("5 - 3") are left alone."""
+    out = []
+    for m in _NUM_RANGE.finditer(text):
+        if m.group(2) and m.group(3):
+            continue  # "5 - 3": arithmetic
+        if re.match(r"-\d", text[m.end():]) or re.search(r"\d-$", text[:m.start()]):
+            continue
+        out.append((m.end(1), m.start(4), "–"))
+    return out
+
+
 FINDERS = {
     "et_al_period": find_et_al,
     "ampersand": find_ampersand,
@@ -232,9 +249,10 @@ FINDERS = {
     "multiplication": find_multiplication,
     "technetium": find_technetium,
     "p_value_capital": find_p_value,
+    "range_dash": find_range_dash,
 }
 # Rules that read arithmetic and must not run inside formula-looking paragraphs.
-_ARITHMETIC = {"operator_spacing", "unary_minus", "unary_comparison", "multiplication"}
+_ARITHMETIC = {"operator_spacing", "unary_minus", "unary_comparison", "multiplication", "range_dash"}
 
 
 def propose(text: str, cfg: dict) -> list[tuple[int, int, str, str]]:
@@ -260,6 +278,8 @@ def propose(text: str, cfg: dict) -> list[tuple[int, int, str, str]]:
 def _paragraphs(ms: Manuscript, include_tables: bool) -> list[Paragraph]:
     end = references.find_heading(ms)
     paras = ms.paragraphs if end is None else ms.paragraphs[:end]
+    if include_tables and end is not None:  # tables placed after the reference list
+        paras = paras + [p for p in ms.paragraphs[end:] if p.in_table]
     return [p for p in paras if p.text.strip() and (include_tables or not p.in_table)
             and not p.text.lstrip().startswith("<H")]
 
@@ -275,9 +295,11 @@ def settings(style: JournalStyle) -> dict:
 
 def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
     cfg = settings(style)
+    in_tables = set(cfg.get("table_rules") or [])  # finders that also run in tables when include_tables is off
     out = []
-    for p in _paragraphs(ms, bool(cfg.get("include_tables"))):
-        for s, e, new, name in propose(p.text, cfg):
+    for p in _paragraphs(ms, bool(cfg.get("include_tables") or in_tables)):
+        pcfg = cfg if not p.in_table or cfg.get("include_tables") else {k: v for k, v in cfg.items() if k in in_tables}
+        for s, e, new, name in propose(p.text, pcfg):
             out.append(Change(id=f"g{next(_ids)}", para_id=p.id, start=s, end=e, old=p.text[s:e], new=new,
                               layer=Layer.HOUSE_STYLE, source=Source.RULE, reason=f"guide.{name}"))
     return out

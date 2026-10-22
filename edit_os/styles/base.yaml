@@ -24,9 +24,12 @@ headings:
   subheadings: true          # short own-line heads inside a section -> <H2> (<H3> for italic under bold, "2.1.1")
   subheading_max_words: 8
   subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
+  subheading_case: keep      # keep | sentence: "Statistical Analysis" -> "Statistical analysis" (Title Case heads only;
+                             # abbreviations, mixed case and "Borderline Personality Inventory (BPI)" kept)
 
 statistics:
   space_around_operators: true  # p=0.03 -> p = 0.03
+  keep_unary: false             # true: "aged <108 months", "was ≥400" (a word, a space, the sign closed up) stay as typed
 
 guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rules_guide.py), body text only
   # On by default: what the editors were measured to do on real articles (style + copy edit).
@@ -48,7 +51,9 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   degree_space: false         # "29 °C" -> "29°C"
   technetium: false           # "99 mTc" -> "99mTc"
   p_value_capital: false      # "p = 0.03" -> "P = 0.03" (copy editors, sometimes)
+  range_dash: false           # numeric ranges "2-6 years", "(1.01-1.06)" -> en dash (not citations, dates, IL-6)
   include_tables: false
+  table_rules: []             # finders that also run in tables when include_tables is off, e.g. [range_dash]
 
 text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit checkers; body text, not references
   # Measured on 158 articles against the copy editors' text (tools/eval_ce.py; proposed, precision): the style
@@ -124,6 +129,7 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
 figures:                        # figure and table citations and captions (rules_figures.py)
   citations: true
   brackets: square              # (Figure 1) -> [Figure 1]
+  before_full_stop: false       # "immunized. (Table 1)" -> "immunized [Table 1]." (square brackets only)
   figure_label: Figure          # "Fig. 1" -> "Figure 1" (every journal but IJO in the editors' files)
   figure_label_plural: Figures
   part_labels: lower            # Figure 1A -> Figure 1a: what the editors do (the guide says uppercase)
@@ -134,6 +140,7 @@ figures:                        # figure and table citations and captions (rules
   captions: true
   caption_separator: ": "       # "Table 1. Title" -> "Table 1: Title"
   caption_end_period: false     # delete the period at the end of a caption
+  table_caption_end_period: null  # tables only: add | keep (null: as caption_end_period)
   queries: true                 # out of order, cited without caption, caption never cited
   insert:                       # figures sent as separate files in the zip -> picture above its legend (figures_insert.py)
     enabled: false              # off: of 58 edited articles with figure files in the zip and no picture in the
@@ -223,6 +230,11 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
       from_sources: false        # add the section from the title page / contribution form / cover letter when the
                                  # manuscript has none (per journal: IJO and IDOJ editors do; ABR editors never do)
       query_missing: false       # none given anywhere (IJO editors queried 1 of 7 such articles)
+    data_availability:  # "Data availability statement" (MJDRDYPU stylesheet: add it if given in source or FP, else query)
+      enabled: false             # an existing statement is kept as written (and places the sections added around it)
+      heading: Data availability statement
+      from_sources: true         # the statement on the title page (first-page file) when the manuscript has none
+      query_missing: false       # "Please provide the missing Data availability statement, if available."
 
 submission:  # parts of a submission inside the manuscript file (edit_os/submission.py); measured on the editors' files
   enabled: true
