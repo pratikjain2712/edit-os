@@ -224,9 +224,14 @@ def find_range_dash(text: str, cfg: dict) -> list:
     Hyphenated terms (COVID-19, IL-6), citations ([6-9], kept with a hyphen), dates written 12-05-2024 and
     spaced subtractions ("5 - 3") are left alone."""
     out = []
+    # Round brackets holding only whole numbers ("(11-13)", "(23, 29-31)") are reference citations the citation
+    # rule turns into "[11-13]" with a hyphen (S: "For range, en dash should be changed to hyphen").
+    cites = [b.span() for b in re.finditer(r"\(\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\)", text)]
     for m in _NUM_RANGE.finditer(text):
         if m.group(2) and m.group(3):
             continue  # "5 - 3": arithmetic
+        if any(s < m.start() and m.end() < e for s, e in cites):
+            continue
         if re.match(r"-\d", text[m.end():]) or re.search(r"\d-$", text[:m.start()]):
             continue
         out.append((m.end(1), m.start(4), "–"))

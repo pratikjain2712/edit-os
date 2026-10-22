@@ -18,12 +18,17 @@ headings:
        acknowledgements, author contribution statement, author contributions, data availability statement,
        ethical approval, ethics approval, ethical consideration, ethical considerations, ethics considerations,
        ai policy statement]
+  # Other statement heads after the Conclusion ("Data availability", "Consent for publication", "Declaration of
+  # AI-assisted writing"): <H2> as the listed ones (S: "H2 | Sentence Case, Bold, Roman, flush left"); the editors
+  # tag every bold back-matter head they keep (H2 in 14 of 17 articles), the sheet does not list them.
+  back_matter_subheadings: true
   # subheading_case: sentence as base (S: "H2 | Sentence Case"; editors lowered Title Case sub-heads in 5 of 6)
 
 # statistics.unary_after_word: false as base (G301: unary "><space>10 -> >10"; editors 0 of 20 spaced)
 
 guide_replace:
   # p_value_capital, trailing_space, leading_space: on in base (G294, G143)
+  range_dash: true
   double_space: true      # 44 of 62 (7 articles; one editor kept 17 in one article); the sheet and guide are silent
   smart_quotes: true      # straight apostrophes made curly in 11 of 16 articles that have them; straight double
                           # quotes in 3 of 3 (silent)
@@ -33,8 +38,14 @@ guide_replace:
 
 # figures: as base. S: "The caption should end with a period" (table captions: added; editors 9 add, 8 leave none);
 # figure legends: G261 deletes a final period (the sheet is silent on legends).
+figures:
+  table_caption_case: sentence  # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold
+                                # style and Sentence Case' (editors leave most captions as typed: owner's list)
 
 sections:
+  # S: the reference list's heading is "REFERENCES" (set in title case as the other H1 heads): "Reference" ->
+  # "<H1>References" (editors: 2 of 2 TRAIN articles with "Reference").
+  headings: {reference_heading: References}
   # abstract.rename: as base. S: 'The sub-headings “Materials and Methods” or “Methodology” should be changed to
   # “Methods”' (the JEHP editors keep "Materials and Methods" in 17 of 17: owner's list).
   abstract:
@@ -56,6 +67,8 @@ submission:
 
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files (the sheet is silent)
   body_unbold: false  # editors keep bold in running text (0 of 6)
+  heading_bold_tagged: true  # S: "H1 | Title case, Bold", "H2 | Sentence Case, Bold", "H3 | ... Bold, italics": every
+                             # tagged heading in bold (editors bold the plain ones: N of M, tools/eval_format.py)
   remove_font_color: false  # editors removed the author's colours in 2 of 17 articles (tool precision 31%)
 
 # copyedit.abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by

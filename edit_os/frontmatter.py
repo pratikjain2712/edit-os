@@ -232,6 +232,13 @@ def _txt(el, path: str) -> str:
     return re.sub(r"\s+", " ", "".join(x.itertext())).strip() if x is not None else ""
 
 
+def _given(first: str, middle: str) -> str:
+    """The portal's first and middle names; a middle name that repeats the first ("Khadija" / "Khadija") once."""
+    if middle and middle.casefold() != first.casefold():
+        return f"{first} {middle}".strip()
+    return first
+
+
 def parse_xml(data: bytes) -> Meta:
     try:
         root = etree.fromstring(data, etree.XMLParser(recover=True, resolve_entities=False, no_network=True))
@@ -267,7 +274,9 @@ def parse_xml(data: bytes) -> Meta:
     m.title = _txt(root, "title")
     for a in root.iter("author"):
         m.authors.append(dict(
-            given=" ".join(x for x in (_txt(a, "fname"), _txt(a, "mname")) if x), surname=_txt(a, "lname"),
+            # The portal often repeats the first name as the middle name ("Khadija" / "Khadija"): once.
+            given=_given(_txt(a, "fname"), _txt(a, "mname")),
+            surname=_txt(a, "lname"),
             prefix=_txt(a, "title"), email=_txt(a, "email"), corresponding=_txt(a, "is_corresponding") == "Y",
             zip=_txt(a, "corresponding_zip") or _txt(a, "zip"),
             aff={k: _txt(a, t) for k, t in (("department", "department"), ("institution", "institute"),
@@ -443,6 +452,8 @@ def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
     f.running_title = ok(raw.get("running_title", ""), "running title")
     for a in raw.get("authors", []):
         given, surname = ok(a.get("given_names", ""), "given name"), ok(a.get("surname", ""), "surname")
+        if not surname and given and " " not in given:
+            given, surname = "", given  # one name only ("Sonakshi"): the sheet's "Punithavathy, ..., Stalin"
         if not surname:
             continue
         prefix = a.get("prefix", "") if re.fullmatch(r"(?i)dr|prof", a.get("prefix", "").strip(" .")) else ""
@@ -1318,6 +1329,14 @@ def block_provenance(role: str, f: Fields, src: Sources, lead: list[Paragraph], 
     return None
 
 
+def _xml_has_more(f: Fields, meta: Meta) -> bool:
+    """The split names a strict subset of the XML's authors and links none of them to an affiliation (so its
+    affiliations, if any, belong to nobody in particular)."""
+    xml = [_norm(a.get("surname", "")) for a in meta.authors if a.get("surname")]
+    got = [_norm(a.surname) for a in f.authors]
+    return bool(got) and len(xml) > len(got) and set(got) < set(xml) and not any(a.affs for a in f.authors)
+
+
 def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Plan:
     """Everything the front-matter step proposes for this manuscript."""
     cached = getattr(ms, "_front_plan", None)
@@ -1346,6 +1365,12 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             m = fields_from_meta(src.meta)
             f.authors, f.affiliations = m.authors, m.affiliations
             f.correspondence = f.correspondence or m.correspondence
+        elif _xml_has_more(f, src.meta):
+            # The text gave only some of the submission's authors (no title page: a cover letter): the XML's list.
+            m = fields_from_meta(src.meta)
+            f.notes.append("authors taken from the submission XML: the text names only "
+                           f"{len(f.authors)} of its {len(m.authors)} authors")
+            f.authors, f.affiliations = m.authors, m.affiliations
     else:
         f = fields_from_meta(src.meta)
     _fix_roles(f, lead)

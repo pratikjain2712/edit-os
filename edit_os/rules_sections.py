@@ -216,13 +216,20 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     case = _cfg(style, "headings.case", "keep")
     known = set(levels) | set(rename) | drop | {k.lower() for k in style.get("headings.h1", [])}
     skip = abstract_ids(ms) | {p.id for p in [layout(ms).abstract_head, layout(ms).keywords] if p}
+    # The reference list's own heading in the journal's wording ("Reference" -> "References"); only that
+    # paragraph: "Reference" elsewhere is a table's reference category.
+    ref_name = _cfg(style, "headings.reference_heading")
+    ref_i = references.find_heading(ms) if ref_name else None
+    ref_id = ms.paragraphs[ref_i].id if ref_i is not None else None
     out = []
     for p in ms.paragraphs:
         text = p.text
         if p.in_table or len(text) > 60 or p.id in skip or not text.strip():
             continue
         key = _key(text)
-        if key not in known:
+        if p.id == ref_id and key != ref_name.lower() and re.fullmatch(r"references?|bibliography|reference list", key):
+            rename = {**rename, key: ref_name}
+        elif key not in known:
             continue
         tag = _TAG.match(text)
         lead = tag.end() if tag else len(text) - len(text.lstrip())
@@ -310,12 +317,35 @@ def _all_fmt(p: Paragraph, prop: str) -> bool:
     return bool(letters) and all(f.get(prop) for f in letters)
 
 
+_NOT_BACK_HEAD = re.compile(r"^(?:figures?|tables?|(?:figure\s+)?legends?|appendix|appendices|supplementary|"
+                            r"abbreviations?|list of abbreviations|references?|bibliography|declarations?$)\b", re.I)
+
+
+def _back_matter_head(p: Paragraph, after: list[Paragraph], max_words: int, min_next: int) -> bool:
+    """A statement heading after the Conclusion ("Data availability", "Consent for publication"): a short line
+    of its own, bold or in a Word heading style, over the statement's text. The labels the back-matter rules
+    know (conflicts of interest, funding, acknowledgement) are theirs."""
+    text = p.text.strip()
+    if p.in_table or len(text.split()) > max_words or text.endswith((".", ",", ";")) or ":" in text.rstrip(":")[:-1] \
+            or not text[:1].isupper() or _NOT_BACK_HEAD.match(text) or _LABEL.match(text) and _LABEL.match(text).group("label"):
+        return False
+    from . import rules_figures
+    if rules_figures.caption_match(p) is not None:
+        return False
+    nxt = next((q for q in after if q.text.strip()), None)
+    if nxt is None or nxt.in_table or len(nxt.text.strip()) < 15 or _all_fmt(nxt, "bold"):
+        return False
+    # A plain line needs running text after it, as a plain sub-heading in the body does.
+    return _all_fmt(p, "bold") or (p.style or "").lower().startswith("heading") or len(nxt.text) >= min_next
+
+
 def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("headings.tag") or not style.get("headings.subheadings", False):
         return []
     from . import rules_figures
 
     max_words = style.get("headings.subheading_max_words", 8)
+    back_matter = style.get("headings.back_matter_subheadings", False)
     min_next = style.get("headings.subheading_plain_min_next", 200)
     main = ({n.lower() for n in style.get("headings.h1", [])} | set(_levels(style))
             | {k.lower() for k in (_cfg(style, "headings.rename") or {})}
@@ -327,7 +357,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     paras = ms.paragraphs[:ref_i] if ref_i is not None else ms.paragraphs
     skip = abstract_ids(ms) | {p.id for p in [layout(ms).abstract_head, layout(ms).keywords] if p}
     found = []  # (paragraph, bold, italic, numbering, section number)
-    in_body = False
+    in_body = in_back = False
+    back_tagged = None
     section = 0
     run_in: dict[int, int] = {}  # section -> paragraphs opening with a run-in label ("Histopathology: The ...")
     for i, p in enumerate(paras):
@@ -336,11 +367,19 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             continue
         key = _key(p.text)
         if key in main:
-            in_body = key not in ("conclusion", "conclusions")
+            # The statement heads after the Conclusion ("Conflicts of interest") do not open a body section.
+            in_body = key not in ("conclusion", "conclusions") and not (in_back and _levels(style).get(key) == "H2")
+            in_back = not in_body and (in_back or key in ("conclusion", "conclusions"))
             section += 1
             continue
         if _RUN_IN.match(text) and len(text) > 100:
             run_in[section] = run_in.get(section, 0) + 1
+        if back_matter and in_back and key not in known and _back_matter_head(p, paras[i + 1:], max_words, min_next):
+            if back_tagged is None:  # the statement heads the back-matter rule tags itself (consent, contributions)
+                back_tagged = {c.para_id for c in rule_back_matter(ms, style) if "<H" in c.new}
+            if p.id not in back_tagged:
+                found.append((p, False, False, None, section))  # always <H2>; not counted as a bold body head
+            continue
         if not in_body or key in known or len(text) > 100 or _TAG.match(text):
             continue
         if text.endswith((".", ",", ";")) or len(text.split()) > max_words or _SUB_SKIP.match(text) \
@@ -375,7 +414,7 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     return out
 
 
-def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str) -> list[Change]:
+def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 0) -> list[Change]:
     """A Title Case heading in sentence case, word by word ("Statistical Analysis" -> "Statistical analysis").
     The first word and the word after a colon keep their capital; a word is lowered unless the manuscript's
     running text capitalises it inside a sentence more often than not (so "Iran", "Bandura" stay); acronyms and
@@ -394,11 +433,34 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str) -> list[Chang
             before = words[k - len(a.group(1)):k]
             if all(w.group(0)[:1].upper() == c.upper() for w, c in zip(before, a.group(1))):
                 keep.update(w.start() for w in before)
+    lead_word = next((m.start() for m in words if m.start() >= start), None) if start else None
     for m in words:
         w = m.group(0)
-        if w.startswith("<H") or re.fullmatch(r"[\d.]+", w):
+        if m.start() < start or w.startswith("<H") or re.fullmatch(r"[\d.]+", w):
+            continue  # before `start`: a caption's "Table 1:" label
+        hyphened = re.fullmatch(r"\(?[A-Za-z0-9]+(?:[-‐‑][A-Za-z0-9]+)+\W*", w)
+        if hyphened and m.start() not in keep and p.text[:m.start()].count("(") <= p.text[:m.start()].count(")"):
+            # "Within-Group Comparison", "Cross-Sectional Study": the parts after a hyphen too, unless the text
+            # writes them capitalised after a hyphen ("Kaplan-Meier", "Mann-Whitney").
+            for k, part in enumerate(re.finditer(r"[^-‐‑]+", w)):
+                text_part = part.group(0)
+                if not re.fullmatch(r"\(?[A-Z][a-z]+\W*", text_part) or (k == 0 and first):
+                    continue
+                head = re.search(r"[A-Za-z]+", text_part).group(0)
+                if k == 0:
+                    lower, caps = _counts(head, body)
+                else:
+                    lower = len(re.findall(r"[-‐‑]" + head.lower() + r"\b", body))
+                    caps = len(re.findall(r"[-‐‑]" + head + r"\b", body)) \
+                        - len(re.findall(r"[-‐‑]" + head + r"\b", p.text))  # not the heading itself
+                if caps <= lower:
+                    i = m.start() + part.start() + text_part.index(head[0])
+                    out.append(_change(p, i, i + 1, head[0].lower(), Layer.STRUCTURE, rule))
+            first = w.endswith(":")
             continue
         if first or m.start() in keep or not re.match(r"[A-Z][a-z]+(?:[’'][a-z]+)?\W*$", w):
+            if m.start() == lead_word and w[:1].islower() and re.fullmatch(r"[a-z]+\W*", w):
+                out.append(_change(p, m.start(), m.start() + 1, w[0].upper(), Layer.STRUCTURE, rule))  # caption's first word
             first = w.endswith(":")
             continue
         head = re.match(r"[A-Za-z]+", w).group(0)
@@ -493,14 +555,18 @@ def _keyword_case(kw: str, body: str) -> str:
     "Goldenhar syndrome", "Iran"); capitalise lower-case words the manuscript capitalises."""
     out = []
     for w in kw.split(" "):
-        head = re.split(r"[-‐‑/’']", w)[0]
-        if len(head) > 1 and head.isalpha() and head[1:].islower():
-            lower, caps = _counts(head, body)
-            if head[0].isupper() and caps <= lower:
-                w = w[0].lower() + w[1:]
-            elif head[0].islower() and caps >= 2 and not lower:
-                w = w[0].upper() + w[1:]
-        out.append(w)
+        # Each part of a hyphenated word too: "Game-Based Learning" -> "game-based learning",
+        # "K-Means" -> "K-means" (not "Non-ST", "COVID-19"; the part after an apostrophe stays as it is).
+        parts = re.split(r"([-‐‑/])", w)
+        for i in range(0, len(parts), 2):
+            head = re.split(r"[’']", parts[i])[0]
+            if len(head) > 1 and head.isalpha() and head[1:].islower():
+                lower, caps = _counts(head, body)
+                if head[0].isupper() and caps <= lower:
+                    parts[i] = parts[i][0].lower() + parts[i][1:]
+                elif head[0].islower() and caps >= 2 and not lower and i == 0:
+                    parts[i] = parts[i][0].upper() + parts[i][1:]
+        out.append("".join(parts))
     return " ".join(out)
 
 

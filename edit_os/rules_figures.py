@@ -441,6 +441,10 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         old_label = p.text[m.end("lead"):rest_start]
         if new_label != old_label:
             out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions")
+        # S: 'followed by caption content in bold style and Sentence Case' (table captions; figures.table_caption_case)
+        if cap.kind == TABLE and style.get("figures.table_caption_case") == "sentence":
+            from .rules_sections import sentence_case_changes
+            out += sentence_case_changes(ms, p, "fig_captions", start=rest_start)
         # The final period, per kind: add | delete | keep (figures.table_caption_end_period / figure_caption_end_period);
         # unset: the older caption_end_period / caption_end_period_keep switches (delete unless kept).
         end_mode = style.get("figures.table_caption_end_period" if cap.kind == TABLE else

@@ -318,6 +318,25 @@ def _label_span(text: str, labels: list[str]) -> tuple[int, int] | None:
     return None
 
 
+def _tagged_headings(ms: Manuscript, style: JournalStyle) -> set[str]:
+    """Paragraphs the heading rules tag <H1> / <H2> / <H3> as a whole: a short line of its own (not a run-in
+    label split off its text)."""
+    from . import rules, rules_sections
+
+    found = rules.rule_heading_tags(ms, style) + rules_sections.rule_headings(ms, style) \
+        + rules_sections.rule_subheadings(ms, style)
+    by_id = {p.id: p for p in ms.paragraphs}
+    out = set()
+    for c in found:
+        p = by_id.get(c.para_id)
+        if p is None or c.format_only or not c.new.startswith("<H") or p.text[:c.start].strip():
+            continue
+        text = p.text.strip()
+        if len(text) <= 80 and not re.search(r":\s*\S", text):
+            out.add(p.id)
+    return out
+
+
 def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     """Clean up the author's run formatting (settings under `formatting:`, see base.yaml)."""
     from . import docview  # docview imports references only; late import keeps module load light
@@ -331,6 +350,7 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     heads = _header_rows(paras) if _on(style, "table_head_bold") or _on(style, "table_body_unbold") else {}
     labels = style.get("formatting.bold_labels", []) or []
     styles = _Styles(ms)
+    tagged = _tagged_headings(ms, style) if _on(style, "heading_bold_tagged") else set()
     out: list[Change] = []
 
     def emit(p, spans, fmt, rule, layer=Layer.HOUSE_STYLE):
@@ -387,7 +407,10 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
             # A bold label with a roman colon looks the same: leave lone punctuation alone.
             emit(p, [(a, b) for a, b in spans if any(ch.isalnum() for ch in text[a:b])], {"bold": True}, "fmt_label")
 
-        if kind == "heading" and not front:
+        if p.id in tagged and not front and not label:
+            emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
+                 {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
+        elif kind == "heading" and not front:
             # A section heading is short and stands alone ("Keywords: a; b" is a labelled paragraph).
             short = len(text.strip()) <= 80 and not text.rstrip().endswith(".") and not label and \
                 not re.search(r":\s*\S", text)
