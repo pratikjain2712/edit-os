@@ -168,11 +168,20 @@ def pubmed_fetch(pmids: list[str]) -> list[Record]:
     return out
 
 
+_MARKUP = re.compile(r"</?(?:scp|i|b|em|strong|sup|sub|u|span|mml:[a-z]+|jats:[a-z]+)\b[^>]*>", re.I)
+
+
+def _plain(s: str) -> str:
+    """A CrossRef title without the publisher's markup: "Adapting <scp>parent-focused</scp> ..." -> "Adapting
+    parent-focused ..."; entities ("&amp;") unescaped."""
+    return html.unescape(_MARKUP.sub("", s or "")).strip()
+
+
 def _with_subtitle(item: dict) -> str:
     """CrossRef keeps a subtitle apart ("Effectiveness of intelligent tutoring systems" + "A meta-analytic
     review"): the title as printed, joined by a colon, unless the title already holds it."""
-    title = (item.get("title") or [""])[0].strip()
-    sub = (item.get("subtitle") or [""])[0].strip()
+    title = _plain((item.get("title") or [""])[0])
+    sub = _plain((item.get("subtitle") or [""])[0])
     if sub and title and sub.lower() not in title.lower():
         return f"{title.rstrip(':')}: {sub}"
     return title

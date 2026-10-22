@@ -27,6 +27,7 @@ TEXT = {
     "references.not_found": "Reference not found in PubMed or CrossRef. Kindly check and provide complete details.",
     "references.wrong_id": "The {what} given points to a different article. Kindly check the reference.",
     "references.no_volume": "Kindly provide volume and page numbers.",
+    "references.no_pages": "Kindly provide page numbers.",
     "references.record_differs": "The {what} given here differs from the published article. Kindly check.",
     "references.author_names": "The author names could not be verified against PubMed / CrossRef. Kindly check.",
     "references.book_et_al": "Kindly provide minimum 6 author names before et al.",

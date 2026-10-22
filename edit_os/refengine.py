@@ -347,7 +347,7 @@ def accept(p: Parsed, r: biblio.Record, by_id: bool = False) -> bool:
     return t >= 90 and year or t >= 95 and near or identified(p, r)
 
 
-_WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
+_WORD = re.compile(r"[^\W_]+(?:['’′][^\W_]+)*")
 
 
 def title_extends(short: str, long: str) -> bool:
@@ -485,6 +485,8 @@ def format_pages(pages: str, style: JournalStyle) -> str:
     m = re.fullmatch(r"\s*([A-Za-z]?)(\d+)\s*[-–]\s*([A-Za-z]?)(\d+)\s*", pages)
     if not m:
         return pages.strip()
+    if m.group(2) == m.group(4) and m.group(3) in ("", m.group(1)):  # "123-123", "e68918-e68918": one page
+        return f"{m.group(1)}{m.group(2)}"
     last = _compress(m.group(2), m.group(4)) if style.get("references.page_range_compress", True) else m.group(4)
     prefix2 = "" if m.group(3) == m.group(1) else m.group(3)  # e524-e532 -> e524-32
     return f"{m.group(1)}{m.group(2)}{dash}{prefix2}{last}"
@@ -501,17 +503,40 @@ def journal_name(r: biblio.Record, style: JournalStyle) -> str:
             j = journals.directory().lookup(issn)
             if j:
                 break
-        j = j or journals.directory().lookup(name) or (r.journal_full and journals.directory().lookup(r.journal_full))
+        if not j:
+            by_name = journals.directory().lookup(name)
+            if by_name and r.journal_full and not _names_journal(by_name, r.journal_full):
+                by_name = None  # CrossRef's short title "pie" is NLM's "La Pie", not "Perspectives in Education"
+            j = by_name or (r.journal_full and journals.directory().lookup(r.journal_full))
         if j:
             name = j.med_abbr
         elif style.get("references.non_indexed_journal", "full") == "full" and r.journal_full:
-            name = r.journal_full
+            name = _ACRONYM_QUALIFIER.sub("", r.journal_full.strip())  # "... Public Health Science (IJPHS)": the
+            # publisher's acronym is no part of the journal's name (NLM's "(Lausanne)", "(Basel)" are kept)
             if name.isupper() and len(name) > 6:  # "JOURNAL OF SUSTAINABILITY SCIENCE" -> "Journal of Sustainability Science"
                 name = " ".join(w.lower() if k and w.lower() in _MINOR_WORDS else w.capitalize()
                                 for k, w in enumerate(name.split()))
     if style.get("references.journal_drop_qualifier", True):
         name = re.sub(r"\s*\([^)]*\)$", "", name)
     return name.replace(".", "")
+
+
+# A full title's trailing acronym in brackets: "(IJPHS)", "(GMHC)", "(iJIM)"; not a place ("(Lausanne)").
+_ACRONYM_QUALIFIER = re.compile(r"\s*\((?=[A-Za-z&-]*[A-Z][A-Za-z&-]*[A-Z])[A-Za-z&-]{2,12}\)$")
+
+
+def _names_journal(j, full: str) -> bool:
+    """NLM's journal `j` (found by CrossRef's short title) is the journal CrossRef's full title names: the
+    same title, or its abbreviation abbreviates the full title word for word."""
+    skip = {"the", "of", "and", "for", "in", "on", "de", "la"}
+    words = fold(full.replace("&", " and ")).split()
+    if fold(j.title) == " ".join(words):
+        return True
+    for abbr in (j.med_abbr, j.iso_abbr):
+        a = [w for w in fold(re.sub(r"\s*\([^)]*\)\s*$", "", abbr or "")).split() if w not in skip]
+        if a and _abbreviates(a, words, 0):
+            return True
+    return False
 
 
 def _bad_name(surname: str, initials: str) -> bool:
@@ -551,7 +576,8 @@ def _surname_case(surname: str, initials: str, p: Parsed | None) -> str:
 
 
 def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
-    names = [f"{_surname_case(s, i, p)} {i}".strip() for s, i in r.authors]
+    # (PubMed marks some group names with a footnote star: "... Professional Practice Committee*")
+    names = [f"{_surname_case(s.rstrip('*').strip(), i, p)} {i}".strip() for s, i in r.authors]
     if p and p.authors and (malformed_authors(r) or not r.authors):
         return p.authors  # the record's list is broken: keep the author's names (and query them)
     if p and r.source == "crossref" and len(names) < min(len(p.authors), 6):
@@ -594,6 +620,7 @@ Poland Greece Israel Saudi Arabia Emirates Singapore Malaysia Thailand Vietnam I
 Kong Britain England Scotland Wales Ireland Russia Ukraine Chile Peru Argentina Venezuela Delhi Mumbai Chennai
 Kolkata Bangalore Bengaluru Hyderabad Pune Kerala Karnataka Gujarat Punjab Rajasthan Maharashtra Tamil Nadu
 Andhra Pradesh Telangana Odisha Bengal Bihar Haryana Assam London Paris Boston Baltimore Beijing Shanghai Tokyo
+Linn Linnaeus
 """.split())
 
 _MINOR_WORDS = {"a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by", "in", "of",
@@ -688,20 +715,62 @@ def dictionary_proper_nouns(title: str) -> set[str]:
     return keep
 
 
+_GENUS_END = re.compile(r"(?:um|us|a|ae|is|ia|oides|edes|on|ix|ax|er)$")
+_EPITHET_END = re.compile(r"(?:um|us|a|ae|is|ii|i|es|ensis|oides|orum|arum|ata|ica|ana|ella|ium|alis|ilis|ens|ans|or)$")
+_NOT_EPITHET = frozenset("vitro vivo situ silico utero vs et al".split())
+
+
+def latin_names(title: str) -> set[str]:
+    """Genus names in a title, which keep their capital in sentence case: a capitalised word before a
+    species epithet ("Jasminum grandiflorum", Title Case "Jasminum Grandiflorum") or before "species" /
+    "sp." / "spp.". Genus and epithet must look Latin and not be words the dictionary lists in lower case
+    ("Recurrent Aphthous Stomatitis" is no binomial)."""
+    lower, _ = _dictionary_words()
+
+    def latin(w: str, rx: re.Pattern) -> bool:  # Latin-looking and, when the dictionary is at hand, not English
+        return bool(rx.search(w.lower())) and w.lower() not in lower and not re.search(r"(?:ous|itis)$", w.lower())
+
+    keep = set()
+    for m in re.finditer(r"\b([A-Z][a-z]{2,})\s+\(?([A-Za-z][a-z]+\.?)", title):
+        genus, nxt = m.group(1), m.group(2).rstrip(".")
+        if genus.lower() in _MINOR_WORDS or not latin(genus, _GENUS_END):
+            continue
+        if nxt.lower() in ("species", "sp", "spp"):
+            keep.add(genus)
+        elif nxt.lower() in _MINOR_WORDS or nxt.lower() in _NOT_EPITHET or len(nxt) < 3:
+            continue
+        elif latin(nxt, _EPITHET_END):  # "Jasminum grandiflorum"; Title Case "Jasminum Grandiflorum"
+            keep.add(genus)
+        elif nxt.islower() and len(nxt) >= 4 and nxt not in lower and lower:  # "Jasminum sambac"
+            keep.add(genus)
+    return keep
+
+
 def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
     """Lower-case Title-Cased words, keeping the first word, the word after a colon, acronyms
     (ASCO, GLOBOCAN, U.S.), words with inner capitals or digits (mRNA, COVID-19) and proper nouns:
     those in `keep` (see `proper_nouns`) and in PROPER_NOUNS."""
     keep = set(keep) | PROPER_NOUNS
-    words = re.split(r"(\s+)", title)
+    words = re.split(r"(\s+|[–—])", title)
     out, first = [], True
     for w in words:
         if w.isspace() or not w:
             out.append(w)
             continue
+        if w in "–—":  # "years—Autism and ...", "Education–Students' perceptions": a new phrase follows
+            out.append(w)
+            first = True
+            continue
         core = re.sub(r"^\W+|\W+$", "", w)
         plain = re.fullmatch(r"[A-Z][a-z'’]+(?:-[A-Za-z][a-z'’]*)*", core) is not None
-        if first or not plain:
+        parts = core.split("-")
+        if "-" in core and (first or not plain) and len(parts) > 1:
+            # "Evidence-Based" opening the title, "23-Month-Old": the first part as it is, later plain
+            # capitalised parts lower-cased ("Evidence-based", "23-month-old"); "COVID-19" and names in `keep` stay.
+            rest = [x.lower() if re.fullmatch(r"[A-Z][a-z'’]+", x) and x not in keep and not _dash_compound(core)
+                    else x for x in parts[1:]]
+            out.append(w.replace(core, "-".join(parts[:1] + rest), 1))
+        elif first or not plain:
             out.append(w)
         elif _dash_compound(core):
             left, right = core.split("-")
@@ -713,12 +782,103 @@ def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
     return "".join(out)
 
 
+def _issue(r: biblio.Record, style: JournalStyle) -> str:
+    """The issue as the guide keeps it: a supplement as written ("(Suppl 1)", "(2 Suppl)", CrossRef's
+    "Supplement_1" -> "(Suppl 1)", "s2" -> "(s2)"); an issue number only when the style keeps issues."""
+    if re.search(r"suppl", r.volume or "", re.I):  # PubMed puts some supplements in Volume ("45 Suppl 1")
+        return "(" + re.sub(r"(?i)^.*?suppl\w*?\.?(?:_|\s+|$)", "Suppl ", r.volume).strip() + ")"
+    issue = (r.issue or "").strip()
+    if re.search(r"suppl", issue, re.I):  # "Suppl 2", "2 Suppl", "Supplement_1", "Suppl."
+        issue = re.sub(r"(?i)\bsuppl(?:ement)?\.?(?:_|\s+|$)", "Suppl ", issue.replace("_", " ")).strip()
+        return "(" + " ".join(issue.split()) + ")"
+    if re.fullmatch(r"[Ss]\d{1,2}", issue):  # "13(s2)": a supplement the journal numbers so
+        return f"({issue})"
+    if issue and not style.get("references.drop_issue", True):
+        return f"({issue})"
+    return ""
+
+
+def record_pages(r: biblio.Record, p: Parsed | None) -> str:
+    """The record's pages, or the author's where the record lacks them: CrossRef gives only the first
+    page ("54" for the author's "54-60") or none at all. The author's pages are used only for the record's
+    volume (the same first page, when the record has one)."""
+    pages = (r.pages or "").strip()
+    c = citation(p.text) if p else None
+    if not c or not c[3] or not same_volume(p.text, r):
+        return pages
+    mine = c[3].strip()
+    if not pages:
+        return mine
+    m = re.fullmatch(r"([A-Za-z]?\d+[A-Za-z]?)\s*[-–]\s*([A-Za-z]?\d+[A-Za-z]?)", mine)
+    if m and re.fullmatch(r"[A-Za-z]?\d+[A-Za-z]?", pages) and _first_page(m.group(1)) == _first_page(pages) \
+            and _first_page(m.group(2)) != _first_page(pages):
+        return mine  # "54" in the record, "54-60" in the entry ("e68918-e68918" is the one page)
+    return pages
+
+
+_SAME_TEXT = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"', "ı": "i", "′": "'", "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-"})
+
+
+def _title_key(t: str) -> str:
+    """A title for comparing wordings: case, quote and dash forms, spaces around dashes and before
+    punctuation, and a final full stop aside."""
+    t = re.sub(r"\s*-+\s*", "-", (t or "").translate(_SAME_TEXT).lower())
+    t = re.sub(r"\s+([:;,.?!])", r"\1", t)
+    return " ".join(t.split()).rstrip(".")
+
+
+def _author_wording(title: str, mine: str) -> str:
+    """The record's title in the author's typography when the two are the same words: the author's
+    curly quotes and apostrophes, dashes ("years—Autism" for PubMed's "Years - Autism") and letters
+    (PubMed's "ıntelligence" typo). Capitals: the record's when it is sentence-cased or the author's title
+    is not; the author's sentence case over a Title-Cased record (but for known names and inner capitals)."""
+    if not mine or _title_key(title) != _title_key(mine):
+        return title
+    rw, aw = list(_WORD.finditer(title)), list(_WORD.finditer(mine))
+    if len(rw) != len(aw):
+        return title
+    out = list(re.sub(r"\s+([:;,?!])", r"\1", mine))
+    if out != list(mine):  # spaces before punctuation went: re-find the words
+        mine = "".join(out)
+        aw = list(_WORD.finditer(mine))
+        if len(aw) != len(rw):
+            return title
+    author_cased, record_cased = is_sentence_cased(mine), is_sentence_cased(title)
+    for a, r in zip(aw, rw):
+        x, y = a.group(0), r.group(0)
+        if len(x) != len(y):
+            continue
+        cap = y[:1].isupper() and x[:1].islower() and (record_cased or y in PROPER_NOUNS)
+        inner = any(c.isupper() for c in y[1:])  # "COVID", "mRNA", "eHealth": the record's capitals
+        src = y if not author_cased or record_cased or cap or inner else x  # a sentence-cased record decides
+        for k, ch in enumerate(src):
+            out[a.start() + k] = x[k].upper() if ch.isupper() else x[k].lower()
+    return "".join(out)
+
+
+def _quotes(title: str, style: JournalStyle, p: Parsed | None) -> str:
+    """Straight quotes in a rebuilt title made typographic when the journal uses curly ones
+    (`guide_replace.smart_quotes`) or the author typed curly ones in the entry: a record's "Experts'
+    perspectives" never replaces the author's "Experts’ perspectives"."""
+    if "'" not in title and '"' not in title:
+        return title
+    if not (style.get("guide_replace.smart_quotes") or p and re.search(r"[‘’“”]", p.text)):
+        return title
+    from .rules_guide import find_smart_quotes
+
+    out = title
+    for s, e, new in sorted(find_smart_quotes(title, {}), reverse=True):
+        out = out[:s] + new + out[e:]
+    return out
+
+
 def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None) -> str:
     max_a = style.get("references.max_authors", 6)
     names = _usable_authors(r, p)
     if max_a and len(names) > max_a:
         names = names[:max_a] + [style.get("references.et_al", "et al.").rstrip(".")]
-    groups = {f"{s} {i}".strip() for s, i in r.authors if not i}
+    # (a one-word name without initials is a person known by one name, "Nurdiansyah", not a group)
+    groups = {f"{s.rstrip('*').strip()} {i}".strip() for s, i in r.authors if _is_group(s, i) or not i and s.isupper()}
     # Group authors are separated by semicolons: "GBD 2019 Collaborators; Vision Loss Expert Group".
     author_text = ""
     for k, n in enumerate(names):
@@ -726,22 +886,19 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
             author_text += "; " if n in groups or names[k - 1] in groups else ", "
         author_text += n
     title = re.sub(r"\s+", " ", _usable_title(r, p)).strip()
+    title = _author_wording(title, p.title if p else "")
     if title.endswith("."):
         title = title[:-1]
     if style.get("references.title_sentence_case"):
-        title = sentence_case(title, proper_nouns(r.title, p.title if p else "") | dictionary_proper_nouns(title))
+        title = sentence_case(title, proper_nouns(r.title, p.title if p else "") | dictionary_proper_nouns(title)
+                              | latin_names(title) | latin_names(r.title))
+    title = _quotes(title, style, p)
     if style.get("references.capitalize_after_colon"):
         title = re.sub(r":\s([a-z])", lambda m: ": " + m.group(1).upper(), title)
     end = "" if title.endswith(("?", "!")) else "."
-    suppl = next((x for x in (r.issue, r.volume) if x and re.search(r"suppl", x, re.I)), "")
-    if suppl:  # PubMed puts supplements in Volume ("45 Suppl 1") or Issue
-        issue = "(" + re.sub(r"(?i)^.*?suppl\w*\.?\s*", "Suppl ", suppl).strip() + ")"
-    elif r.issue and not style.get("references.drop_issue", True):
-        issue = f"({r.issue})"
-    else:
-        issue = ""
+    issue = _issue(r, style)
     volume = re.sub(r"\s*\(?suppl.*$", "", r.volume, flags=re.I)
-    pages = format_pages(r.pages, style)
+    pages = format_pages(record_pages(r, p), style)
     cite = f"{journal_name(r, style)} {r.year};{volume}{issue}"
     cite += f":{pages}" if pages else ""
     lead = f"{author_text}. " if author_text else ""  # a paper without authors starts with its title
@@ -781,6 +938,8 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
     if not (record.volume and record.year):
         return Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)")
     queries = []
+    if not record_pages(record, p):  # the guide's template needs a first page; nothing to take it from
+        queries.append(("references.no_pages", {}))
     if malformed_authors(record) or not record.authors and p.authors:
         if not p.authors:
             return Resolution(QUERY, p, record, message="Record's author names are malformed")
