@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Check, ChevronDown, FileText, KeyRound, Search, UploadCloud, Wand2, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, FileText, KeyRound, LogOut, Search, UploadCloud, Wand2, X } from "lucide-react";
 import { api, getApiKey, reviewToken, setApiKey } from "./api.js";
 import Review from "./Review.jsx";
 import { ThemeButton, ToastProvider, useOutside, useTheme, useToast } from "./ui.jsx";
@@ -21,6 +21,54 @@ export function Brand() {
       <span className="brand-mark"><Wand2 size={16} /></span>
       <span className="brand-name">Edit OS</span>
     </a>
+  );
+}
+
+function Login({ onDone, theme, nextTheme }) {
+  const [user, setUser] = useState("");
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api.login(user.trim(), pw);
+      setApiKey(r.token);
+      onDone(r.user);
+    } catch (err) {
+      setError(err.status === 401 ? "Wrong username or password." : err.message);
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <header className="topbar"><Brand /><span className="spacer" /><ThemeButton theme={theme} onClick={nextTheme} /></header>
+      <main className="login-wrap">
+        <motion.form className="card login-card" onSubmit={submit} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <h2>Sign in</h2>
+          <p className="muted small">Edit OS is in testing. Use the username and password you were given.</p>
+          <label className="field"><span>Username</span>
+            <input className="input" autoFocus autoComplete="username" value={user} onChange={(e) => setUser(e.target.value)} required />
+          </label>
+          <label className="field"><span>Password</span>
+            <input className="input" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required />
+          </label>
+          {error && <div className="error-box">{error}</div>}
+          <button className="btn primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        </motion.form>
+      </main>
+    </>
+  );
+}
+
+function SignOut({ user }) {
+  return (
+    <button className="btn ghost sm" title={`Signed in as ${user}`}
+      onClick={() => { setApiKey(""); window.location.href = "/"; }}>
+      <LogOut size={15} /><span className="hide-phone">{user} · Sign out</span>
+    </button>
   );
 }
 
@@ -215,6 +263,12 @@ function Home() {
 export default function App() {
   const [r, setR] = useState(route());
   const [theme, nextTheme] = useTheme();
+  // Who is signed in: undefined while checking, null when a sign-in is needed, "" for an API key.
+  const [user, setUser] = useState(reviewToken() ? "" : undefined);
+  useEffect(() => {
+    if (reviewToken()) return;
+    api.me().then((m) => setUser(m.user)).catch((e) => setUser(e.status === 401 ? null : ""));
+  }, []);
   useEffect(() => {
     const on = () => setR(route());
     window.addEventListener("popstate", on);
@@ -223,14 +277,16 @@ export default function App() {
   return (
     <ToastProvider>
       <div className="app">
-        {r.page === "review" ? (
+        {user === undefined ? null : user === null ? (
+          <Login onDone={setUser} theme={theme} nextTheme={nextTheme} />
+        ) : r.page === "review" ? (
           <Review id={r.id} theme={theme} nextTheme={nextTheme} />
         ) : (
           <>
             <header className="topbar">
               <Brand />
               <span className="spacer" />
-              <KeyMenu />
+              {user ? <SignOut user={user} /> : <KeyMenu />}
               <ThemeButton theme={theme} onClick={nextTheme} />
             </header>
             <Home />

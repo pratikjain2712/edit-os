@@ -12,11 +12,24 @@ def _list(value: str | None) -> list[str]:
     return [v.strip() for v in (value or "").split(",") if v.strip()]
 
 
+def _users(value: str | None) -> dict[str, str]:
+    """"name:password,name2:password2" -> {name: password}; names are case-insensitive."""
+    out = {}
+    for item in _list(value):
+        name, _, pw = item.partition(":")
+        if name.strip() and pw:
+            out[name.strip().lower()] = pw
+    return out
+
+
 @dataclass
 class Settings:
     data_dir: str = "./data"              # SQLite job database + per-job working folders
     api_keys: list[str] = field(default_factory=list)  # X-API-Key values accepted (service-to-service, admins)
     auth_disabled: bool = False           # local development only
+    users: dict[str, str] = field(default_factory=dict)  # sign-in for the review screen (EDITOS_USERS)
+    session_secret: str = ""              # signs sign-in sessions; defaults to the first API key
+    session_hours: float = 168            # how long a sign-in lasts
     workers: int = 2                      # in-process pipeline threads
     max_upload_mb: int = 50
     public_url: str = ""                  # where the review screen is reachable, for review links
@@ -35,6 +48,9 @@ class Settings:
             data_dir=env.get("EDITOS_DATA_DIR", "./data"),
             api_keys=_list(env.get("EDITOS_API_KEYS")),
             auth_disabled=env.get("EDITOS_AUTH_DISABLED", "") == "1",
+            users=_users(env.get("EDITOS_USERS")),
+            session_secret=env.get("EDITOS_SESSION_SECRET", ""),
+            session_hours=float(env.get("EDITOS_SESSION_HOURS", "168")),
             workers=int(env.get("EDITOS_WORKERS", "2")),
             max_upload_mb=int(env.get("EDITOS_MAX_UPLOAD_MB", "50")),
             public_url=env.get("EDITOS_PUBLIC_URL", "").rstrip("/"),

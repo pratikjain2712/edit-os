@@ -55,6 +55,8 @@ async function call(method, path, body) {
 }
 
 export const api = {
+  login: (username, password) => call("POST", "/api/login", { username, password }),
+  me: () => call("GET", "/api/me"),
   journals: () => call("GET", "/api/journals"),
   jobs: () => call("GET", "/api/jobs?limit=30"),
   job: (id) => call("GET", `/api/jobs/${id}`),

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import time
 import urllib.parse
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -27,7 +28,7 @@ from pydantic import BaseModel, Field
 from edit_os import autopilot, docview, pipeline, rule_sources, style as style_mod
 from edit_os.changes import Source, Status
 
-from . import db
+from . import db, sessions
 from .config import Settings
 from .jobqueue import ThreadQueue
 from .storage import LocalStorage, make_storage
@@ -65,6 +66,11 @@ class S3Job(BaseModel):
     external_id: str = ""
     callback_url: str = ""
     stages: list[str] | None = None
+
+
+class Login(BaseModel):
+    username: str
+    password: str
 
 
 class Edit(BaseModel):
@@ -114,11 +120,16 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
 
     # --- auth -------------------------------------------------------------------------------
 
+    session_secret = settings.session_secret or (settings.api_keys[0] if settings.api_keys else "")
+
     def _key_ok(key: str | None) -> bool:
+        """An API key, or a sign-in session token (sent in the same header)."""
+        if key and key.startswith(sessions.PREFIX):
+            return sessions.verify(session_secret, key) is not None
         return bool(key) and any(hmac.compare_digest(key, k) for k in settings.api_keys)
 
     def _check_configured():
-        if not settings.auth_disabled and not settings.api_keys:
+        if not settings.auth_disabled and not settings.api_keys and not settings.users:
             raise HTTPException(503, "No API keys configured (set EDITOS_API_KEYS)")
 
     def require_key(x_api_key: str | None = Header(None)) -> str:
@@ -208,6 +219,26 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"ok": True, "storage": storage.kind}
+
+    @app.post("/api/login")
+    def login(body: Login):
+        if not settings.users or not session_secret:
+            raise HTTPException(404, "Sign-in is not set up on this server")
+        if not sessions.check_password(settings.users, body.username, body.password):
+            time.sleep(1)  # slows password guessing
+            raise HTTPException(401, "Wrong username or password")
+        user = body.username.strip().lower()
+        return {"token": sessions.issue(session_secret, user, settings.session_hours), "user": user}
+
+    @app.get("/api/me")
+    def me(x_api_key: str | None = Header(None)):
+        _check_configured()
+        user = sessions.verify(session_secret, x_api_key)
+        if user:
+            return {"user": user, "kind": "session"}
+        if settings.auth_disabled or _key_ok(x_api_key):
+            return {"user": "", "kind": "api"}
+        raise HTTPException(401, "Sign in first")
 
     @app.get("/api/journals", dependencies=[Depends(require_key)])
     def journals():

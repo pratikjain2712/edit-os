@@ -892,3 +892,12 @@ a.src-chip:hover { background: color-mix(in srgb, var(--l-references) 18%, trans
 .editor-chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .editor-chip.missing { color: var(--warn); }
 @media (max-width: 760px) { .editor-chip { max-width: 96px; } }
+
+/* sign-in */
+.login-wrap { width: 100%; max-width: 400px; margin: 0 auto; padding: 72px 16px; }
+.login-card { padding: 28px; display: grid; gap: 14px; }
+.login-card h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+.login-card p { margin: -6px 0 4px; }
+.login-card .field { min-width: 0; }
+.login-card .input { width: 100%; box-sizing: border-box; padding: 10px 12px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.login-card .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

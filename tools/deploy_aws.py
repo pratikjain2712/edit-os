@@ -89,8 +89,9 @@ class Deployer:
         self.s3.put_bucket_encryption(Bucket=self.bucket, ServerSideEncryptionConfiguration={
             "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]})
 
-    def ensure_secret(self) -> dict:
-        """The instance's environment. The API key is generated once and kept across deploys."""
+    def ensure_secret(self, add_users=(), remove_users=()) -> dict:
+        """The instance's environment. The API key is generated once and kept across deploys. Sign-in users
+        (EDITOS_USERS) are added with a generated password, printed once, or removed."""
         try:
             env = json.loads(self.sm.get_secret_value(SecretId=SECRET_ID)["SecretString"])
             exists = True
@@ -100,6 +101,16 @@ class Deployer:
             env, exists = {}, False
         env.setdefault("EDITOS_API_KEYS", secrets.token_urlsafe(24))
         env["EDITOS_S3_BUCKET"] = self.bucket
+        users = dict(u.split(":", 1) for u in env.get("EDITOS_USERS", "").split(",") if ":" in u)
+        for name in remove_users:
+            users.pop(name.lower(), None)
+        for name in add_users:
+            users[name.lower()] = secrets.token_urlsafe(9)
+            log(f"user {name.lower()}: password {users[name.lower()]}")
+        if users:
+            env["EDITOS_USERS"] = ",".join(f"{n}:{p}" for n, p in users.items())
+        else:
+            env.pop("EDITOS_USERS", None)
         claude = os.environ.get("EDITOS_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
         if claude:
             env["EDITOS_ANTHROPIC_API_KEY"] = claude
@@ -324,6 +335,9 @@ def main(argv=None) -> int:
                     help="directory of journal stylesheet .txt files to upload to s3://<bucket>/stylesheets/")
     ap.add_argument("--guide", default=None,
                     help="pre-editing guide .txt to upload to s3://<bucket>/stylesheets/guide/")
+    ap.add_argument("--add-user", action="append", default=[], metavar="NAME",
+                    help="add (or reset) a sign-in user for the review screen; prints the new password once")
+    ap.add_argument("--remove-user", action="append", default=[], metavar="NAME", help="remove a sign-in user")
     a = ap.parse_args(argv)
 
     d = Deployer(a.region, a.dry_run)
@@ -337,7 +351,7 @@ def main(argv=None) -> int:
         log(f"{inst['InstanceId']} {inst['State']['Name']} http://{ip}")
         return 0
     d.ensure_bucket()
-    env = d.ensure_secret()
+    env = d.ensure_secret(a.add_user, a.remove_user)
     d.ensure_role()
     sg = d.ensure_sg(a.allow_cidr)
     d.upload_stylesheets(a.stylesheets, a.guide)

@@ -289,3 +289,27 @@ def test_editor_header_decoded():
     assert _ed("Ragavi%20Ravi") == "Ragavi Ravi"
     assert _ed("S%C3%B6phiya") == "Söphiya"
     assert _ed(None) == ""
+
+
+def test_sign_in_with_a_user(tmp_path):
+    settings = Settings(data_dir=str(tmp_path / "data"), api_keys=["test-key"], workers=1,
+                        users={"reviewer": "pw-123"})
+    with TestClient(create_app(settings)) as c:
+        assert c.get("/api/me").status_code == 401
+        assert c.post("/api/login", json={"username": "reviewer", "password": "nope"}).status_code == 401
+        r = c.post("/api/login", json={"username": "Reviewer", "password": "pw-123"})
+        assert r.status_code == 200 and r.json()["user"] == "reviewer"
+        tok = {"X-API-Key": r.json()["token"]}
+        assert c.get("/api/me", headers=tok).json() == {"user": "reviewer", "kind": "session"}
+        assert c.get("/api/journals", headers=tok).status_code == 200
+        forged = tok["X-API-Key"][:-1] + ("0" if tok["X-API-Key"][-1] != "0" else "1")
+        assert c.get("/api/journals", headers={"X-API-Key": forged}).status_code == 401
+
+
+def test_session_tokens_expire():
+    from server import sessions
+    t = sessions.issue("secret", "a", hours=1, now=1000)
+    assert sessions.verify("secret", t, now=1000) == "a"
+    assert sessions.verify("secret", t, now=1000 + 3601) is None
+    assert sessions.verify("other", t, now=1000) is None
+    assert sessions.verify("secret", "s1.garbage", now=1000) is None
