@@ -454,6 +454,8 @@ def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
         given, surname = ok(a.get("given_names", ""), "given name"), ok(a.get("surname", ""), "surname")
         if not surname and given and " " not in given:
             given, surname = "", given  # one name only ("Sonakshi"): the sheet's "Punithavathy, ..., Stalin"
+        elif not surname and given:  # "Retno Setyowati" with the surname left empty: the last word is the surname
+            given, surname = given.rsplit(" ", 1)
         if not surname:
             continue
         prefix = a.get("prefix", "") if re.fullmatch(r"(?i)dr|prof", a.get("prefix", "").strip(" .")) else ""
@@ -480,6 +482,25 @@ def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
         if item.get("id") in para_ids and item.get("role") in ROLES:
             f.roles[para_ids[item["id"]]] = item["role"]
     return f
+
+
+def _complete_affiliations(affs: dict[int, dict], order: list[int], notes: list[str]) -> None:
+    """Stylesheets: "All the affiliations should be complete". A department written without its institution and
+    place, above or below departments that have them ("Dept. of Dermatology," / "Dept of Psychiatry, Dr. D.Y. Patil
+    Medical College, ..., Pune, India"), shares that institution and place: the nearest following one, else the
+    nearest before."""
+    for k, i in enumerate(order):
+        a = affs[i]
+        if not a.get("department") or a.get("institution") or a.get("city") or a.get("state"):
+            continue
+        near = [affs[j] for j in order[k + 1:]] + [affs[j] for j in reversed(order[:k])]
+        donor = next((d for d in near if d.get("institution") and (d.get("city") or d.get("country"))), None)
+        if donor is None:
+            continue
+        for part in ("institution", "city", "state", "country"):
+            if not a.get(part):
+                a[part] = donor.get(part, "")
+        notes.append(f"affiliation {a['department']!r}: institution and place taken from {donor['institution']!r}")
 
 
 _CONTACT = re.compile(r"@|https?://|www\.|\b(?:phone|ph|tel|telephone|mobile|mob|fax|cell)\b|\+\d|\d{5,}\s*\d{3,}", re.I)
@@ -592,7 +613,7 @@ _PARTICLES = {"van", "von", "de", "der", "den", "da", "di", "del", "della", "dos
 
 def _name_case(word: str, first: bool) -> str:
     """ALL CAPS or all lower names get capitals: "MEERA" -> "Meera", "rao" -> "Rao"."""
-    if not (word.isupper() and len(word) > 1 or word.islower()):
+    if not (word.isupper() and len(word) > 1 or word.islower()) or word in ("II", "III", "IV"):
         return word
     if not first and word.casefold() in _PARTICLES:
         return word.lower()
@@ -624,6 +645,9 @@ def format_name(a: Author, cfg: dict, abbreviate: bool | None = None) -> tuple[s
     abbreviate = cfg.get("abbreviate_middle_names", False) if abbreviate is None else abbreviate
     dot = "." if cfg.get("initial_period", True) else ""
     words = []
+    # a middle name stays in full when the first name is only an initial ("M. Banyameen Iqbal"): it is the one
+    # name written out
+    abbreviate = abbreviate and not (parts and parts[0][1])
     for i, (t, initial) in enumerate(parts):
         if initial or (i > 0 and abbreviate):
             words.append(t[0].upper() + dot)
@@ -636,6 +660,57 @@ def format_name(a: Author, cfg: dict, abbreviate: bool | None = None) -> tuple[s
 
 def _initial_like(s: str) -> bool:
     return bool(re.fullmatch(r"[A-Z]\.?", s.strip()))
+
+
+def _name_tokens(a: Author) -> list[str]:
+    return [t for t in re.split(r"[\s]+", f"{a.given} {a.surname}".strip()) if t]
+
+
+def _token_fits(short: str, full: str) -> bool:
+    """A name word and its fuller form: the same word, or an initial of it ("A." / "Andi")."""
+    s, f = short.strip(".").casefold(), full.strip(".").casefold()
+    return s == f or len(s) == 1 and f[:1] == s
+
+
+def _expand_from(short: Author, full_names: list[Author]) -> Author | None:
+    """The fuller form of a name with initials ("A. Fachruddin B" -> "Andi Fachruddin Benyamin", "Meera K R" ->
+    "Meera K Rao") among names from the submission XML / notice: the same words in the same order, each
+    the same or an initial of the fuller one (the XML's given name / surname split is used)."""
+    toks = _name_tokens(short)
+    if not any(len(t.strip(".")) == 1 for t in toks):
+        return None
+    for a in full_names:
+        if not a.surname or not a.given:
+            continue
+        ft = _name_tokens(a)
+        if len(ft) != len(toks):
+            continue
+        if all(_token_fits(s, f) for s, f in zip(toks, ft)) and len("".join(ft)) > len("".join(toks)) \
+                and _token_fits(toks[0], ft[0]) and not all(len(f.strip(".")) == 1 for f in ft):
+            return a
+    return None
+
+
+def initials_first(a: Author) -> bool:
+    """Guide: initials written after the name go before it ("Swamy AN" -> "A. N. Swamy", "Suganthi. K" ->
+    "K. Suganthi", "Helen Shaji J C" -> "J. C. Helen Shaji"); the name words stay together as the surname.
+    Returns whether the name was changed."""
+    toks = [t.rstrip(",") for t in _name_tokens(a)]
+    k = len(toks)
+    while k > 0 and re.fullmatch(r"(?:[A-Z]\.?){1,3}", toks[k - 1]) and not (
+            len(toks[k - 1]) > 1 and "." not in toks[k - 1] and toks[k - 1] in ("III", "II", "IV", "JR", "SR")):
+        k -= 1
+    initials, words = toks[k:], [t.strip(".") for t in toks[:k]]
+    if not initials or not words or len(initials) == len(toks):
+        return False
+    if (a.given + a.surname).isupper() and any(len(t) > 1 and "." not in t for t in initials) \
+            or any(re.fullmatch(r"(?:[A-Z]\.?){1,3}", w + ".") for w in words):
+        return False  # "MEERA K R": an all-caps name; "A. Fachruddin B": initials on both sides, left as written
+    if len(a.surname.split()) != len(initials) and not set(a.surname.split()) <= set(initials):
+        return False  # the split put a full word in the surname: not this pattern
+    a.given = " ".join(c for t in initials for c in t.replace(".", ""))
+    a.surname = " ".join(words)
+    return True
 
 
 def _expand(short: Author, full_names: list[Author]) -> Author | None:
@@ -675,14 +750,16 @@ _STATES_IN = {s.casefold() for s in (
 
 # Indian cities whose state the editors add when it is missing ("Pune" -> "Pune, Maharashtra").
 _CITY_STATE_IN = {c.casefold(): st for st, cities in {
-    "Maharashtra": "Mumbai Pune Nagpur Nashik Aurangabad Thane Navi_Mumbai Kolhapur Solapur Wardha Sangli Latur",
+    "Maharashtra": "Mumbai Pune Nagpur Nashik Aurangabad Thane Navi_Mumbai Kolhapur Solapur Wardha Sangli Latur Pimpri "
+                   "Karad Loni Sawangi Ahmednagar Amravati Akola Dhule Jalgaon Nanded Miraj Satara Yavatmal",
     "Karnataka": "Bengaluru Bangalore Mysuru Mysore Mangaluru Mangalore Manipal Hubballi Hubli Belagavi Belgaum Davangere",
     "Tamil Nadu": "Chennai Coimbatore Madurai Vellore Tiruchirappalli Trichy Salem Tirunelveli Puducherry_not Thanjavur",
     "Kerala": "Thiruvananthapuram Trivandrum Kochi Cochin Kozhikode Calicut Thrissur Kottayam Kollam Kannur Ernakulam",
     "Telangana": "Hyderabad Secunderabad Warangal",
     "Andhra Pradesh": "Visakhapatnam Vijayawada Guntur Tirupati Nellore Kurnool Kakinada",
     "West Bengal": "Kolkata Calcutta Siliguri Durgapur Howrah Barrackpore",
-    "Uttar Pradesh": "Lucknow Kanpur Varanasi Agra Prayagraj Allahabad Noida Ghaziabad Meerut Gorakhpur Aligarh Bareilly Jhansi",
+    "Uttar Pradesh": "Lucknow Kanpur Varanasi Agra Prayagraj Allahabad Noida Greater_Noida Ghaziabad Meerut Gorakhpur "
+                     "Aligarh Bareilly Jhansi Saifai Moradabad",
     "Gujarat": "Ahmedabad Surat Vadodara Rajkot Gandhinagar Bhavnagar Jamnagar",
     "Rajasthan": "Jaipur Jodhpur Udaipur Ajmer Bikaner Kota",
     "Madhya Pradesh": "Bhopal Indore Gwalior Jabalpur Ujjain",
@@ -697,7 +774,7 @@ _CITY_STATE_IN = {c.casefold(): st for st, cities in {
     "Himachal Pradesh": "Shimla",
     "Jammu and Kashmir": "Srinagar Jammu",
     "Goa": "Panaji",
-}.items() for c in cities.replace("_not", "").replace("_", " ").split()}
+}.items() for c in cities.replace("_not", "").split() for c in [c.replace("_", " ")]}
 _CITY_STATE_IN.pop("puducherry", None)
 _COUNTRY_CODES = {"IN": "India", "CN": "China", "US": "USA", "GB": "UK", "SA": "Saudi Arabia", "AE": "UAE",
                   "IR": "Iran", "IQ": "Iraq", "TR": "Turkey", "NP": "Nepal", "BD": "Bangladesh", "PK": "Pakistan",
@@ -706,12 +783,17 @@ _COUNTRY_CODES = {"IN": "India", "CN": "China", "US": "USA", "GB": "UK", "SA": "
                   "FR": "France", "IT": "Italy", "NL": "Netherlands", "ES": "Spain", "BR": "Brazil", "TW": "Taiwan"}
 
 
+def _city_key(city: str) -> str:
+    """The town the state table knows: "Pimpri, Pune" -> "pune"."""
+    return re.split(r"\s*,\s*", (city or "").strip(" ,"))[-1].casefold()
+
+
 def _country(parts: dict) -> str:
     c = (parts.get("country") or "").strip()
     if c:
         return _COUNTRY_CODES.get(c, c)
-    if parts.get("state", "").casefold() in _STATES_IN or parts.get("city", "").casefold() in _STATES_IN \
-            or (not parts.get("state") and parts.get("city", "").casefold() in _CITY_STATE_IN):
+    if parts.get("state", "").casefold() in _STATES_IN or _city_key(parts.get("city", "")) in _STATES_IN \
+            or (not parts.get("state") and _city_key(parts.get("city", "")) in _CITY_STATE_IN):
         return "India"
     return ""
 
@@ -721,7 +803,7 @@ def _state(parts: dict) -> str:
     if parts.get("state"):
         return parts["state"]
     if _country(parts).casefold() == "india":
-        return _CITY_STATE_IN.get(parts.get("city", "").casefold(), "")
+        return _CITY_STATE_IN.get(_city_key(parts.get("city", "")), "")
     return ""
 
 
@@ -903,8 +985,10 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         order = list(affs)
         for a in f.authors:
             a.affs = order[:]
-    key = {i: tuple(_norm(affs[i].get(k, "")) for k in ("department", "institution", "city", "state", "country"))
-           for i in order}
+    _complete_affiliations(affs, order, f.notes)
+    # duplicates are judged on the printed form ("Cardiology Department" = "Department of Cardiology")
+    key = {i: (_norm(department_form(affs[i].get("department", ""))),)
+           + tuple(_norm(affs[i].get(k, "")) for k in ("institution", "city", "state", "country")) for i in order}
     uniq: list[int] = []
     same: dict[int, int] = {}
     for i in order:
@@ -925,7 +1009,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 runs.append((", ", B))
             runs.append((name, B))
             marks = [number.get(same[i], "") for i in a.affs if i in same]
-            marks = ",".join(dict.fromkeys(m for m in marks if m))
+            marks = ",".join(sorted(dict.fromkeys(m for m in marks if m), key=int))
             if marks:
                 runs.append((marks, {"bold": True, "superscript": True}))
         blocks.append(Block("authors", runs))
@@ -976,10 +1060,12 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 parts = [department_form(a0.get("department", ""))]
             parts += [a0.get("institution", ""), _place_case(a0.get("city", "")), _place_case(_state(a0))]
             parts = [_clean_part(p) for p in parts if p and p.strip(" ,.")]
-            # drop a city or state the institution already names at its end
+            # drop a city or state the institution already names at its end ("AIIMS, New Delhi" + "New Delhi"); one
+            # that is part of its name stays ("University of Phayao, Phayao", "Mohammed V University in Rabat, Rabat")
             dedup = []
             for p in parts:
-                if not any(_norm(q).endswith(_norm(p)) for q in dedup):
+                if not any(_norm(q).endswith(_norm(p))
+                           and not re.search(r"(?i)\b(?:of|in|at|de|du|di)\s+" + re.escape(p) + "$", q) for q in dedup):
                     dedup.append(p)
             text = ", ".join(dedup)
             if len(g) > 1 and text:
@@ -1003,6 +1089,10 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         full = _expand(Author(given, surname), f.authors) if surname else None
         if full is not None:  # "Author name(s) should be expanded"
             given, surname = full.given, full.surname
+        elif surname:  # "Suganthi K" -> "K. Suganthi", as in the author group
+            a = Author(given, surname)
+            if initials_first(a):
+                given, surname = a.given, a.surname
         name = format_name(Author(given, surname), cfg, abbreviate=False)[0] if surname else MISSING
         prefix = c.get("prefix") or (corr_author.prefix if corr_author else "")
         if not prefix and surname:
@@ -1361,6 +1451,12 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             if full is not None:
                 f.notes.append(f"surname {a.surname!r} expanded to {full.surname!r} from the submission XML / notice")
                 a.surname = full.surname
+            elif any(len(t.strip(".")) == 1 for t in _name_tokens(a)):
+                full = _expand_from(a, xml_names)  # "A. Fachruddin B": "Andi Fachruddin Benyamin" in the XML
+                if full is not None:
+                    f.notes.append(f"name {a.given} {a.surname!r} expanded to {full.given} {full.surname!r} "
+                                   "from the submission XML / notice")
+                    a.given, a.surname = full.given, full.surname
         if not f.authors and src.meta.authors:  # nothing usable from the text
             m = fields_from_meta(src.meta)
             f.authors, f.affiliations = m.authors, m.affiliations
@@ -1374,6 +1470,10 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     else:
         f = fields_from_meta(src.meta)
     _fix_roles(f, lead)
+    for a in f.authors:
+        before = f"{a.given} {a.surname}"
+        if initials_first(a):
+            f.notes.append(f"initials moved before the name: {before!r} -> {a.given} {a.surname!r} (guide)")
     pl.notes = f.notes
     if not (f.authors or f.title or src.meta.title):
         ms._front_plan = pl

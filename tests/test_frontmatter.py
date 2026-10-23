@@ -247,3 +247,87 @@ def test_jehp_complete_affiliations_and_run_on_correspondence(tmp_path, monkeypa
     assert corr[0] == ("Address for correspondence: Dr. Asha Kumar, Department of Ophthalmology, City Eye Hospital, "
                        "12 Main Road, Chennai - 600 006, Tamil Nadu, India.")
     assert corr[1] == "E-mail: asha@example.org"
+
+
+def test_initials_written_after_the_name_go_before_it():
+    # guide: "Swamy AN" -> "A. N. Swamy"; the name words stay together
+    cases = [("Suganthi", "K", "K. Suganthi"), ("Helen Shaji J", "C", "J. C. Helen Shaji"),
+             ("Mathangi", "D.C", "D. C. Mathangi"), ("Swamy", "AN", "A. N. Swamy")]
+    for given, surname, want in cases:
+        a = fm.Author(given, surname)
+        assert fm.initials_first(a)
+        assert fm.format_name(a, {"abbreviate_middle_names": True})[0] == want
+    for given, surname in [("Ajay K.", "Jha"), ("John", "Smith III"), ("A. Fachruddin", "B")]:
+        assert not fm.initials_first(fm.Author(given, surname))
+    assert fm.format_name(fm.Author("John", "Smith III"), {})[0] == "John Smith III"
+    # a middle name stays in full when the first name is an initial: it is the one name written out
+    assert fm.format_name(fm.Author("M. Banyameen", "Iqbal"), {"abbreviate_middle_names": True})[0] == "M. Banyameen Iqbal"
+
+
+def test_name_with_initials_expanded_from_the_xml():
+    xml = [fm.Author("Andi Fachruddin", "Benyamin"), fm.Author("Geethu G G", "Nair")]
+    full = fm._expand_from(fm.Author("A. Fachruddin", "B"), xml)
+    assert (full.given, full.surname) == ("Andi Fachruddin", "Benyamin")
+    assert fm._expand_from(fm.Author("Geethu G", "Nair"), xml) is None  # not a fuller form, a repeated initial
+    assert fm._expand_from(fm.Author("Bo", "Nair"), xml) is None
+
+
+def test_two_word_name_without_surname_is_kept():
+    raw = {"authors": [{"given_names": "Retno Setyowati", "surname": "", "prefix": "", "affiliations": [1],
+                        "corresponding": False},
+                       {"given_names": "Nasriyah", "surname": "", "prefix": "", "affiliations": [1],
+                        "corresponding": False}]}
+    f = fm.verify(raw, "Nasriyah1, Retno Setyowati1", {})
+    assert [(a.given, a.surname) for a in f.authors] == [("Retno", "Setyowati"), ("", "Nasriyah")]
+
+
+def _affiliations(tmp_path, monkeypatch, affs, authors=None, code="jehp"):
+    fields = claude_fields()
+    fields["authors"] = authors or [
+        {"given_names": "Asha", "surname": "Kumar", "prefix": "", "affiliations": [1], "corresponding": False},
+        {"given_names": "Ravi", "surname": "Rao", "prefix": "", "affiliations": [2], "corresponding": False}]
+    fields["affiliations"] = affs
+    text = " ".join(str(v) for a in affs for v in a.values()) + " Asha Kumar Ravi Rao Shankar"
+    path = make(tmp_path, TITLE_PAGE + [text, "Abstract", "Purpose: To test."])
+    monkeypatch.setattr(fm, "split", lambda text: fields)
+    ms = docmodel.load(path)
+    st = style.load(code)
+    st.settings["references"]["lookup"] = False
+    return {b.role: b.text for b in fm.plan(ms, st).blocks}
+
+
+def test_affiliations_complete(tmp_path, monkeypatch):
+    blank = dict(department="", institution="", city="", state="", country="")
+    # a department written alone above the one with the institution shares its institution and place
+    text = _affiliations(tmp_path, monkeypatch, [
+        dict(blank, id=1, department="Dept. of Dermatology"),
+        dict(blank, id=2, department="Dept of Psychiatry", institution="Patil Medical College", city="Pimpri, Pune")])
+    assert text["affiliations"] == ("Department of Dermatology, Patil Medical College, Pimpri, Pune, Maharashtra, India, "
+                                    "1Department of Psychiatry, Patil Medical College, Pimpri, Pune, Maharashtra, India")
+
+
+def test_affiliation_city_named_in_the_institution_stays(tmp_path, monkeypatch):
+    blank = dict(department="", institution="", city="", state="", country="")
+    text = _affiliations(tmp_path, monkeypatch, [
+        dict(blank, id=1, department="School of Medical Sciences", institution="University of Phayao", city="Phayao",
+             country="Thailand"),
+        dict(blank, id=2, department="Department of Surgery", institution="AIIMS, New Delhi", city="New Delhi",
+             country="India")])
+    assert text["affiliations"] == ("School of Medical Sciences, University of Phayao, Phayao, Thailand, "
+                                    "1Department of Surgery, AIIMS, New Delhi, India")
+
+
+def test_duplicate_affiliations_by_printed_form_and_sorted_links(tmp_path, monkeypatch):
+    blank = dict(department="", institution="", city="", state="", country="")
+    authors = [
+        {"given_names": "Asha", "surname": "Kumar", "prefix": "", "affiliations": [1], "corresponding": False},
+        {"given_names": "Ravi", "surname": "Rao", "prefix": "", "affiliations": [3, 2], "corresponding": False},
+        {"given_names": "Shankar", "surname": "Rao", "prefix": "", "affiliations": [2], "corresponding": False}]
+    text = _affiliations(tmp_path, monkeypatch, [
+        dict(blank, id=1, department="Cardiology Department", institution="Zagazig University", country="Egypt"),
+        dict(blank, id=2, department="Department of Cardiology", institution="Zagazig University", country="Egypt"),
+        dict(blank, id=3, department="Department of Anatomy", institution="Zagazig University", country="Egypt")],
+        authors=authors)
+    assert text["affiliations"] == ("1Department of Cardiology, Zagazig University, Egypt, "
+                                    "2Department of Anatomy, Zagazig University, Egypt")
+    assert text["authors"] == "Asha Kumar1, Ravi Rao1,2, Shankar Rao1"

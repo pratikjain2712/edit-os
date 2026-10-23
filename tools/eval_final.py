@@ -12,7 +12,7 @@ suggestions are accepted (as Autopilot would, or all of them) and the clean copy
   alone in the original text (the older measure, misled where the final text rewrote the neighbours);
 - bigram closure: a word-bigram multiset distance to the final text (order- and
   paragraph-split-independent; punctuation and case kept), separately for the running text and
-  the reference list. closure = share of the original->final differences our clean copy
+  the reference list, and for the front matter (the running text before the abstract / main text). closure = share of the original->final differences our clean copy
   removes; with te.docx the style editor's own file is scored the same way.
 
 Usage: python tools/eval_final.py ARTICLE_DIR... --journal jehp --out OUT
@@ -78,13 +78,24 @@ def split_refs(paras: list[str]) -> dict[str, list[str]]:
     return {"text": paras[:r] + paras[end:], "references": paras[r:end]}
 
 
+_BODY = re.compile(r"(abstract|introduction|background|summary|dear\s+(?:editor|sir)|sir,|respected)\b", re.I)
+
+
+def split_front(paras: list[str]) -> list[str]:
+    """The front matter: the paragraphs before the abstract / main text (running head to cite line)."""
+    low = [HEAD.sub("", p).strip() for p in paras]
+    end = next((i for i, t in enumerate(low[:80]) if _BODY.match(t)), 0)
+    return paras[:end]
+
+
 def bigram_scores(orig: list[str], ours: list[str], ce: list[str], te: list[str] | None = None) -> dict:
-    """Per section {'orig': d(original, CE), 'ours': d(ours, CE), 'te': d(style editor, CE) or None}."""
+    """Per section {'orig': d(original, CE), 'ours': d(ours, CE), 'te': d(style editor, CE) or None}; 'front' is
+    the part of 'text' before the abstract / main text."""
     files = {"orig": orig, "ours": ours, "te": te}
-    sp = {k: split_refs(v) for k, v in files.items() if v is not None}
-    target = split_refs(ce)
+    sp = {k: dict(split_refs(v), front=split_front(v)) for k, v in files.items() if v is not None}
+    target = dict(split_refs(ce), front=split_front(ce))
     out = {}
-    for sec in ("text", "references"):
+    for sec in ("text", "references", "front"):
         g = grams(target[sec])
         out[sec] = {k: (gram_distance(grams(sp[k][sec]), g) if k in sp else None) for k in files}
     return out

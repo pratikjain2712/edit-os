@@ -346,6 +346,9 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   capital_after_colon: true      # "dermoids: A comprehensive review"
   initial_period: true           # "Anjum S. K. Joad" (false: "Anjum S K Joad")
   abbreviate_middle_names: true  # guide and editors: "Anjum Syed Khan Joad" -> "Anjum S. K. Joad"
+  # Initials after a name go before it (guide: "Swamy AN" -> "A. N. Swamy"; frontmatter.initials_first). Applied
+  # always (no setting). Editors split: JEHP / MJDRDYPU did it in 5 of 8 articles; across all journals many keep
+  # "Swathi M" and cite / running-head the initial as the surname ("M S", "S, et al.") -- for the owner to confirm.
   affiliation_first_unnumbered: true  # "Asha Kumar, Ravi Rao1": the first affiliation has no number
   group_departments: false       # 39 of 42 stylesheets: duplicate affiliations "should not be grouped ... All the
                                  # affiliations should be complete" (the rule wins over the sheets' own grouped example)

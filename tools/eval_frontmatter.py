@@ -46,6 +46,8 @@ def editor_fields(te: bytes) -> dict[str, str]:
     if start is None:
         return {}
     lines = after[start:]
+    if ":" not in lines[0] and len(lines) > 1 and ":" in lines[1]:  # "<RH>Setyorini" / "et al.: ???"
+        lines = [norm(lines[0] + " " + lines[1])] + lines[2:]
     out = {"running_head": lines[0]}
     i = 1
     for name in ("article_type", "title", "authors"):
@@ -56,6 +58,14 @@ def editor_fields(te: bytes) -> dict[str, str]:
         if i < len(lines) and not (_CORR.match(lines[i]) or _DATE.match(lines[i])):
             out[name] = lines[i]
             i += 1
+            if name == "title":  # a title over two paragraphs ("...: " / "A comprehensive framework ...")
+                while i < len(lines) and _title_rest(out[name], lines[i]):
+                    out[name] = norm(out[name] + " " + lines[i])
+                    i += 1
+            if name == "authors":  # one author per paragraph
+                while i < len(lines) and _name_line(lines[i]) and _name_line(out[name].split(", ")[-1]):
+                    out[name] = norm(out[name] + ", " + lines[i])
+                    i += 1
     aff = []
     while "authors" in out and i < len(lines) and not (
             _CORR.match(lines[i]) or _DATE.match(lines[i]) or _CITE.match(lines[i]) or lines[i].upper().startswith("ORCID")):
@@ -95,6 +105,25 @@ def editor_fields(te: bytes) -> dict[str, str]:
         if _STOP.match(line):
             break
     return out
+
+
+_AFF_WORD = re.compile(r"(?i)\b(department|university|college|hospital|institute|school|faculty|centre|center|"
+                       r"laboratory|unit|division|india|clinic|ministry)\b")
+
+
+def _title_rest(title: str, line: str) -> bool:
+    """The second paragraph of a title: after a colon, or mostly lowercase words (authors are capitalised)."""
+    words = re.findall(r"[^\W\d_][\w'’-]*", line)
+    if not words or _AFF_WORD.search(line) or re.search(r"\d", line):
+        return False
+    lower = sum(w[0].islower() for w in words) / len(words)
+    return title.rstrip().endswith(":") and lower >= 0.3 or lower >= 0.5
+
+
+def _name_line(line: str) -> bool:
+    """A paragraph holding one author's name ("Karnellya R. Ohol1")."""
+    return bool(re.fullmatch(r"[A-Z][\w'’.-]*(?:\s+[A-Za-z][\w'’.-]*){0,4}?[\d,*]*", line)) \
+        and not _AFF_WORD.search(line) and "," not in line.rstrip("0123456789,*")
 
 
 def our_fields(blocks) -> dict[str, str]:
