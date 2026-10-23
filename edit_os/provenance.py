@@ -75,6 +75,10 @@ def reference(res, original: str) -> dict:
     styled = getattr(res, "formatted", "") or ""
     common = {"original": original, "styled": styled if styled and styled != original else "",
               "status": getattr(res, "status", "")}
+    if getattr(res, "styled", False):  # not verified: styled from the author's own fields (refstyle)
+        why = getattr(res, "message", "") or "no strict PubMed / CrossRef match"
+        from .refstyle import PROVENANCE_LABEL
+        return make("unverified", PROVENANCE_LABEL, why, **common)
     if rec is not None and getattr(rec, "source", "") == "pubmed" and rec.pmid:
         return make("pubmed", f"PubMed {rec.pmid}", url=pubmed_url(rec.pmid), record=record_fields(rec), **common)
     if rec is not None and rec.doi:

@@ -93,6 +93,9 @@ text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit ch
 
 references:
   lookup: true                 # rebuild entries from PubMed / CrossRef when they match strictly
+  style_unverified: true       # an entry PubMed / CrossRef cannot verify is still styled, from the author's own
+                               # fields (refstyle.py; owner: "If verification is not possible we have to style it as
+                               # per the guide"); nothing the author did not write is added, missing fields queried
   ai_parse: true               # Claude splits entries into fields first (needs ANTHROPIC_API_KEY)
   max_authors: 6               # more than 6 -> first 6, et al.
   et_al: "et al."

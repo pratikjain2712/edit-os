@@ -29,6 +29,7 @@ TEXT = {
     "references.no_volume": "Kindly provide volume and page numbers.",
     "references.no_pages": "Kindly provide page numbers.",
     "references.record_differs": "The {what} given here differs from the published article. Kindly check.",
+    "references.author_style": "The author names could not be set in the journal's style (surname followed by initials). Kindly check and provide them.",
     "references.author_names": "The author names could not be verified against PubMed / CrossRef. Kindly check.",
     "references.book_et_al": "Kindly provide minimum 6 author names before et al.",
     "references.link_dead": "Link is not working. Kindly check.",
@@ -126,8 +127,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
         elif res.status in refs_other.STATUSES and refs_other.classify(ref.text, res.parsed.kind) in ("book", "book_chapter") \
                 and has_et_al and few_authors:
             qs.add(ref.para_id, "references.book_et_al", **span)
-        for check, fmt in res.queries:  # books, links, reports (refs_other)
-            qs.add(ref.para_id, check, **fmt, **span)
+        added = {q.check for q in qs.queries if q.para_id == ref.para_id}
+        for check, fmt in res.queries:  # books, links, reports (refs_other); fields missing from a styled entry
+            if check not in added:
+                qs.add(ref.para_id, check, **fmt, **span)
 
     # Key words.
     kw = next((p for p in ms.paragraphs if re.match(r"^\s*(?:<H\d>)?\s*key\s*-?words?\b", p.text, re.I)), None)

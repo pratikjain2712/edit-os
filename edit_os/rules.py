@@ -730,6 +730,12 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
             for pid, text in ref.continuation:  # the rebuilt entry holds the rest ("doi:..." on its own line)
                 p = ms.by_id(pid)
                 mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_lookup"))
+        elif res.status == refengine.QUERY and res.styled and res.formatted != ref.text:
+            # not verified: styled from the author's own fields (refstyle), the entry's query stays
+            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_styled")
+            for pid, text in ref.continuation:
+                p = ms.by_id(pid)
+                mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_styled"))
         elif res.formatted and res.formatted != ref.text:  # books, links, reports: template fixes
             mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other")
         prov = provenance.reference(res, ref.full_text)
@@ -793,7 +799,7 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
             continue
         if name == "references":
             resolved = {r.para_id for r, res in lookup_references(ms, style)
-                        if res.status in (refengine.MATCHED, refengine.FORMAT_FIXED)}
+                        if res.status in (refengine.MATCHED, refengine.FORMAT_FIXED) or res.styled}
         for c in rule(ms, style):
             if name == "references" and c.para_id in resolved:
                 continue

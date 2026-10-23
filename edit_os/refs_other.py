@@ -2,7 +2,8 @@
 reports and theses.
 
 Journal articles are rebuilt from PubMed / CrossRef records (refengine). These entries are kept in
-the author's own words; only template fixes are made (guide: "Available from: URL. [Last accessed
+the author's own words: an APA / EndNote entry is put in the guide's order (refstyle.restyle_other), and
+template fixes are made (guide: "Available from: URL. [Last accessed
 on YYYY Mon DD].", "nth ed.", "City: Publisher; Year. p. xx-xx"), and what the author must supply
 or confirm becomes a query:
 
@@ -84,7 +85,7 @@ def classify(text: str, kind: str = "") -> str:
         return CONFERENCE
     if re.search(r"\bIn\s*:\s|,\s*editors?\b|\(eds?\.?\)", text):
         return CHAPTER
-    if _EDITION.search(text) or re.search(r"\b(Press|Publishers?|Publishing|Publications)\b", text) \
+    if _EDITION.search(text) or re.search(r"\b(Press|Publishers?|Publishing|Publications)\b|\(\d{1,2}(?:st|nd|rd|th) ed\.?\)", text) \
             or re.search(r"[A-Z][\w .()]{2,40}:\s*[A-Z][^;:]{2,60};\s*(?:19|20)\d\d\b", text):
         return BOOK
     if re.search(r"\b(report|guidelines?|World Health Organization|Ministry|Government|survey|fact ?sheet"
@@ -274,7 +275,7 @@ def book_title_case(body: str, title: str = "") -> str:
             start = body.index(title)
         t = re.match(r"(.+?)(?=\.\s|$)", body[start:])
         after = body[start + t.end():] if t else ""
-        if not t or not re.search(r"[A-Z][\w .()]*:\s*[A-Z]|\b\d+(?:st|nd|rd|th) ed\b", after) \
+        if not t or not re.search(r"[A-Z][\w .()]*:\s*[A-Z]|\b\d+(?:st|nd|rd|th) ed\b|^\.\s+[A-Z][^.;:]{1,80};\s*(?:19|20)\d\d\b", after) \
                 or re.search(r"\bjournal\b|\bdoi\b", body, re.I):
             return body  # no edition or publisher after it: not sure this is the book title
         span = (start, start + t.end())
@@ -309,7 +310,7 @@ def template(text: str, kind: str, title: str = "") -> Fixed:
         body = fix_editors(body) if kind in (BOOK, CHAPTER, REPORT) else body
         if kind in (BOOK, CHAPTER, REPORT, WEBSITE, THESIS):
             body = fix_publication(body, pages=kind in (BOOK, CHAPTER))
-        if kind in (BOOK, CHAPTER):
+        if kind in (BOOK, CHAPTER, REPORT):  # a report cited as a book ("Geneva: WHO; 2020"): its title as a book's
             body = book_title_case(body, title)
         body = _tidy(body).rstrip(" ,;:")
     if f.url and not body and rest:
@@ -611,8 +612,17 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
     cfg = lambda k, d=True: style.get(f"references.other.{k}", d)  # noqa: E731
     if not cfg("enabled"):
         return refengine.Resolution(refengine.NOT_JOURNAL, p, message="Book, website or other non-journal source")
+    from . import refstyle
+
     kind = classify(text, p.kind)
     fixed = template(text, kind, p.title)
+    # The author's APA / EndNote order put in the guide's, from the author's own words (refstyle): a book or report
+    # is styled whether or not it can be verified; the template fixes run on the reordered entry.
+    restyled = refstyle.restyle_other(text, style, p.title) if kind in (BOOK, CHAPTER, CONFERENCE, REPORT, THESIS) else None
+    if restyled:
+        again = template(restyled, kind, p.title)
+        if not refstyle.invented(again.text, text, " ".join(refstyle.TEMPLATE_WORDS)):
+            fixed = again
     res = refengine.Resolution(refengine.NOT_JOURNAL, p)
     broken = not fixed.url and re.search(r"https?://\s|\bwww\.\s", text, re.I)
     if not broken and ((kind == OTHER and not fixed.url) or not (fixed.url or re.search(r"\b(?:19|20)\d\d\b", text))):
@@ -671,5 +681,6 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
         res.queries.append(("references.unverified", {}))
 
     res.status = OTHER_VERIFIED if verified else OTHER_FIXED if res.formatted else refengine.NOT_JOURNAL
+    res.styled = bool(restyled and fixed.text == res.formatted and not verified)
     res.message = f"{kind}: " + ("; ".join(notes) or "not checked")
     return res

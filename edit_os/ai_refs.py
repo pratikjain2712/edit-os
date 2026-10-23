@@ -1,8 +1,9 @@
 """Clean up and split references into fields with Claude, before the PubMed / CrossRef lookup.
 
-Claude's output is used only to build better searches and to classify the source type. The
-reference text that goes into the manuscript always comes from the matched database record,
-or stays as the author wrote it; it is never taken from the model.
+Claude's output is used only to build better searches, to classify the source type and (its title, where
+written in the entry) to find where an unverified entry's title ends. The reference text that goes into the
+manuscript always comes from the matched database record or from the author's own words (refstyle.py styles
+an unverified entry and checks every word of it against the entry); it is never taken from the model.
 
 Needs EDITOS_ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY). Without it, `available()` is False and the
 rule-based parser is used. Requests go to EDITOS_ANTHROPIC_BASE_URL, default api.anthropic.com, so a

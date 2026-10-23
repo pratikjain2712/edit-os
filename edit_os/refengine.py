@@ -50,6 +50,7 @@ class Resolution:
     message: str = ""
     score: float = 0.0
     queries: list[tuple[str, dict]] = field(default_factory=list)  # (queries.TEXT key, format values)
+    styled: bool = False  # not verified, but `formatted` is the entry styled from the author's own text (refstyle)
 
 
 def fold(s: str) -> str:
@@ -126,7 +127,11 @@ def from_fields(text: str, f: dict) -> Parsed:
 def looks_like_journal_article(text: str) -> bool:
     if re.search(r"\b(ed\.|edition|editors?|publishers?|press|available from|accessed|thesis|dissertation)\b", text, re.I):
         return False
-    return bool(citation(text)) or bool(DOI.search(text) or PMID.search(text))
+    if citation(text) or DOI.search(text) or PMID.search(text):
+        return True
+    from .refstyle import split  # "Journal, 12(3), pp. 140-148" after a Harvard "(2019)": the author's citation
+    a = split(text)
+    return bool(a and a.volume and a.title and a.journal)
 
 
 _PARTICLES = frozenset("van von der den de del della di da dos das du la le ten ter al el bin ben st".split())
@@ -872,7 +877,9 @@ def _quotes(title: str, style: JournalStyle, p: Parsed | None) -> str:
     return out
 
 
-def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None) -> str:
+def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None, keep: frozenset | set = frozenset()) -> str:
+    """The entry in journal style from a record (or, for an entry not verified, the author's own fields: refstyle).
+    `keep`: title words that keep their capital besides the known names."""
     max_a = style.get("references.max_authors", 6)
     names = _usable_authors(r, p)
     if max_a and len(names) > max_a:
@@ -891,7 +898,7 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
         title = title[:-1]
     if style.get("references.title_sentence_case"):
         title = sentence_case(title, proper_nouns(r.title, p.title if p else "") | dictionary_proper_nouns(title)
-                              | latin_names(title) | latin_names(r.title))
+                              | latin_names(title) | latin_names(r.title) | set(keep))
     title = _quotes(title, style, p)
     if style.get("references.capitalize_after_colon"):
         title = re.sub(r":\s([a-z])", lambda m: ": " + m.group(1).upper(), title)
@@ -932,17 +939,21 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         from . import refs_other  # books, links, conference papers, reports, theses
 
         return refs_other.resolve(text, style, p)
+    from .refstyle import style_unverified  # an entry not verified is still styled, from the author's text
+
     record, why = find(p)
     if not record:
-        return Resolution(QUERY, p, message=why)
+        return style_unverified(Resolution(QUERY, p, message=why), text, style, fields)
     if not (record.volume and record.year):
-        return Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)")
+        return style_unverified(Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)"),
+                                text, style, fields)
     queries = []
     if not record_pages(record, p):  # the guide's template needs a first page; nothing to take it from
         queries.append(("references.no_pages", {}))
     if malformed_authors(record) or not record.authors and p.authors:
         if not p.authors:
-            return Resolution(QUERY, p, record, message="Record's author names are malformed")
+            return style_unverified(Resolution(QUERY, p, record, message="Record's author names are malformed"),
+                                    text, style, fields)
         queries.append(("references.author_names", {}))  # the author's names are kept: ask to check them
     formatted = format_record(record, style, p) + errata(text, style)
     t, _, _ = score(p, record)
