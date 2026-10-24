@@ -207,3 +207,68 @@ def test_caption_end_period_kept_when_set_to_keep(tmp_path):
     st.settings["figures"]["caption_end_period_keep"] = True
     _, t = _run(_save(tmp_path, ["Table 1. Characteristics of participants."]), st, tmp_path, ["fig_captions"])
     assert t[0] == "Table 1: Characteristics of participants."
+
+
+def _table_ms(tmp_path, body, cells, notes, name="t.docx"):
+    """A manuscript: body paragraphs, one table (one cell per entry: (text, superscript digits)), notes
+    under it and a reference list of five."""
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    for t in body:
+        if isinstance(t, tuple):
+            q = doc.add_paragraph(t[0])
+            q.add_run(t[1]).font.superscript = True
+        else:
+            doc.add_paragraph(t)
+    table = doc.add_table(rows=len(cells), cols=1)
+    for row, (text, sup) in zip(table.rows, cells):
+        p = row.cells[0].paragraphs[0]
+        p.add_run(text)
+        if sup:
+            p.add_run(sup).font.superscript = True
+    for t in notes:
+        doc.add_paragraph(t)
+    for t in _refs(*[f"Auth{c} A" for c in "ABCDE"]):
+        doc.add_paragraph(t)
+    path = tmp_path / name
+    doc.save(path)
+    return docmodel.load(str(path))
+
+
+def _table_conversions(ms):
+    ids = {p.id for p in ms.paragraphs if p.in_table}
+    return sorted(ms.by_id(c.para_id).text[:c.start] + c.new for c in rules.rule_citations(ms, _style())
+                  if c.para_id in ids and "[" in c.new)
+
+
+def test_table_footnote_markers_are_not_citations(tmp_path):
+    # gtsummary-style table: the notes under it explain ¹ ² ³; "Garg et al., 2018⁴" cites.
+    ms = _table_ms(tmp_path, ["Lymphocytes matter [1]. More [2,3]."],
+                   [("Characteristic", ""), ("N = 4391 (100%)", "2"), ("N = 968 (19%)", "2"), ("p value", "3"),
+                    ("Diabetic retinopathy", "2"), ("As in Garg et al., 2018", "4")],
+                   ["¹ N not missing (unweighted) ² n (%) ³ Pearson's Chi-squared test"])
+    assert _table_conversions(ms) == ["As in Garg et al., 2018[4]"]
+
+
+def test_table_footnote_markers_explained_in_a_cell(tmp_path):
+    # Notes typed in the table's last cell, with plain digits: "1: DSM-5 diagnostic criteria, 2: in months."
+    ms = _table_ms(tmp_path, ["Gambling matters [1]."],
+                   [("Tobacco dependence", "1"), ("Tobacco use duration", "2"), ("Prior work", "5"),
+                    ("1: DSM-5 diagnostic criteria, 2: in months.", "")], [])
+    assert _table_conversions(ms) == ["Prior work[5]"]
+
+
+def test_table_marker_repeated_across_cells(tmp_path):
+    cells = [("Not reported", "3"), ("12", ""), ("Not reported", "3"), ("Not reported", "3"), ("Smith", "4")]
+    # The text cites in square brackets: "Not reported³" down a column is a footnote marker.
+    ms = _table_ms(tmp_path, ["Seizures matter [1]. More [2]."], cells, [])
+    assert _table_conversions(ms) == ["Smith[4]"]
+    # The text cites in superscript: the repeated number may be a citation, so it converts.
+    ms = _table_ms(tmp_path, [("Seizures matter.", "1"), ("More.", "2")], cells, [], name="u.docx")
+    assert _table_conversions(ms) == ["Not reported[3]"] * 3 + ["Smith[4]"]
+
+
+def test_text_after_a_table_still_cites(tmp_path):
+    # Running text right under a table is no note: its "risk ² was" does not explain the cell's "Smith²".
+    ms = _table_ms(tmp_path, ["Risk matters [1]."], [("Smith", "2")], ["The risk ² was higher in men than women."])
+    assert _table_conversions(ms) == ["Smith[2]"]

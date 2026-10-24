@@ -131,6 +131,109 @@ def superscript_citations(p: Paragraph) -> list[tuple[int, int, str]]:
     return sorted(out)
 
 
+# A table note that explains a marker: "³ Not reported ...", "1N not missing", "1: DSM-5 criteria, 2: in months",
+# "... failure. ¹: ICU admission diagnosis; ²: ...". The marker opens the note or follows a separator, and words
+# follow it; plain digits count only with a colon or equals sign after them ("Model 1: adjusted" is not one).
+_NOTE_SEP = r"(?:^\s*|[.;,]\s+|\s{2,}|\t)"
+_NOTE_PLAIN_MARKER = re.compile(_NOTE_SEP + r"(\d{1,2})\s*[:=]\s*[^\W\d]")
+# Unicode markers may follow a single space ("... (unweighted) ² n (%) ³ Pearson's ...") when a space follows too.
+_NOTE_SUP_MARKER = re.compile(r"(?:" + _NOTE_SEP + r"([⁰¹²³⁴⁵⁶⁷⁸⁹]{1,2})\s*[:=.)]?\s*|(?<=\s)([⁰¹²³⁴⁵⁶⁷⁸⁹]{1,2})\s+)[^\W\d]")
+_NOTES_AFTER_TABLE = 6  # non-empty paragraphs under a table read as its notes (up to a caption or the next table)
+
+
+def _note_markers(p: Paragraph) -> list[tuple[int, int, int]]:
+    """(start, end, number) of the footnote markers a table note explains (see _NOTE_SUP_MARKER)."""
+    out = []
+    for m in _NOTE_PLAIN_MARKER.finditer(p.text):
+        out.append((m.start(1), m.end(1), int(m.group(1))))
+    for m in _NOTE_SUP_MARKER.finditer(p.text):
+        g = 1 if m.group(1) else 2
+        out.append((m.start(g), m.end(g), int(_sup_plain(m.group(g)))))
+    for s, e in p.superscript:  # digits formatted superscript: "1N not missing", "... failure. 1: ICU ..."
+        lead = len(p.text[s:e]) - len(p.text[s:e].lstrip())
+        s2, e2 = s + lead, s + len(p.text[s:e].rstrip())
+        if re.fullmatch(r"\d{1,2}", p.text[s2:e2]) and re.search(_NOTE_SEP + r"$", p.text[:s2]) \
+                and re.match(r"\s*[:=.)]?\s*[^\W\d]", p.text[e2:]):
+            out.append((s2, e2, int(p.text[s2:e2])))
+    return sorted(out)
+
+
+# An abbreviation list under a table: "OR: Odds ratio; CI: ...", "BMI = body mass index".
+_ABBREVIATION_NOTE = re.compile(r"^\s*[A-Za-z][\w/.′'\-]{0,15}\s*[:=]\s")
+
+
+def _is_table_note(p: Paragraph) -> bool:
+    """A paragraph under a table reads as one of its notes ("Note: ...", "* P<0.05", "OR: Odds ratio; ...",
+    "¹ Not reported ..."); running text after the table does not, so its citations stay citations."""
+    marks = _note_markers(p)
+    return bool(renumber._TABLE_NOTE.match(p.text) or _ABBREVIATION_NOTE.match(p.text)
+                or (marks and marks[0][0] == len(p.text) - len(p.text.lstrip())))
+
+
+def table_note_markers(ms: Manuscript) -> set[tuple[str, int]]:
+    """(paragraph id, start) of superscript numbers in tables and their notes that are footnote markers,
+    not citations ("N = 4391 (100%)²", "p value³" under "² n (%) ³ Pearson's Chi-squared test"):
+    - the table's notes (cells that open with a marker, and the paragraphs right under the table)
+      explain that number; the markers in the notes themselves go too;
+    - or the same number stands in three or more cells of the table ("Not reported³" down a column)
+      in a manuscript whose text does not cite in superscript.
+    A "Reference" column ("Garg et al., 2018¹⁰", numbers not explained by the notes) still cites."""
+    cached = getattr(ms, "_table_note_markers", None)
+    if cached is not None:
+        return cached
+    paras = ms.paragraphs
+    groups: list[tuple[object, list[int]]] = []
+    for i, p in enumerate(paras):
+        if p.in_table:
+            t = renumber._outer_table(p)
+            if groups and groups[-1][0] is t:
+                groups[-1][1].append(i)
+            else:
+                groups.append((t, [i]))
+    body_sup = None
+    out: set[tuple[str, int]] = set()
+    for _, idxs in groups:
+        cells = [paras[i] for i in idxs]
+        notes = [p for p in cells if (m := _note_markers(p)) and m[0][0] == len(p.text) - len(p.text.lstrip())]
+        k, seen = idxs[-1] + 1, 0
+        while k < len(paras) and seen < _NOTES_AFTER_TABLE and not paras[k].in_table:
+            q = paras[k]
+            if q.text.strip():
+                if rules_figures.caption_match(q) is not None or q.style.lower().startswith("heading"):
+                    break
+                if _is_table_note(q):
+                    notes.append(q)
+                seen += 1
+            k += 1
+        explained: set[int] = set()
+        for q in notes:
+            for s, e, n in _note_markers(q):
+                explained.add(n)
+                out.add((q.id, s))
+        found = [(p, s, renumber.expand(nums) or []) for p in cells for s, e, nums in superscript_citations(p)]
+        in_cells: dict[int, set[str]] = {}
+        for p, s, nums in found:
+            if len(nums) == 1:
+                in_cells.setdefault(nums[0], set()).add(p.id)
+        for p, s, nums in found:
+            if not nums:
+                continue
+            if set(nums) <= explained:
+                out.add((p.id, s))
+                continue
+            if len(nums) == 1 and len(in_cells.get(nums[0], ())) >= 3 \
+                    and not _YEAR_BEFORE.search(p.text[:s].rstrip()) and not re.search(r"\bal\.?,?$", p.text[:s].rstrip()):
+                if body_sup is None:
+                    body = [q for q in body_paragraphs(ms) if q.id not in front_matter_ids(ms)]
+                    n_sup = sum(len(superscript_citations(q)) for q in body)
+                    n_other = sum(len(_SQUARE.findall(q.text)) + len(_ROUND.findall(q.text)) for q in body)
+                    body_sup = n_sup > n_other
+                if not body_sup:
+                    out.add((p.id, s))
+    ms._table_note_markers = out
+    return out
+
+
 def front_matter_ids(ms: Manuscript) -> set[str]:
     """Title page, author line, affiliations, correspondence (and cover letters before them):
     paragraphs before the abstract / main text, where superscript numbers are author and
@@ -355,10 +458,11 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
         else:
             out.append(_change(p, start, end, new, Layer.REFERENCES, "citations"))
         out += _trailing_space(p, end, "citations")
+    markers = table_note_markers(ms)  # "N = 4391 (100%)²" under "² n (%)": a table footnote marker
     for p in paras:
         # Superscript citations: "worldwide¹." -> "worldwide.[1]" (brackets keep the run's formatting).
         for s, e, nums in superscript_citations(p):
-            if s == 0 or _max_number(nums) > n_refs:
+            if s == 0 or _max_number(nums) > n_refs or (p.id, s) in markers:
                 continue
             norm = normalise_citation(nums, style)
             if norm is None:
