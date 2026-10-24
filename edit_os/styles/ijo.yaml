@@ -53,7 +53,9 @@ sections:
                                      # submission lists contributions (one more found: a review the editor left)
     # The stylesheet is silent on a first-author block; the IJO technical editors consistently add one (21 of 22
     # articles), kept by the copy editors: label, full name, affiliation, after the references.
-    first_author: {enabled: true}
+    # Not for a plain "Letter to Editor" (the editor added none; owner confirmed 2026-10-24); the stand-alone
+    # "Letter to Editor (Stand-alone brief communications ...)" gets one, as the editor did.
+    first_author: {enabled: true, skip_types: [Letter to Editor, Letter to the Editor]}
 
 # guide_replace.multiplication: as base (G315 "10x20" -> "10 × 20"; the IJO editors leave "4.5x4.5 mm": owner's list)
 

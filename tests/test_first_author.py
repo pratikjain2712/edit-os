@@ -191,3 +191,11 @@ def test_pipeline_tracked_insertion_and_clean_copy_only_when_accepted(tmp_path, 
     again = pipeline.render_outputs(str(out), style=ijo)
     clean = [t for t, _ in _texts(again.path("clean"))]
     assert "First author:" in clean and os.path.exists(again.path("clean"))
+
+
+def test_no_block_for_a_letter_to_the_editor(tmp_path, ijo):
+    letter = XML.replace(b"<articletype>Original Article</articletype>", b"<articletype>Letter to Editor</articletype>")
+    assert plan(tmp_path, ijo, xml=letter)[1].inserts == []
+    standalone = XML.replace(b"<articletype>Original Article</articletype>", b"<articletype>Letter to Editor "
+                             b"(Stand-alone brief communications unrelated to IJO publications)</articletype>")
+    assert len(plan(tmp_path, ijo, xml=standalone)[1].inserts) == 3  # the editor adds it to these

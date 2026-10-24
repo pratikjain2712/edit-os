@@ -123,6 +123,9 @@ def plan(ms: Manuscript, style: JournalStyle, front: frontmatter.Plan | None) ->
     out = Plan()
     if not cfg.get("enabled") or existing(ms) is not None:
         return out
+    atype = next((b.text for b in front.blocks if b.role == "article_type"), "") if front is not None else ""
+    if atype.strip().lower() in {t.lower() for t in cfg.get("skip_types", [])}:
+        return out
     where = slot(ms)
     if where is None:
         return out
