@@ -14,4 +14,5 @@ Python package `edit_os`. Tests: `.venv/bin/python -m pytest`.
   tool error. Use what editors consistently do only where the stylesheet is silent. When nearly all editors go
   against a stylesheet rule, keep the stylesheet and list the rule for the owner to confirm (it may be outdated).
   Never switch off or drop a rule the stylesheet asks for because editors skip it; only the owner changes the
-  stylesheet. Where a sheet's written rule and its own example disagree, the written rule wins.
+  stylesheet. Where a sheet's written rule and its own example disagree, the written rule wins. Struck-through text in a
+  stylesheet is still a live rule (owner, 2026-10-24).
