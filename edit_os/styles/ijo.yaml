@@ -51,6 +51,11 @@ sections:
       heading: "Authors’ contributions"  # 7 of 12 editor-final headings (the sheet is silent)
       from_sources: true             # title page / contribution form: the editors have it in all 11 articles whose
                                      # submission lists contributions (one more found: a review the editor left)
+      # Statements on the manuscript's own title page go to the back under the heading, with a closing "All authors
+      # read and approved ..." line right after them (IJO_702, the only such article in the 273 samples: the technical
+      # editor moved all three statements; owner: follow him. He kept that closing line with the statements in 4 of
+      # 5 IJO articles, all but IJO_702).
+      move_from_top: true
     # The stylesheet is silent on a first-author block; the IJO technical editors consistently add one (21 of 22
     # articles), kept by the copy editors: label, full name, affiliation, after the references.
     # Not for a plain "Letter to Editor" (the editor added none; owner confirmed 2026-10-24); the stand-alone

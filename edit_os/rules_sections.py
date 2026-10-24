@@ -22,6 +22,8 @@ What the style editors do (measured on their tracked files, IJO / ABR / NJCP / J
   identifiable patient images (decided from the article type and figure legends), the standard
   statement is added with the stylesheet's query. Authors' contributions: an unlabelled list gets
   its heading; per journal, the list from the title page / contribution form / cover letter is added.
+  Per journal (IJO), statements on the manuscript's own title page move there: deleted on top, added under the
+  heading (only the top copy is deleted when the back already holds the same statements).
   New sections go in the journal's order (consent, contributions, financial support, conflicts).
 
 Everything is a `Change` on the original text; settings live under `sections:` in the style.
@@ -901,7 +903,52 @@ def contributions_with_origin(ms: Manuscript, skip: set[str] = frozenset()) -> t
     return [], None
 
 
-# Data availability statement: "Data availability statement: ...", "Availability of data and materials", "Data
+# A closing line of a contribution list ("All authors read and approved the final manuscript.").
+_APPROVAL = re.compile(r"^\s*(?:all\s+(?:the\s+)?|the\s+|each\s+)?authors?\b.{0,200}\b(?:read|approv\w*|agree\w*|"
+                       r"accountab\w*|contribut\w*)\b", re.I)
+
+
+def top_contributions(ms: Manuscript, skip: set[str] = frozenset()) -> tuple[list[Paragraph], list[str]]:
+    """Authors' contribution statements on the manuscript's own title page (before the abstract / main text): the
+    paragraphs (an "Authors' contributions" label or heading, the "Name: role, role" lines, a closing "All authors
+    read and approved ..." line right after them) and the statements they hold, one per line. Only when the
+    leading paragraphs end at the abstract / main text; the first one (the title) and those in `skip` (the back
+    matter) are never statements. Nothing when no statement is found."""
+    from . import frontmatter
+
+    lead = frontmatter.leading_paragraphs(ms)
+    if not lead:
+        return [], []
+    after = ms.paragraphs[ms.paragraphs.index(lead[-1]) + 1:]
+    nxt = next((p for p in after if p.text.strip() and not p.in_table), None)
+    if nxt is None or not (frontmatter._BODY_START.match(nxt.text) or frontmatter._LEAD_STOP.match(nxt.text)):
+        return [], []  # no title page ahead of the abstract / main text (a short piece read from the top)
+    ids = frontmatter.contribution_paragraphs([p for p in lead[1:] if p.id not in skip])
+    paras = [p for p in lead if p.id in ids]
+    if not paras:
+        return [], []
+    for q in lead[lead.index(paras[-1]) + 1:]:
+        if not (_APPROVAL.match(q.text) and len(q.text) <= 400 and _CONTRIB_WORDS.search(q.text)):
+            break
+        paras.append(q)
+    items = []
+    for p in paras:
+        text = p.text
+        m = _CONTRIB.match(text)
+        if m and not (m.group("sep").isspace() and not m.group("author")):
+            text = text[m.end():]
+        items += [t.strip() for t in re.split(r"\s*\n\s*", text) if t.strip()]
+    if not any(frontmatter.is_contribution_line(t) or _CONTRIB_WORDS.search(t) and not _APPROVAL.match(t)
+               for t in items):
+        return [], []  # a heading or an approval line alone: nothing to move
+    return paras, items
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"\W+", " ", text).strip().lower()
+
+
+# Data availability statement: "Data availability statement: ...","Availability of data and materials", "Data
 # sharing statement" (a heading line, or a label with the statement after it).
 _DATA_HEAD = re.compile(
     r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>data\s+(?:availability|sharing)(?:\s+statements?)?"
@@ -1249,8 +1296,24 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         else:
             plan["consent"] = "missing"
     if contrib_on:
+        # Statements on the manuscript's own title page move to the back (per journal: IJO): a tracked delete there and
+        # the statements inserted under the heading. When the back already has the section, the top copy is deleted
+        # only when every statement is already there (a duplicate); otherwise it is left to the editor.
+        top, top_items = top_contributions(ms, {p.id for p in region}) if contrib_cfg.get("move_from_top") \
+            else ([], [])
         if "contributions" in have:
             plan["contributions"] = "exists"
+            back = _plain(" ".join(p.text for p in region))
+            if top and all(_plain(t) in back for t in top_items if not _APPROVAL.match(t)):
+                for p in top:
+                    out.append(_change(p, 0, len(p.text), "", Layer.STRUCTURE, "sections_contributions"))
+        elif top:
+            new["contributions"] = [f"{tag}{contrib_cfg.get('heading', 'Author contributions')}"] + top_items
+            origins["contributions"] = provenance.make("manuscript", "Manuscript title page", top_items[0],
+                                                       para_id=top[0].id)
+            plan["contributions"] = "added"
+            for p in top:
+                out.append(_change(p, 0, len(p.text), "", Layer.STRUCTURE, "sections_contributions"))
         else:
             items, origin = contributions_with_origin(ms, {p.id for p in region}) \
                 if contrib_cfg.get("from_sources") else ([], None)

@@ -313,6 +313,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
       from_sources: false        # add the section from the title page / contribution form / cover letter when the
                                  # manuscript has none (per journal: IJO and IDOJ editors do; ABR editors never do)
       query_missing: false       # none given anywhere (IJO editors queried 1 of 7 such articles)
+      move_from_top: false       # statements on the manuscript's own title page ("Fatma Savur: Data acquisition, ...")
+                                 # are deleted there and inserted under the heading at the back (per journal: IJO)
     first_author:  # "First author:" (bold), the first author's full name (bold) and affiliation, after the
                    # references and before the figure legends (edit_os/first_author.py); per journal
       enabled: false

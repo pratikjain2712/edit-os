@@ -177,6 +177,56 @@ def test_unlabelled_contribution_lines_get_heading_and_inline_label_splits(tmp_p
     assert "Contribution: This author helped with study design." in run(path, "jehp")
 
 
+TOP = ["Orbital lesions with enophthalmos: A case series", "",
+       "Asha Rao: Concept, design, data acquisition, manuscript preparation.",
+       "Ravi Kumar: Data acquisition, data analysis, manuscript review.",
+       "All authors approved the final version of the manuscript."]
+
+
+def test_contributions_on_the_manuscript_title_page_move_to_the_back(tmp_path):
+    path = make(tmp_path, TOP + ["Introduction", BODY, "Conclusion", BODY, "Declaration of patient consent",
+                                 "The authors certify that they have obtained all appropriate patient consent forms.",
+                                 "Financial support and sponsorship", "Nil.", "Conflicts of interest",
+                                 "There are no conflicts of interest."] + REFS)
+    cs = rules.run_all(load(path), style.load("ijo"), only=["heading_tags", "sections_back_matter"])
+    gone = [c for c in cs.changes if c.reason == "sections_contributions" and not c.new]
+    assert sorted(c.old for c in gone) == sorted(TOP[2:])  # tracked deletes carrying the text they replace
+    t = run(path)
+    assert t[0] == TOP[0] and not any(x in t[:4] for x in TOP[2:])
+    i = t.index("<H2>Declaration of patient consent")
+    assert t[i + 2:i + 6] == ["<H2>Authors’ contributions"] + TOP[2:]
+    assert t[i + 6:i + 10] == STD
+    # a journal that does not move them (move_from_top off) leaves the title page alone
+    t = run(path, "aian")
+    assert t[1:4] == TOP[2:] and not any("contributions" in x.lower() for x in t)
+
+
+def test_labelled_top_contributions_move_without_their_label(tmp_path):
+    path = make(tmp_path, ["A title", "Authors’ contributions:", "Asha Rao: Concept, design, literature search.",
+                           "Ravi Kumar: Data acquisition, manuscript review.", "Abstract", BODY, "Discussion", BODY]
+                + REFS)
+    t = run(path)
+    assert t[:2] == ["A title", "Abstract"]
+    i = t.index("<H2>Authors’ contributions")
+    assert t[i + 1:i + 3] == ["Asha Rao: Concept, design, literature search.",
+                              "Ravi Kumar: Data acquisition, manuscript review."]
+    assert t[i + 3:i + 7] == STD
+
+
+def test_top_contributions_already_at_the_back(tmp_path):
+    back = ["Authors’ contributions"] + TOP[2:4]
+    path = make(tmp_path, TOP + ["Introduction", BODY, "Conclusion", BODY] + back + REFS)
+    t = run(path)
+    assert t[0] == TOP[0] and t.count(TOP[2]) == 1 and t.count(TOP[3]) == 1  # the duplicate on top is deleted
+    assert sum("contributions" in x.lower() for x in t) == 1
+    assert TOP[4] not in t  # the closing line went with the top copy (the back is the authors' own section)
+    # the back says something else: the top copy is left to the editor
+    other = ["Authors’ contributions", "Asha Rao: Concept and design.", "Ravi Kumar: Data analysis and review."]
+    path = make(tmp_path, TOP + ["Introduction", BODY, "Conclusion", BODY] + other + REFS, "o.docx")
+    t = run(path)
+    assert t[1:4] == TOP[2:] and sum("contributions" in x.lower() for x in t) == 1
+
+
 # --- nil statements ------------------------------------------------------------------------
 
 def test_nil_statement_variants_deleted(tmp_path):
