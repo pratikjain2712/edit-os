@@ -1629,10 +1629,91 @@ _LABEL_ROLE = [(re.compile(r"^\s*corresponding\s*author", re.I), "correspondence
                (re.compile(r"^\s*affiliations?\s*[:\-–]", re.I), "affiliation")]
 
 
+# Authors' contribution statements ("Fatma Savur: Data acquisition, data analysis, manuscript review."): what an
+# author did, not a title-page author line. The words that name a contribution (CRediT roles and the usual ones).
+_ROLE_WORDS = re.compile(
+    r"\b(?:concept\w*|design\w*|data|acquisition|analy[sz]\w*|interpretation|draft\w*|writing|wrote|review\w*|"
+    r"edit\w*|supervis\w*|literature|search|manuscript|statistic\w*|investigation|methodology|curation|"
+    r"visuali[sz]\w*|validation|resources|software|funding|administration|approv\w*|revis\w*|intellectual|"
+    r"guarantor|collect\w*|prepar\w*|definition)\b", re.I)
+# What stands before the colon of a label line, not an author's name ("Article Type: Review Article").
+_NOT_NAME = re.compile(
+    r"\b(?:title|type|article|manuscript|running|short|key|keywords?|words?|abstract|funding|conflicts?|source|"
+    r"support|count|address|e-?mail|phone|tel|fax|correspond\w*|authors?|affiliations?|department|contributions?|"
+    r"acknowledge?ments?|declarations?|ethic\w*|financial|competing|data|availability|orcid|received|accepted|"
+    r"submitted|revised|figures?|tables?|category|section|specialty|subject|introduction|background|aims?|methods?|"
+    r"results?|conclusions?|summary|approval|permissions?|consent|sub|re|note|cover|letter|generative|"
+    r"statement|disclosure|revision|submission|declared)\b", re.I)
+
+
+def is_contribution_line(text: str) -> bool:
+    """"Name: role, role, role": an author's contribution statement ("Fatma Savur: Data acquisition, data analysis,
+    manuscript review.", "A.B. – Conception and design"). Most of the items after the separator are short and name a
+    contribution, with at least two contribution words; a label ("Title:", "Article Type:") is not a name. A paragraph
+    of several lines ("YJ: Data collection\nAG: Editing") is one when every line is."""
+    lines = [t.strip() for t in text.split("\n") if t.strip()]
+    return bool(lines) and len(text) <= 600 and all(_contribution_line(t) for t in lines)
+
+
+_CONTRIB_NAME = re.compile(
+    r"^(?:[•➢▪*]\s*)?(?:(?:prof|dr|mr|mrs|ms)\.?\s*)*(?:(?:[A-ZÀ-ÖØ-Þİ][\w.’'\-]*\.?|(?:%s)\b)\s*){1,7}"
+    r"(?:\([A-ZÀ-ÖØ-Þİ. ]{1,10}\)\s*)?$" % "|".join(sorted(_PARTICLES | {"al", "el", "bin", "binti"})))
+
+
+def _contribution_line(text: str) -> bool:
+    sep = re.search(r"\s*:\s*|\s+[–—-]\s*|[–—-]\s+", text)
+    if not sep or sep.start() == 0:
+        return False
+    head, rest = text[:sep.start()], text[sep.end():].strip(" .")
+    if not _CONTRIB_NAME.match(head) or _NOT_NAME.search(head) or _LABEL.match(head):
+        return False
+    if len(_ROLE_WORDS.findall(rest)) < 2 or re.match(r"(?:an?|the)\s+[A-Z]", rest, re.I):
+        return False  # "...: A rare case report with review of the literature" is a title
+    items = [t for t in re.split(r"\s*(?:[,;]|\band\b|&)\s*", rest) if t.strip()]
+    roles = [t for t in items if _ROLE_WORDS.search(t) and len(t.split()) <= 7]
+    return bool(items) and len(roles) * 2 >= len(items)
+
+
+def contribution_paragraphs(lead: list[Paragraph]) -> set[str]:
+    """Ids of the authors' contribution statements among the leading paragraphs: "Name: role" lines, an "Author(s)
+    contribution(s)" heading or label line, and the statements after such a heading (up to the next label or a
+    paragraph that names no contribution). They are not front matter: the front-matter rebuild leaves them alone."""
+    from .rules_sections import _CONTRIB, _CONTRIB_WORDS, _OTHER_LABEL, _TEMPLATE
+
+    out: set[str] = set()
+    after_head = False
+    for p in lead:
+        text = p.text.strip()
+        m = _CONTRIB.match(text)
+        if m and not (m.group("sep").isspace() and not m.group("author")):
+            out.add(p.id)
+            after_head = not text[m.end():].strip()
+            continue
+        if is_contribution_line(text):
+            out.add(p.id)
+            continue
+        if after_head and _CONTRIB_WORDS.search(text) and not (_TEMPLATE.search(text) or _OTHER_LABEL.match(text)
+                                                               or _LABEL.match(text) or _BODY_START.match(text)):
+            out.add(p.id)  # "All authors approved the final version ..." under the heading
+            continue
+        after_head = False
+    return out
+
+
 def _fix_roles(f: Fields, lead: list[Paragraph]) -> None:
     """Deterministic corrections to the roles Claude gives manuscript paragraphs: an author-written running
     head on top ("Rao, et al.: ...") is the running head, not the title; a label with its content after it
-    ("Corresponding Author:" + the name on the next line) holds that content, so it is not deleted as a label."""
+    ("Corresponding Author:" + the name on the next line) holds that content, so it is not deleted as a label;
+    authors' contribution statements ("Fatma Savur: Data acquisition, ...") are not author lines or labels, so
+    they are never rewritten or deleted here."""
+    contrib = contribution_paragraphs(lead)
+    title = _norm(f.title)
+    for p in lead:
+        if p.id in contrib and f.roles.get(p.id) not in (None, "body", "other_front_matter") \
+                and not (title and title in _norm(p.text)):  # never the title ("Disease X: A review of ...")
+            f.notes.append(f"kept as an authors' contribution statement, not {f.roles[p.id].replace('_', ' ')}: "
+                           f"{p.text[:80]!r}")
+            f.roles[p.id] = "other_front_matter"
     first = next((p for p in lead if f.roles.get(p.id) not in (None, "body", "other_front_matter")), None)
     for p in lead:
         role = f.roles.get(p.id)

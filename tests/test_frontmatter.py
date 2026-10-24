@@ -340,3 +340,53 @@ def test_ijo_keeps_the_xml_type_with_its_qualifier():
     for code, want in (("ijo", "Case Report (for IJO Case Reports)"), ("jehp", "Case Report")):
         blocks, _ = fm.build(ms, fm.Fields(), meta, style_mod.load(code))
         assert want in [getattr(b, "text", "") for b in blocks]
+
+
+def test_contribution_lines_are_recognised():
+    yes = ["Fatma Savur: Data acquisition, data analysis, manuscript review.",
+           "Fatma Selin Kaya: Literature search, design",
+           "Dr. K. Sivakumar: Literature search, manuscript editing, and manuscript review.",
+           "A.B. – Conception and design",
+           "Ravi Kumar (RK): Writing – original draft, supervision",
+           "YJ: Data collection, manuscript writing.\nAG: Review and editing"]
+    no = ["Title: Data analysis of glaucoma, a review",
+          "Article Type: Review Article",
+          "Running title: Data and design",
+          "Ethical Approval: Not applicable as this study is a systematic review of published literature.",
+          "Sub: Submission of revised manuscript for publication",
+          "Corresponding author: Dr. Asha Kumar, Department of Ophthalmology",
+          "Microcystic Pigmented Chromophobe Renal Cell Carcinoma: A Rare Case Report with Review of the Literature",
+          "Occult Receptor–Positive Carcinoma: Case report and review of literature on data",
+          "Fatma Savur1, Fatma Selin Kaya2",
+          "Department of Ophthalmology, City Eye Hospital, Chennai"]
+    assert [t for t in yes if not fm.is_contribution_line(t)] == []
+    assert [t for t in no if fm.is_contribution_line(t)] == []
+
+
+def test_contribution_paragraphs_after_a_heading():
+    texts = ["Effect of X on Y", "Asha Kumar1, Ravi Rao2", "Authors' contributions",
+             "AK conceived the study and drafted the manuscript; RR collected data.",
+             "All authors approved the final version of the manuscript.",
+             "Corresponding author: Dr. Asha Kumar"]
+    lead = [docmodel.Paragraph(f"p{i}", None, "", t) for i, t in enumerate(texts)]
+    assert fm.contribution_paragraphs(lead) == {"p2", "p3", "p4"}
+
+
+def test_contribution_lines_in_the_title_block_are_kept(tmp_path, monkeypatch, ijo):
+    # IJO_702: Claude read the "Name: role" lines under the title as author lines; the rebuild then rewrote
+    # the first into the author group and deleted the others. They are contributions, not front matter.
+    contrib = ["Asha Kumar: Concept, design, data acquisition, manuscript preparation",
+               "Ravi Shankar Rao: Data acquisition, data analysis, manuscript review.",
+               "Jan van der Berg: Literature search, design"]
+    raw = claude_fields(para_ids=("M1", "M2", "M3", "M4"))
+    raw["paragraphs"] = [{"id": "M1", "role": "title"}] + [{"id": f"M{i}", "role": "authors"} for i in (2, 3, 4)]
+    monkeypatch.setattr(fm, "split", lambda text: raw)
+    path = make(tmp_path, [TITLE_PAGE[1]] + contrib + ["Abstract", "Purpose: To test."])
+    ms = docmodel.load(path)
+    pl = fm.plan(ms, ijo, fm.Sources(meta=fm.parse_xml(PORTAL_XML)))
+    ids = {p.id for p in ms.paragraphs if p.text in contrib}
+    assert len(ids) == 3
+    assert not [c for c in pl.changes if c.para_id in ids]
+    assert any(b.role == "authors" for b in pl.blocks)  # the author group is still built (and inserted)
+    assert any(n.role == "authors" for n in pl.inserts)
+    assert any("contribution" in n for n in pl.notes)
