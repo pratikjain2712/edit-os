@@ -888,6 +888,38 @@ def _clean_part(text: str) -> str:
 Run = tuple[str, dict]
 
 
+def _affiliation_body(a: dict, parts: list[str]) -> str:
+    """An affiliation as printed, without the country: `parts` (the department, or nothing when it is printed
+    with its group) + institution, city and state, cleaned, a place the institution already ends with dropped."""
+    parts = parts + [a.get("institution", ""), _place_case(a.get("city", "")), _place_case(_state(a))]
+    parts = [_clean_part(p) for p in parts if p and p.strip(" ,.")]
+    # drop a city or state the institution already names at its end ("AIIMS, New Delhi" + "New Delhi"); one
+    # that is part of its name stays ("University of Phayao, Phayao", "Mohammed V University in Rabat, Rabat")
+    dedup = []
+    for p in parts:
+        if not any(_norm(q).endswith(_norm(p))
+                   and not re.search(r"(?i)\b(?:of|in|at|de|du|di)\s+" + re.escape(p) + "$", q) for q in dedup):
+            dedup.append(p)
+    return ", ".join(dedup)
+
+
+def affiliation_text(f: "Fields", i: int) -> str:
+    """Affiliation `i` of `f` printed complete, as the author group's affiliation line prints it on its own
+    (department, institution, city, state, country). A missing country is the one the other affiliations all
+    give, when the affiliation names no state that could say otherwise."""
+    a = f.affiliations.get(i)
+    if not a:
+        return ""
+    text = _affiliation_body(a, [department_form(a.get("department", ""))])
+    country = _country(a)
+    if not country and not a.get("state"):
+        others = {_country(b) for j, b in f.affiliations.items() if j != i} - {""}
+        country = others.pop() if len(others) == 1 else ""
+    if country:
+        text += (", " if text else "") + _place_case(_clean_part(country))
+    return text
+
+
 @dataclass
 class Block:
     role: str
@@ -1058,16 +1090,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 if number.get(g[0]):
                     runs.append((number[g[0]], SUP))
                 parts = [department_form(a0.get("department", ""))]
-            parts += [a0.get("institution", ""), _place_case(a0.get("city", "")), _place_case(_state(a0))]
-            parts = [_clean_part(p) for p in parts if p and p.strip(" ,.")]
-            # drop a city or state the institution already names at its end ("AIIMS, New Delhi" + "New Delhi"); one
-            # that is part of its name stays ("University of Phayao, Phayao", "Mohammed V University in Rabat, Rabat")
-            dedup = []
-            for p in parts:
-                if not any(_norm(q).endswith(_norm(p))
-                           and not re.search(r"(?i)\b(?:of|in|at|de|du|di)\s+" + re.escape(p) + "$", q) for q in dedup):
-                    dedup.append(p)
-            text = ", ".join(dedup)
+            text = _affiliation_body(a0, parts)
             if len(g) > 1 and text:
                 text = ", " + text
             last_of_country = gi == len(groups) - 1 or countries[gi + 1] != countries[gi] \
@@ -1189,6 +1212,7 @@ class NewParagraph:
     source: Source = Source.RULE
     reason: str = "front_matter"
     provenance: dict | None = None  # which input the paragraph was built from (edit_os/provenance.py)
+    layer: Layer = Layer.STRUCTURE  # the review screen's layer
 
     @property
     def text(self) -> str:
@@ -1197,7 +1221,7 @@ class NewParagraph:
     def to_dict(self) -> dict:
         return dict(id=self.id, anchor=self.anchor, where=self.where, runs=[[t, f] for t, f in self.runs],
                     role=self.role, status=self.status.value, source=self.source.value, reason=self.reason,
-                    provenance=self.provenance)
+                    provenance=self.provenance, layer=self.layer.value)
 
 
 @dataclass
@@ -1207,6 +1231,8 @@ class Plan:
     queries: list[queries.Query] = field(default_factory=list)
     blocks: list[Block] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    fields: Fields | None = None  # the authors and affiliations the blocks were built from (first_author.py)
+    sources: Sources | None = None
 
     def add_queries(self, qs: queries.QuerySet, ms: Manuscript) -> queries.QuerySet:
         qs.queries += self.queries
@@ -1480,6 +1506,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         return pl
     blocks, qspecs = build(ms, f, src.meta, style)
     pl.blocks = blocks
+    pl.fields, pl.sources = f, src
     for b in blocks:
         b.provenance = block_provenance(b.role, f, src, lead, cfg, ms, b.text)
 

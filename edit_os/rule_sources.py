@@ -64,6 +64,9 @@ RULES: dict[str, Locator] = {
                             (r"title\s*page",), (), "label delete"),
     "figure_insert": L("Figure inserted", "A figure sent as a separate file placed above its legend",
                        (r"image|figure",), (r"figure|image",), "image present first caption below figure"),
+    # no stylesheet line: the journal's editors add the block (sections.back_matter.first_author)
+    "first_author": L("First author", "A \"First author\" block after the references: the first author's full name "
+                      "and affiliation, from the front matter"),
     # submission material
     "submission": L("Submission material", "Parts of the submission that are not the article are removed",
                     (r"cover\s+letter|copyright",), (r"cover\s+letter|copyright",), "delete cover letter copyright"),

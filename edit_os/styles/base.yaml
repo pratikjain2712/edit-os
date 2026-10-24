@@ -313,6 +313,11 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
       from_sources: false        # add the section from the title page / contribution form / cover letter when the
                                  # manuscript has none (per journal: IJO and IDOJ editors do; ABR editors never do)
       query_missing: false       # none given anywhere (IJO editors queried 1 of 7 such articles)
+    first_author:  # "First author:" (bold), the first author's full name (bold) and affiliation, after the
+                   # references and before the figure legends (edit_os/first_author.py); per journal
+      enabled: false
+      label: "First author:"
+      name_bold: true
     data_availability:  # "Data availability statement" (MJDRDYPU stylesheet: add it if given in source or FP, else query)
       enabled: false             # an existing statement is kept as written (and places the sections added around it)
       heading: Data availability statement

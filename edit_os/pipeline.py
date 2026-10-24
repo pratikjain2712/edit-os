@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, frontmatter, header, qc, queries, rules, style as style_mod, submission, tracked
+from . import docmodel, figures_insert, first_author, frontmatter, header, qc, queries, rules, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -120,7 +120,8 @@ def insert_from_dict(d: dict) -> frontmatter.NewParagraph:
     return frontmatter.NewParagraph(
         id=d["id"], anchor=d["anchor"], where=d["where"], runs=[(t, f) for t, f in d["runs"]], role=d["role"],
         status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
-        reason=d.get("reason", "front_matter"), provenance=d.get("provenance") or None)
+        reason=d.get("reason", "front_matter"), provenance=d.get("provenance") or None,
+        layer=Layer(d.get("layer", Layer.STRUCTURE.value)))
 
 
 def load_manifest(outdir: str) -> dict:
@@ -251,9 +252,15 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         warnings += figs.warnings
         for pid, key, fmt in figs.queries:  # a supplied figure with no legend in the manuscript
             qs.add(pid, key, **fmt)
+        if "front_matter" in ran:  # the "First author" block after the references, from the front matter
+            fa = first_author.plan(ms, st, front)
+            inserts += fa.inserts
+            for pid, key in fa.queries:
+                qs.add(pid, key)
         tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         stage_info["style"] = {
             "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts), "figures": len(figs.inserts),
+            "first_author": sum(n.reason == first_author.REASON for n in inserts),
             "queries": len(style_q.queries), "by_rule": dict(Counter(c.reason for c in style_changes.changes)),
         }
 

@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from edit_os import autopilot, docview, pipeline, rule_sources, style as style_mod
-from edit_os.changes import Source, Status
+from edit_os.changes import Layer, Source, Status
 
 from . import db, sessions
 from .config import Settings
@@ -309,7 +309,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             t = texts.get(n.anchor, "")
             position = "start" if n.anchor == first_id and n.where == "before" else n.where
             items.append({"id": n.id, "kind": "insert", "para_id": n.anchor, "start": 0, "end": 0, "old": "",
-                          "new": n.text, "layer": "structure", "source": n.source.value,
+                          "new": n.text, "layer": getattr(n, "layer", Layer.STRUCTURE).value,
+                          "source": n.source.value,
                           "reason": f"front_matter: {n.role}", "status": n.status.value, "format": None,
                           "provenance": n.provenance,
                           "rule_key": n.reason if n.reason != "front_matter" else f"front_matter:{n.role}",

@@ -51,6 +51,9 @@ sections:
       heading: "Authors’ contributions"  # 7 of 12 editor-final headings (the sheet is silent)
       from_sources: true             # title page / contribution form: the editors have it in all 11 articles whose
                                      # submission lists contributions (one more found: a review the editor left)
+    # The stylesheet is silent on a first-author block; the IJO technical editors consistently add one (21 of 22
+    # articles), kept by the copy editors: label, full name, affiliation, after the references.
+    first_author: {enabled: true}
 
 # guide_replace.multiplication: as base (G315 "10x20" -> "10 × 20"; the IJO editors leave "4.5x4.5 mm": owner's list)
 
