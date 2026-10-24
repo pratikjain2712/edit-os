@@ -151,3 +151,93 @@ def test_insert_anchored_to_deleted_paragraph(tmp_path):
     out.save(tmp_path / "c.docx")
     assert [p.text for p in docmodel.load(str(tmp_path / "c.docx")).paragraphs] == ["New running head",
                                                                                    "Title of the study"]
+
+
+# --- a paragraph the changes empty: no stray heading tag, no empty line ------------------------------
+
+def _doc(tmp_path, *texts):
+    doc = Document()
+    for t in texts:
+        doc.add_paragraph(t)
+    path = str(tmp_path / "m.docx")
+    doc.save(path)
+    return path
+
+
+def _ch(cid, p, start, end, new, reason, status=Status.ACCEPTED):
+    return Change(cid, p.id, start, end, p.text[start:end], new, Layer.STRUCTURE, Source.RULE, reason=reason,
+                  status=status)
+
+
+def _texts(path):
+    return [p.text for p in docmodel.load(path).paragraphs]
+
+
+def test_heading_deleted_and_tagged_leaves_no_tag(tmp_path):
+    # heading_tags tags the author's heading; the back-matter rule deletes it (IJO "Conflict of interest").
+    path = _doc(tmp_path, "Conflict of interest", "None declared.", "End.")
+    ms = docmodel.load(path)
+    head = ms.paragraphs[0]
+    cs = ChangeSet([_ch("tag", head, 0, 0, "<H2>", "heading_tags"),
+                    _ch("del", head, 0, len(head.text), "", "sections_back_matter")])
+    c = tmp_path / "c.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(c)
+    assert _texts(c) == ["None declared.", "End."]
+    t = tmp_path / "t.docx"
+    tracked.render(docmodel.load(path), cs, tracked=True).save(t)
+    first = list(Document(str(t)).element.body.iter(qn("w:p")))[0]
+    assert _mark_deleted(first)
+    assert "<H2>" not in "".join(x.text or "" for x in first.iter(qn("w:t")))  # no tag inserted on it
+
+
+def test_heading_tag_kept_when_deletion_not_accepted(tmp_path):
+    path = _doc(tmp_path, "Conflict of interest", "None declared.")
+    head = docmodel.load(path).paragraphs[0]
+    cs = ChangeSet([_ch("tag", head, 0, 0, "<H2>", "heading_tags"),
+                    _ch("del", head, 0, len(head.text), "", "sections_back_matter", Status.REJECTED)])
+    c = tmp_path / "c.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(c)
+    assert _texts(c) == ["<H2>Conflict of interest", "None declared."]
+
+
+def test_heading_tag_over_leading_spaces_dropped_with_heading(tmp_path):
+    path = _doc(tmp_path, "  Conflicts of Interest ", "None.")
+    head = docmodel.load(path).paragraphs[0]
+    cs = ChangeSet([_ch("tag", head, 0, 2, "<H2>", "heading_tags"),
+                    _ch("del", head, 2, len(head.text) - 1, "", "sections_back_matter")])
+    c = tmp_path / "c.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(c)
+    assert _texts(c) == ["None."]
+
+
+def test_text_replaced_by_new_paragraphs_leaves_no_empty_line(tmp_path):
+    # The statement goes and the journal's section is inserted after it, opening new paragraphs.
+    path = _doc(tmp_path, "The authors declare no conflict.", "End.")
+    p = docmodel.load(path).paragraphs[0]
+    n = len(p.text)
+    cs = ChangeSet([_ch("del", p, 0, n, "", "sections_back_matter"),
+                    _ch("ins", p, n, n, " <H2>Authors’ contributions A did it.", "sections_back_matter")])
+    c = tmp_path / "c.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(c)
+    assert _texts(c) == ["<H2>Authors’ contributions", "A did it.", "End."]
+    t = tmp_path / "t.docx"
+    tracked.render(docmodel.load(path), cs, tracked=True).save(t)
+    assert _mark_deleted(list(Document(str(t)).element.body.iter(qn("w:p")))[0])
+
+
+def test_heading_replaced_by_tagged_heading_is_kept(tmp_path):
+    path = _doc(tmp_path, "Conflict of interest", "None.")
+    head = docmodel.load(path).paragraphs[0]
+    cs = ChangeSet([_ch("rep", head, 0, len(head.text), "<H2>Conflicts of interest", "sections_back_matter")])
+    c = tmp_path / "c.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(c)
+    assert _texts(c) == ["<H2>Conflicts of interest", "None."]
+
+
+def test_spaces_tidied_in_blank_paragraph_kept(tmp_path):
+    path = _doc(tmp_path, "Text.", "   ", "End.")
+    blank = docmodel.load(path).paragraphs[1]
+    cs = ChangeSet([_ch("sp", blank, 0, 3, " ", "spaces")])
+    c = tmp_path / "c.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(c)
+    assert _texts(c) == ["Text.", " ", "End."]
