@@ -68,11 +68,21 @@ _UNICODE_SUP = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*[,˒⁻–\-]\s*
 _PLAIN_NUMS = re.compile(r"\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*")
 
 
-# "10⁻⁸": the minus of a negative power stands between the base and the digits.
-_UNIT_BEFORE = re.compile(r"(?:\b(?:m|cm|mm|km|μm|um|nm|dm|in|ft|kg/m|g/m|/m|/cm|/mm)|[\d^×x]|\d\s*[⁻−])\s*$")
-# A statistic letter standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5";
-# any Greek letter too: "η² = 0.42", "partial η²", "χ²".
-_STAT_BEFORE = re.compile(r"(?<![\w.])[pPnNrRtFzZdUHI\u0370-\u03ff]$")
+# "10⁻⁸": the minus of a negative power stands between the base and the digits. A unit right before the
+# number takes it as a power: "1.73 m2", "ng/mL²", "kg m-²", "kΩ⁻¹", "m/s²" (nothing between them: "365 nm.³"
+# cites).
+_UNITS = r"(?:m|cm|mm|km|μm|µm|um|nm|dm|in|ft|mL|ml|dL|dl|L|µL|μL|uL|kg|mg|g|Ω|kΩ)"
+_UNIT_BEFORE = re.compile(r"(?:\b" + _UNITS + r"|/(?:" + _UNITS + r"|s|h|min)|kg/m|g/m|[\d^×x]|\d\s*[⁻−]"
+                          r"|\b" + _UNITS + r"\s*[-−]|⁻)\s*$")
+# A power in a formula: "n = (1.96)²", "p q/ d²", "n = N/(1 + Ne²)" ("mean 35 (1.69)¹²" and "Li et al. (2024)⁴"
+# cite).
+_FORMULA_BEFORE = re.compile(r"(?:[=+×÷*/^]\s*\(\s*\d+(?:\.\d+)?\s*\)|[=+×÷*^]\s*\(?[A-Za-z]{1,2}|/\s*[A-Za-z])\s*$")
+# A statistic symbol or name standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5",
+# "Cohen's f²", "Q²predict", "X2, df", "Chi2", "ΔΧ²(10)", "eta²", "I2 statistics"; any Greek letter too
+# ("η² = 0.42", "partial η²", "χ²") and a mathematical letter ("𝝌2-test"); "P within¹", "P for trend²".
+_STAT_BEFORE = re.compile(r"(?:(?<![\w.])|(?<=[Δ∆]))(?:[pPnNrRtFzZdUHIXfQ\u0370-\u03ff\U0001D400-\U0001D7FF]"
+                          r"|chi|Chi|CHI|eta|omega|df)$"
+                          r"|(?<![\w.])[Pp][\s\-_]*(?:within|between|for\s+trend|trend|interaction|heterogeneity)$")
 # A superscript followed by a comparison is an index or a power, never a citation: "Ne² =", "R²=0.4".
 _OPERATOR_AFTER = re.compile(r"\s*[=<>≤≥]")
 
@@ -82,17 +92,20 @@ _YEAR_BEFORE = re.compile(r"(?:^|[\s,;(])(?:19|20)\d{2}$")
 
 
 def _is_exponent(text: str, start: int) -> bool:
-    """10⁹, mm², kg/m² and the like are powers, not citations; a year's superscript is a citation."""
+    """10⁹, mm², kg/m², ng/mL², (1.96)² and the like are powers, not citations; a year's superscript is a
+    citation."""
     if _YEAR_BEFORE.search(text[max(0, start - 8):start]):
         return False
-    return bool(_UNIT_BEFORE.search(text[max(0, start - 8):start]))
+    before = text[max(0, start - 12):start]
+    return bool(_UNIT_BEFORE.search(before) or _FORMULA_BEFORE.search(before))
 
 
 def _is_statistic_index(text: str, start: int, end: int) -> bool:
-    """p¹, p2 (formatted superscript), n² after a lone statistic letter: an index, not a citation."""
+    """p¹, p2 (formatted superscript), n², χ², Chi2, f² after a lone statistic symbol or name: an index or a
+    power, not a citation."""
     if len(text[start:end].strip()) > 2:
         return False
-    return bool(_STAT_BEFORE.search(text[max(0, start - 3):start]) or _OPERATOR_AFTER.match(text, end))
+    return bool(_STAT_BEFORE.search(text[max(0, start - 24):start]) or _OPERATOR_AFTER.match(text, end))
 
 
 def _sup_plain(s: str) -> str:

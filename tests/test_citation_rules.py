@@ -272,3 +272,44 @@ def test_text_after_a_table_still_cites(tmp_path):
     # Running text right under a table is no note: its "risk ² was" does not explain the cell's "Smith²".
     ms = _table_ms(tmp_path, ["Risk matters [1]."], [("Smith", "2")], ["The risk ² was higher in men than women."])
     assert _table_conversions(ms) == ["Smith[2]"]
+
+
+def _sup_paragraphs(tmp_path, items):
+    """One paragraph per item: a list of (text, superscript?) runs."""
+    doc = Document()
+    for runs in items:
+        p = doc.add_paragraph()
+        for text, sup in runs:
+            p.add_run(text).font.superscript = sup
+    path = tmp_path / "s.docx"
+    doc.save(path)
+    return [p for p in docmodel.load(str(path)).paragraphs if p.text]
+
+
+def test_statistics_units_and_formulas_are_not_superscript_citations(tmp_path):
+    # Statistic symbols and names, units and formulas take an index or a power, not a citation.
+    cases = [
+        [("ΔΧ²(10)", False)], [("Chi", False), ("2", True)], [("X", False), ("2", True), (", df", False)],
+        [("X", False), ("2", True), ("(p-value)", False)], [("Cohen's f² effect sizes", False)],
+        [("f²", False)], [("using Q²predict, RMSE", False)], [("the 𝝌2‑test and I2 statistics", False)],
+        [("PSAD in ng/mL", False), ("2", True), (", median", False)], [("P within", False), ("1", True)],
+        [("BMI >35 kg m-²; any", False)], [("cutoff >46 kΩ⁻¹, yielding", False)], [("a BSA of 1.73 m", False), ("2", True)],
+        [("n= (1.96)\xa0", False), ("2", True), (" p q/ d", False), ("2", True)], [("n = N/(1 + Ne²), where", False)],
+        [("an eta", False), ("2", True), (" of 0.1", False)], [("150 × 10³ cells", False)],
+    ]
+    for p in _sup_paragraphs(tmp_path, cases):
+        assert rules.superscript_citations(p) == [], p.text
+
+
+def test_real_superscript_citations_next_to_numbers_and_units_still_convert(tmp_path):
+    cases = {
+        "Smith et al.²": [("Smith et al.", False), ("2", True)],
+        "irradiation at 365 nm.³": [("irradiation at 365 nm.³", False)],
+        "Li et al. (2024)⁴": [("Li et al. (2024)", False), ("4", True)],
+        "mean 35 (1.69) 12,28": [("mean 35 (1.69) ", False), ("12,28", True)],
+        "reported worldwide²": [("reported worldwide²", False)],
+        "threshold of 4 ng/mL.3,4": [("threshold of 4 ng/mL.", False), ("3,4", True)],
+    }
+    paras = _sup_paragraphs(tmp_path, cases.values())
+    for (label, _), p in zip(cases.items(), paras):
+        assert len(rules.superscript_citations(p)) == 1, label
