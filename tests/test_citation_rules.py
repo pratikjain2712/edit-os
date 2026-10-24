@@ -198,8 +198,8 @@ def test_heading_tags_replace_leading_spaces(tmp_path):
     ] + _refs("Ames JB")
     path = _save(tmp_path, paras)
     _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
-    # IJO drops "Introduction" (editors); H1 in capitals (S: "H1 | Caps")
-    assert t[:5] == [LONG, "<H1>METHODS:", "<H2>Study design", LONG, "<H1>RESULTS"]  # G137 colon kept, G143 spaces go
+    # IJO drops "Introduction" (editors); H1 in Title case (S: "H1 | Caps", owner reading)
+    assert t[:5] == [LONG, "<H1>Methods:", "<H2>Study design", LONG, "<H1>Results"]  # G137 colon kept, G143 spaces go
 
 
 def test_caption_end_period_kept_when_set_to_keep(tmp_path):

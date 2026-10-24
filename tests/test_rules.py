@@ -42,13 +42,13 @@ def test_ijo_rules(manuscript, tmp_path):
     t = apply(manuscript, style.load("ijo"), tmp_path)
     assert t[0] == "Abstract"  # IJO does not tag "Abstract" and deletes "Introduction" (paragraph and all)
     assert t[1] == "Keywords: Amblyopia, cataract, retina"
-    assert t[6:11] == ["<H1>CONCLUSION", "<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
+    assert t[6:11] == ["<H1>Conclusion", "<H2>Financial support and sponsorship", "Nil.", "<H2>Conflicts of interest",
                        "There are no conflicts of interest."]
     del t[7:11]
     assert t[2] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
-    # statistics, not a citation: operators spaced (G297), P capital (G294); H1 in capitals (S: "H1 | Caps")
+    # statistics, not a citation: operators spaced (G297), P capital (G294); H1 in Title case (S: "H1 | Caps", owner reading)
     assert t[3] == "Mean age was 45 (12) years and P = 0.03."
-    assert t[4] == "<H1>METHODS:" and t[5] == "<H1>RESULTS" and t[7] == "<H1>REFERENCES"  # G137 keeps the colon
+    assert t[4] == "<H1>Methods:" and t[5] == "<H1>Results" and t[7] == "<H1>References"  # G137 keeps the colon
     assert t[8] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
     assert t[9] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
                     "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")

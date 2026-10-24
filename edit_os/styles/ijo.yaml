@@ -33,7 +33,7 @@ sections:
              materials and methods: Methods, material and methods: Methods, materials and method: Methods,
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, methodology: Methods}
-    case: upper  # S: "H1 | Caps, Bold, Roman" (the IJO editors keep Title case: owner's list)
+    case: title  # S: "H1 | Caps, Bold, Roman" -- "Caps" read as capitalised words (Title case): owner confirmed 2026-10-24; the IJO editors use Title case
     drop: [introduction]  # the IJO editors delete the Introduction heading (the sheet is silent)
   abstract:
     # S: 'Change “Aim” to “Purpose' and 'Materials and Methods”, “Subject and Methods”, “Patient and Methods” etc.
