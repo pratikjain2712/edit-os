@@ -16,6 +16,7 @@ original text: each run in the span gets the new run properties and, in tracked 
 from __future__ import annotations
 
 import copy
+import re
 from datetime import datetime, timezone
 
 from docx.oxml import OxmlElement
@@ -360,6 +361,12 @@ def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, i
 # object, field or note reference, a section break, the last paragraph of a table cell or of the document,
 # nor one whose removal would join two tables. Empty paragraphs between two deleted ones go with them, and a
 # table whose every paragraph is deleted (or empty) is deleted as rows (<w:trPr><w:del/></w:trPr>).
+#
+# The test is on what the changes leave in the paragraph, not on one change: a paragraph whose text is
+# deleted by several changes, or replaced by text that starts a new paragraph ("\u2029<H2>Authors'
+# contributions..."), is deleted the same way. A heading tag inserted at the start of such a paragraph
+# (another rule tagging the heading that this one deletes) has nothing left to tag: it is dropped, so no
+# paragraph holding only "<H2>" is left behind.
 
 _KEEP = tuple(qn(t) for t in ("w:drawing", "w:pict", "w:object", "w:sym", "w:footnoteReference",
                               "w:endnoteReference", "w:fldSimple", "w:fldChar", "w:tbl", "w:sectPr")) + (
@@ -367,10 +374,38 @@ _KEEP = tuple(qn(t) for t in ("w:drawing", "w:pict", "w:object", "w:sym", "w:foo
 _BLOCKS = (qn("w:p"), qn("w:tbl"), qn("w:sectPr"))
 
 
-def _whole_deleted(text: str, cs: list[Change]) -> bool:
+_TAG_ONLY = re.compile(r"(?:<H\d>)+")
+
+
+def _tag_only(c: Change) -> bool:
+    """A change that only puts a heading tag in front of the text (it replaces nothing but spaces)."""
+    return not c.format_only and not c.old.strip() and bool(_TAG_ONLY.fullmatch(c.new))
+
+
+def _left_in_paragraph(text: str, edits: list[Change]) -> str:
+    """The text the (non-overlapping) `edits` leave in the paragraph itself: up to the first new paragraph.
+    Order at one point as `_apply_paragraph` builds it: a plain insertion, then one opening new paragraphs,
+    then a replacement starting there."""
+    out, pos = [], 0
+    for c in sorted(edits, key=lambda c: (c.start, c.end > c.start, c.new.startswith(PARAGRAPH_BREAK))):
+        out.append(text[pos:c.start] if c.start > pos else "")
+        out.append(c.new)
+        pos = max(pos, c.end)
+    out.append(text[pos:])
+    return "".join(out).split(PARAGRAPH_BREAK)[0]
+
+
+def _emptying(text: str, cs: list[Change]) -> tuple[list[Change], bool]:
+    """(the changes to apply, whether they leave the paragraph empty). A paragraph with text that the
+    changes empty loses its heading tag insertions too: a tag on no text is never wanted."""
     edits = [c for c in cs if not c.format_only]
-    return bool(text) and any(c.start == 0 and c.end == len(text) and c.new == "" for c in edits) and \
-        all(c.new == "" for c in edits)
+    if not text or not any(c.end > c.start for c in edits):
+        return cs, False
+    rest = [c for c in edits if not _tag_only(c)]
+    left = _left_in_paragraph(text, rest)
+    if left.strip() or (left and not text.strip()):  # a run of spaces tidied is not a paragraph deleted
+        return cs, False
+    return [c for c in cs if c.format_only or not _tag_only(c)], True
 
 
 def _removable(el) -> bool:
@@ -529,7 +564,7 @@ def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=No
         if not cs:
             continue
         text = paragraph_text(p.element)
-        whole = _whole_deleted(text, cs)
+        cs, whole = _emptying(text, cs)
         if on_conflict is None:
             _apply_paragraph(p.element, cs, tracked, ids, date)
         else:
@@ -542,6 +577,6 @@ def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=No
                 on_conflict(p.id, e)
                 continue
         if whole:
-            deleted[p.element] = next(c.author for c in cs if c.start == 0 and c.end == len(text) and not c.new)
+            deleted[p.element] = next(c.author for c in cs if not c.format_only and c.end > c.start)
     _delete_blocks(ms, deleted, tracked, ids, date)
     return ms
