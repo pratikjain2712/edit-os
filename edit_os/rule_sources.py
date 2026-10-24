@@ -37,6 +37,7 @@ class Locator:
 
 L = Locator
 _REF = r"reference|bibliograph"
+_NOT_ABSTRACT = r"\A(?![\s\S]*structured\s+abstract)"
 
 RULES: dict[str, Locator] = {
     # front matter
@@ -69,10 +70,11 @@ RULES: dict[str, Locator] = {
     "submission_copyright_notice": L("Copyright notice", "The portal's copyright notice is queried",
                                      (r"copyright",), (r"copyright",), "copyright form signed authors query"),
     # headings and sections
+    # body headings: never the structured-abstract line (its "Title case" is about the abstract's sub-heads)
     "heading_tags": L("Heading level", "Headings tagged with their level (<H1>, <H2>, <H3>)",
-                      (r"\bH[123]\b|heading",), (r"heading",), "h1 h2 title case bold roman"),
+                      (r"\bH[123]\b|heading", _NOT_ABSTRACT), (r"heading",), "h1 h2 h3 heading level caps bold roman left aligned"),
     "sections_headings": L("Heading", "Section headings renamed and cased as the journal has them",
-                           (r"\bH1\b|heading",), (r"heading",), "heading title case bold h1"),
+                           (r"\bH1\b", _NOT_ABSTRACT), (r"heading",), "h1 caps case bold roman left aligned"),
     "subheadings": L("Sub-heading", "Short own-line heads inside a section become <H2> / <H3>",
                      (r"\bH[23]\b",), (r"sub-?heading|heading",), "h2 h3 sentence case bold"),
     "sections_abstract": L("Abstract", "Abstract heading and structured sub-headings",
