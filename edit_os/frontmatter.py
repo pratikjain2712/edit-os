@@ -956,7 +956,9 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     # Manuscript type: the XML first (editors follow it), then the text, then IMRaD.
     first, second = (f.article_type, meta.article_type) if cfg.get("type_source") == "text" else (meta.article_type, f.article_type)
     atype = first or second
-    if atype:
+    if atype and cfg.get("type_qualifier") == "keep" and atype == meta.article_type:
+        atype = re.sub(r"\s+", " ", atype).strip(" .:")  # "Case Report (for IJO Case Reports)" as the XML has it
+    elif atype:
         atype = clean_article_type(atype)
     elif _imrad(ms):
         atype = "Original Article"

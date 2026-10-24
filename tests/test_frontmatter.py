@@ -331,3 +331,12 @@ def test_duplicate_affiliations_by_printed_form_and_sorted_links(tmp_path, monke
     assert text["affiliations"] == ("1Department of Cardiology, Zagazig University, Egypt, "
                                     "2Department of Anatomy, Zagazig University, Egypt")
     assert text["authors"] == "Asha Kumar1, Ravi Rao1,2, Shankar Rao1"
+
+
+def test_ijo_keeps_the_xml_type_with_its_qualifier():
+    from edit_os import style as style_mod
+    ms = None  # the type comes from the XML: the text is not read
+    meta = fm.Meta(article_type="Case Report (for IJO Case Reports)")
+    for code, want in (("ijo", "Case Report (for IJO Case Reports)"), ("jehp", "Case Report")):
+        blocks, _ = fm.build(ms, fm.Fields(), meta, style_mod.load(code))
+        assert want in [getattr(b, "text", "") for b in blocks]

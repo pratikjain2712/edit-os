@@ -378,7 +378,9 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   # editors' files. Journals loaded under an alias (Neurol -> ni, LungIndia -> lung, SMJ -> sgmj) keep theirs in
   # styles/<journal>.yaml under front_matter:, which applies whichever code is used.
   journals:
-    ijo: {title_case: sentence, initial_period: false, correspondence_label: "Correspondence to:",
+    # type_qualifier keep: the type as the XML gives it, "Case Report (for IJO Case Reports)" (the sheet is silent;
+    # the IJO editors keep the XML type with its qualifier in every typed article, 16 of 16)
+    ijo: {type_qualifier: keep, title_case: sentence, initial_period: false, correspondence_label: "Correspondence to:",
           dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y", one_line: true},
           cite_label: "Cite this article as:", cite_journal: Indian J Ophthalmol,
           cite_journal_case_reports: Indian J Ophthalmol Case Rep, ltr_no_running_head_query: true}
