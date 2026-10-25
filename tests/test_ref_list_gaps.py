@@ -68,8 +68,10 @@ def test_consent_block_after_the_list_is_not_an_entry_and_renumbering_goes_ahead
     pl = renumber.plan(ms, _style())
     assert pl.apply and pl.mapping == {1: 2, 2: 1}
     t, _ = _apply(path, _style(), tmp_path)
-    assert t[3].startswith("1. Author2 A") and t[4].startswith("2. Author1 A")
-    assert t[5].endswith("Declaration of patient consent")
+    refs = [x for x in t if x[:3] in ("1. ", "2. ")]
+    assert refs[0].startswith("1. Author2 A") and refs[1].startswith("2. Author1 A")
+    # the consent block is not an entry; the back-matter rule moves it before the references (S392)
+    assert t.index("<H2>Declaration of patient consent") < t.index("<H1>References")
 
 
 def test_label_fix_does_not_travel_with_a_moved_entry(tmp_path):
