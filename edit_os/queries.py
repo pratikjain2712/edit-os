@@ -77,6 +77,12 @@ class QuerySet:
         return self
 
 
+def rules_sections_xml(ms: Manuscript) -> list[str]:
+    from .rules_sections import xml_keywords  # the submission's own key words fill an empty list
+
+    return xml_keywords(ms)
+
+
 def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     from .rules import lookup_references  # rules imports this module's neighbours; avoid a cycle
 
@@ -141,7 +147,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
             from .rules_sections import listed_keywords
 
             words = listed_keywords(ms)  # "Key words" on its own line, the list below it
-        if not words:
+        if not words and not (style.get("sections.keywords.from_xml") and rules_sections_xml(ms)):
             qs.add(kw.id, "keywords.missing")
         elif len(words) < style.get("keywords.min", 3):
             qs.add(kw.id, "keywords.too_few")
@@ -154,7 +160,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     # Expected sections.
     heads = {re.sub(r"^<H\d>|:$", "", p.text.strip()).strip().lower() for p in ms.paragraphs if len(p.text) < 80}
     if "conclusion" in style.get("expected_h1", []) and not heads & {"conclusion", "conclusions"}:
-        target = next((p for p in ms.paragraphs if p.text.strip().lower() in {"discussion", "<h1>discussion"}), None)
+        # the Discussion heading as written: "Discussion", "<H1>Discussion", "Discussion:", "4. Discussion"
+        target = next((p for p in ms.paragraphs if re.fullmatch(r"\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?discussion\s*[:.]?\s*",
+                                                                p.text, re.I)), None)
         if target is not None:
             qs.add(target.id, "sections.conclusion")
     from . import renumber, rules_figures

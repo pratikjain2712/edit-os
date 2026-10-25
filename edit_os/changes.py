@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 
 # Run properties a change can set (True) or clear (False); see `Change.format`.
-FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "underline",
+FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
                      "color", "size", "highlight")
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
 # automatic colour over a coloured style), direct font size, highlighting / coloured shading.
@@ -61,13 +61,44 @@ class Change:
     # field was read from, the PubMed / CrossRef record a reference was rebuilt from, the checker and its
     # rule id, the old -> new reference number. Optional: records saved without it still load.
     provenance: dict | None = None
+    # Inserted text that opens new paragraphs (tracked.PARAGRAPH_BREAK): formatting per paragraph segment of
+    # `new`, laid over `format` (None = `format` alone). A back-matter section added as "<H2>Heading", "Nil."
+    # has its heading bold and its statement roman. A segment after a break may instead be a list of
+    # [length, format] pieces from its start ("Keywords:" bold, the list after it roman); text past the pieces
+    # takes `format`. Optional: records saved without it still load.
+    segment_format: list | None = None
 
     def __post_init__(self):
-        for k, v in (self.format or {}).items():
-            if k not in FORMAT_PROPERTIES:
-                raise ValueError(f"{self.id}: unknown format property {k!r}")
-            if k in CLEAR_ONLY and v not in CLEAR_ONLY[k]:
-                raise ValueError(f"{self.id}: {k} can only be cleared, not set to {v!r}")
+        fmts = [self.format]
+        for seg in self.segment_format or []:
+            fmts += [f for _, f in seg] if isinstance(seg, list) else [seg]
+        for fmt in fmts:
+            for k, v in (fmt or {}).items():
+                if k not in FORMAT_PROPERTIES:
+                    raise ValueError(f"{self.id}: unknown format property {k!r}")
+                if k in CLEAR_ONLY and v not in CLEAR_ONLY[k]:
+                    raise ValueError(f"{self.id}: {k} can only be cleared, not set to {v!r}")
+
+    def segment(self, i: int) -> dict | None:
+        """The formatting of paragraph segment `i` of the inserted text (pieces: the base format)."""
+        over = (self.segment_format or [])[i] if i < len(self.segment_format or []) else None
+        if not over or isinstance(over, list):
+            return self.format
+        return {**(self.format or {}), **over}
+
+    def pieces(self, i: int, text: str) -> list[tuple[str, dict | None]]:
+        """Segment `i` of the inserted text as (text, format) runs."""
+        over = (self.segment_format or [])[i] if i < len(self.segment_format or []) else None
+        if not isinstance(over, list):
+            return [(text, self.segment(i))] if text else []
+        out, at = [], 0
+        for n, fmt in over:
+            if text[at:at + n]:
+                out.append((text[at:at + n], {**(self.format or {}), **(fmt or {})}))
+            at += n
+        if text[at:]:
+            out.append((text[at:], self.format))
+        return out
 
     @property
     def format_only(self) -> bool:
@@ -85,6 +116,7 @@ class Change:
         d["status"] = Status(d.get("status", "suggested"))
         d["format"] = d.get("format") or None
         d["provenance"] = d.get("provenance") or None
+        d["segment_format"] = d.get("segment_format") or None
         return cls(**{k: v for k, v in d.items() if k in _FIELDS})
 
 

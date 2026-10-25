@@ -326,11 +326,14 @@ def _tagged_headings(ms: Manuscript, style: JournalStyle) -> set[str]:
     found = rules.rule_heading_tags(ms, style) + rules_sections.rule_headings(ms, style) \
         + rules_sections.rule_subheadings(ms, style)
     by_id = {p.id: p for p in ms.paragraphs}
+    levels = {f"<H{n}>" for n in style.get("formatting.heading_bold_levels", [1, 2, 3]) or []}
     out = set()
     for c in found:
         p = by_id.get(c.para_id)
         if p is None or c.format_only or not c.new.startswith("<H") or p.text[:c.start].strip():
             continue
+        if c.new[:4] not in levels:
+            continue  # IJO: "H3 | Sentence Case, Italics" is not bold
         text = p.text.strip()
         if len(text) <= 80 and not re.search(r":\s*\S", text):
             out.add(p.id)
