@@ -731,7 +731,10 @@ def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
 # End of the author list: a period after an initial, followed by the start of the title.
 _AUTHORS_END = re.compile(r"(?<=[A-Z])\.\s+(?=[A-Z0-9\"“‘'(])|\bet al\.?\s+")
 _INITIAL_PERIOD = re.compile(r"(?<=\b[A-Z])\.(?=\s*,|\s*[A-Z]\b)")
-_YEAR_VOL = re.compile(r"(?P<sep>\.?\s*)(?P<year>(?:19|20)\d{2})\s*;\s*(?P<vol>\d+)\s*(?P<issue>\([^)]*\))?\s*(?=:)")
+_MON = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|"
+        r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?")
+_YEAR_VOL = re.compile(rf"(?P<sep>\.?\s*)(?P<year>(?:19|20)\d{{2}})(?P<date>\s+{_MON}(?:\s*[-/]\s*{_MON})?(?:\s+\d{{1,2}})?)?"
+                       r"(?P<semi>\s*;\s*)(?P<vol>\d+)(?P<part>\s*\(?\s*(?:Pt|Part)\.?\s*\d+\s*\)?)?\s*(?P<issue>\([^)]*\))?\s*(?=:)")
 _ET_AL_DOUBLE = re.compile(r"\bet al\.\.")
 _PAGES = re.compile(r":\s*([A-Za-z]?)(\d+)\s*[–—\-]\s*([A-Za-z]?)(\d+)(?=\.?\s*$)")
 
@@ -751,62 +754,137 @@ def _journal_span(text: str, lo: int, hi: int):
     return None
 
 
+def _reference_edits(text: str, style: JournalStyle) -> list[tuple[int, int, str, str, dict | None]]:
+    """The cleanup edits for one entry's text: (start, end, new, rule, format)."""
+    out = []
+    m_end = _AUTHORS_END.search(text)
+    authors_end = m_end.start() if m_end else None
+    italic = {"italic": True} if et_al_italic(style) else None
+
+    if authors_end and style.get("references.initials_without_periods", True):
+        for m in _INITIAL_PERIOD.finditer(text[:authors_end]):
+            out.append((m.start(), m.end(), "", "ref_initials", None))
+
+    max_authors = style.get("references.max_authors")
+    if authors_end and max_authors and "et al" not in text[:authors_end + 8]:
+        names = [n for n in text[:authors_end].split(",") if n.strip()]
+        if len(names) > max_authors:
+            cut = len(",".join(names[:max_authors]))
+            et_al = style.get("references.et_al", "et al.").rstrip(".")  # the list's own period follows
+            if italic:  # the comma and space stay roman: ", " + "et al"
+                gap = len(re.match(r",\s*", text[cut:]).group(0))
+                out.append((cut + gap, authors_end, et_al, "ref_et_al", italic))
+            else:
+                out.append((cut, authors_end, f", {et_al}", "ref_et_al", None))
+
+    for m in _ET_AL_DOUBLE.finditer(text):
+        out.append((m.end() - 1, m.end(), "", "ref_et_al", None))
+
+    ym = None
+    for ym in _YEAR_VOL.finditer(text):
+        pass  # the last year;volume is the journal citation
+    if ym:
+        if style.get("references.no_period_before_year") and ym.group("sep") != " " and ym.start() > 0:
+            out.append((ym.start("sep"), ym.end("sep"), " ", "ref_year", None))
+        if ym.group("date") or ym.group("semi") != ";":  # "2024 Jan 18; 24:24" -> "2024;24:24" (guide: year;volume)
+            out.append((ym.end("year"), ym.start("vol"), ";", "ref_year", None))
+        if ym.group("part") and style.get("references.drop_issue"):  # "2000;50 Pt 1:417-22" -> "2000;50:417-22" (guide, References e.g. 3)
+            out.append((ym.end("vol"), ym.end("part"), "", "ref_issue", None))
+        if style.get("references.drop_issue") and ym.group("issue") and not re.search(r"suppl", ym.group("issue"), re.I):
+            out.append((ym.start("issue"), ym.end("issue"), "", "ref_issue", None))
+
+    if ym and style.get("references.journal_abbreviation") == "nlm" and journals.directory():
+        j = _journal_span(text, authors_end or 0, ym.start())
+        if j:
+            start, end, journal = j
+            abbr = journal.med_abbr
+            if style.get("references.journal_drop_qualifier", True):
+                abbr = re.sub(r"\s*\([^)]*\)$", "", abbr)  # "Cancers (Basel)" -> "Cancers"
+            if text[start:end] != abbr:
+                out.append((start, end, abbr, "ref_journal", None))
+
+    if style.get("references.capitalize_after_colon") and authors_end:
+        stop = ym.start() if ym else len(text)
+        for m in re.finditer(r":\s([a-z])(?!ttps?:|ttp:|ww\.)", text[authors_end:stop]):  # not "from: http://"
+            i = authors_end + m.start(1)
+            out.append((i, i + 1, text[i].upper(), "ref_title_case", None))
+
+    if style.get("references.page_range_compress", True):
+        m = _PAGES.search(text)
+        if m:
+            # as a rebuilt entry writes them: "e123-e130" -> "e123-30", "123-123" -> "123"
+            new = ":" + refengine.format_pages(f"{m.group(1)}{m.group(2)}-{m.group(3)}{m.group(4)}", style)
+            if new != m.group(0):
+                out.append((m.start(), m.end(), new, "ref_pages", None))
+
+    if italic:  # "et al." the author wrote, in italics (IJO: guide search-and-replace row 1)
+        busy = [(s, e) for s, e, _, _, _ in out]
+        for m in _ET_AL_WORD.finditer(text):
+            if not any(s < m.end() and m.start() < e for s, e in busy):
+                out.append((m.start(), m.end(), m.group(0), "ref_et_al_italic", italic))
+    return out
+
+
+def et_al_italic(style: JournalStyle) -> bool:
+    """"et al." in italics in the reference list too (formatting.et_al_italic_references)."""
+    return bool(style.get("formatting.enabled", True) and style.get("formatting.et_al_italic", False)
+                and style.get("formatting.et_al_italic_references", False))
+
+
+_ET_AL_WORD = re.compile(r"\bet al\b")
+
+
+def _label_changes(p: Paragraph, ref: references.Reference, style: JournalStyle) -> list[Change]:
+    """The typed label as "1. " (references.label_period): "1.Angus DC" -> "1. Angus DC", "1)" / "[1]" -> "1.";
+    a tab after it stays."""
+    if not ref.label or not style.get("references.label_period"):
+        return []
+    m = re.match(r"(\s*)([\[(]?)(\d+)([\])]?\.?)(\s*)$", ref.label)
+    if not m:
+        return []
+    out = []
+    if m.group(2):
+        out.append(_change(p, m.start(2), m.end(2), "", Layer.REFERENCES, "ref_label"))
+    gap = m.group(5)
+    if "\t" not in gap:  # a tab after the number is the list's own layout (the editors keep it)
+        gap = " "
+    if m.group(4) == ".":
+        if m.group(5) != gap:
+            out.append(_change(p, m.start(5), m.end(5), gap, Layer.REFERENCES, "ref_label"))
+    else:
+        out.append(_change(p, m.start(4), m.end(5), "." + gap, Layer.REFERENCES, "ref_label"))
+    return out
+
+
+def _apply_edits(text: str, edits) -> str:
+    for s, e, new, _, _ in sorted(edits, key=lambda x: (x[0], x[1]), reverse=True):
+        text = text[:s] + new + text[e:]
+    return text
+
+
 def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
+    rebuilt = {r.para_id for r, res in lookup_references(ms, style) if res.formatted}
     for ref in references.extract(ms):
         p = ms.by_id(ref.para_id)
         base = ref.offset
-        text = ref.text
-        m_end = _AUTHORS_END.search(text)
-        authors_end = m_end.start() if m_end else None
-
-        if authors_end and style.get("references.initials_without_periods", True):
-            for m in _INITIAL_PERIOD.finditer(text[:authors_end]):
-                out.append(_change(p, base + m.start(), base + m.end(), "", Layer.REFERENCES, "ref_initials"))
-
-        max_authors = style.get("references.max_authors")
-        if authors_end and max_authors and "et al" not in text[:authors_end + 8]:
-            names = [n for n in text[:authors_end].split(",") if n.strip()]
-            if len(names) > max_authors:
-                cut = len(",".join(names[:max_authors]))
-                et_al = style.get("references.et_al", "et al.").rstrip(".")  # the list's own period follows
-                out.append(_change(p, base + cut, base + authors_end, f", {et_al}", Layer.REFERENCES, "ref_et_al"))
-
-        for m in _ET_AL_DOUBLE.finditer(text):
-            out.append(_change(p, base + m.end() - 1, base + m.end(), "", Layer.REFERENCES, "ref_et_al"))
-
-        ym = None
-        for ym in _YEAR_VOL.finditer(text):
-            pass  # the last year;volume is the journal citation
-        if ym:
-            if style.get("references.no_period_before_year") and ym.group("sep") != " " and ym.start() > 0:
-                out.append(_change(p, base + ym.start("sep"), base + ym.end("sep"), " ", Layer.REFERENCES, "ref_year"))
-            if style.get("references.drop_issue") and ym.group("issue"):
-                out.append(_change(p, base + ym.end("vol"), base + ym.end("issue"), "", Layer.REFERENCES, "ref_issue"))
-
-        if ym and style.get("references.journal_abbreviation") == "nlm" and journals.directory():
-            j = _journal_span(text, authors_end or 0, ym.start())
-            if j:
-                start, end, journal = j
-                abbr = journal.med_abbr
-                if style.get("references.journal_drop_qualifier", True):
-                    abbr = re.sub(r"\s*\([^)]*\)$", "", abbr)  # "Cancers (Basel)" -> "Cancers"
-                if text[start:end] != abbr:
-                    out.append(_change(p, base + start, base + end, abbr, Layer.REFERENCES, "ref_journal"))
-
-        if style.get("references.capitalize_after_colon") and authors_end:
-            stop = ym.start() if ym else len(text)
-            for m in re.finditer(r":\s([a-z])(?!ttps?:|ttp:|ww\.)", text[authors_end:stop]):  # not "from: http://"
-                i = authors_end + m.start(1)
-                out.append(_change(p, base + i, base + i + 1, text[i].upper(), Layer.REFERENCES, "ref_title_case"))
-
-        if style.get("references.page_range_compress", True):
-            m = _PAGES.search(text)
-            if m:
-                # as a rebuilt entry writes them: "e123-e130" -> "e123-30", "123-123" -> "123"
-                new = ":" + refengine.format_pages(f"{m.group(1)}{m.group(2)}-{m.group(3)}{m.group(4)}", style)
-                if new != m.group(0):
-                    out.append(_change(p, base + m.start(), base + m.end(), new, Layer.REFERENCES, "ref_pages"))
+        edits = _reference_edits(ref.text, style)
+        out += _label_changes(p, ref, style)
+        if ref.continuation and ref.para_id not in rebuilt:
+            # An entry broken over several paragraphs ("Gass JD. Diseases ..." / "Trans Sect Ophthalmol ... 1977;
+            # 83:763-70."): joined into its first paragraph, as the editors do, and cleaned up as one entry.
+            whole = ref.full_text
+            fixed = _apply_edits(whole, _reference_edits(whole, style)).rstrip()
+            changes = word_diff(p, base, ref.text, fixed, "ref_join")
+            for pid, _ in ref.continuation:
+                q = ms.by_id(pid)
+                changes.append(_change(q, 0, len(q.text), "", Layer.REFERENCES, "ref_join"))
+            out += changes
+            continue
+        for s, e, new, rule, fmt in edits:
+            if rule == "ref_et_al_italic" and _italic_at(p, base + s, base + e):
+                continue
+            out.append(_change(p, base + s, base + e, new, Layer.REFERENCES, rule, fmt))
     return out
 
 
@@ -822,39 +900,69 @@ def lookup_references(ms: Manuscript, style: JournalStyle) -> list[tuple[referen
     return cached
 
 
-def word_diff(p: Paragraph, base: int, old: str, new: str, rule: str) -> list[Change]:
-    """Turn a whole-entry rewrite into small word-level changes, so the tracked file stays readable."""
-    tok = re.compile(r"\s+|\w+|[^\w\s]")
+def word_diff(p: Paragraph, base: int, old: str, new: str, rule: str, et_al: bool = False) -> list[Change]:
+    """Turn a whole-entry rewrite into small word-level changes, so the tracked file stays readable.
+    `et_al`: "et al" in the result is italic (an inserted one and one the author wrote)."""
+    tok = re.compile(r"et al\b|\s+|\w+|[^\w\s]" if et_al else r"\s+|\w+|[^\w\s]")
     a, b = tok.findall(old), tok.findall(new)
     starts, pos = [], 0
     for t in a:
         starts.append(pos)
         pos += len(t)
     starts.append(pos)
+    italic = {"italic": True}
     out = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-        if op != "equal":
-            out.append(_change(p, base + starts[i1], base + starts[i2], "".join(b[j1:j2]), Layer.REFERENCES, rule))
+        s, e = base + starts[i1], base + starts[i2]
+        if op == "equal":
+            if et_al:
+                seg = "".join(a[i1:i2])
+                for m in _ET_AL_WORD.finditer(seg):
+                    if not _italic_at(p, s + m.start(), s + m.end()):
+                        out.append(_change(p, s + m.start(), s + m.end(), m.group(0), Layer.REFERENCES, rule, italic))
+            continue
+        text = "".join(b[j1:j2])
+        m = _ET_AL_WORD.search(text) if et_al else None
+        pre, post = (text[:m.start()], text[m.end():]) if m else ("", "")
+        if m and not post and pre and e > s:  # "Name G" -> "et al": the rest, then "et al" in italics after it
+            out.append(_change(p, s, e, pre, Layer.REFERENCES, rule))
+            out.append(_change(p, e, e, m.group(0), Layer.REFERENCES, rule, italic))
+        elif m and not pre and post and e > s:
+            out.append(_change(p, s, e, m.group(0), Layer.REFERENCES, rule, italic))
+            out.append(_change(p, e, e, post, Layer.REFERENCES, rule))
+        elif m and not pre and not post:
+            out.append(_change(p, s, e, text, Layer.REFERENCES, rule, italic))
+        else:
+            out.append(_change(p, s, e, text, Layer.REFERENCES, rule))
     return out
+
+
+def _italic_at(p: Paragraph, start: int, end: int) -> bool:
+    fmts = rules_format.char_formats(p)
+    return bool(fmts[start:end]) and all(f.get("italic") for f in fmts[start:end])
 
 
 def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
+    italic = et_al_italic(style)
     for ref, res in lookup_references(ms, style):
         mine = []
         if res.status == refengine.FORMAT_FIXED:
-            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup")
+            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup", italic)
             for pid, text in ref.continuation:  # the rebuilt entry holds the rest ("doi:..." on its own line)
                 p = ms.by_id(pid)
                 mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_lookup"))
         elif res.status == refengine.QUERY and res.styled and res.formatted != ref.text:
             # not verified: styled from the author's own fields (refstyle), the entry's query stays
-            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_styled")
+            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_styled", italic)
             for pid, text in ref.continuation:
                 p = ms.by_id(pid)
                 mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_styled"))
         elif res.formatted and res.formatted != ref.text:  # books, links, reports: template fixes
-            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other")
+            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_other", italic)
+            for pid, text in ref.continuation:  # the entry was read and rebuilt with them
+                p = ms.by_id(pid)
+                mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_other"))
         prov = provenance.reference(res, ref.full_text)
         for c in mine:
             c.provenance = prov
@@ -918,7 +1026,7 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
             resolved = {r.para_id for r, res in lookup_references(ms, style)
                         if res.status in (refengine.MATCHED, refengine.FORMAT_FIXED) or res.styled}
         for c in rule(ms, style):
-            if name == "references" and c.para_id in resolved:
+            if name == "references" and c.para_id in resolved and c.reason != "ref_label":
                 continue
             # A formatting-only change and a text change may overlap (the renderer applies the
             # formatting first); two formatting changes clash only when they set the same property.
@@ -932,6 +1040,11 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
             moved = c.start == c.end and any(k.para_id == c.para_id and k.reason == "author_citations"
                                              and k.start < k.end and not k.new.strip(".,;: ")
                                              and k.start <= c.start <= k.end for k in kept)
+            # An entry renumbering moved here replaces the one that was here, with its own edits: the old
+            # entry's edits at its edges ("." added at its end) go with it.
+            moved = moved or c.reason.startswith("ref_") and c.reason != "ref_label" and any(
+                k.para_id == c.para_id and k.reason == "renumber" and k.end - k.start > 3
+                and k.start <= c.start <= k.end and k.start <= c.end <= k.end for k in kept)
             if not clash and not same_point and not moved:
                 kept.append(c)
     # Formatting on text that a kept change replaces is moot (the replacement carries its own

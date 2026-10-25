@@ -159,7 +159,10 @@ def find_unary_comparison(text: str, cfg: dict) -> list:
     return out
 
 
-_DEFAULT_UNITS = ["μg", "µg", "μs", "µs", "Hertz", "μL", "µL", "μl", "µl", "mm", "cm", "km", "mg", "rpm", "nm"]
+# The guide's units (rows 12-19, 25, 26), and the same rule for units its table does not list: mmHg, nJ, gm
+# ("50mmHg", "20nJ", "1gm/day": the IJO editors space them).
+_DEFAULT_UNITS = ["μg", "µg", "μs", "µs", "Hertz", "μL", "µL", "μl", "µl", "mm", "cm", "km", "mg", "rpm", "nm",
+                  "mmHg", "nJ", "μJ", "µJ", "mJ", "gm"]
 
 
 def find_value_unit(text: str, cfg: dict) -> list:
@@ -204,10 +207,13 @@ def find_degree(text: str, cfg: dict) -> list:
 
 
 def find_multiplication(text: str, cfg: dict) -> list:
-    """24. "10x20" -> "10 × 20": a letter x between two numbers (dimensions, magnification).
-    An existing "×" is left as typed ("150×10⁹/L", formulas)."""
+    """24. "10x20" -> "10 × 20": a letter x between two numbers (dimensions, magnification), and an existing
+    "×" closed up between them ("3.5×3.4 mm"). Powers of ten stay as typed ("150×10⁹/L", "2×109/L")."""
     out = []
-    for m in re.finditer(r"(?<![\w.,\-/])(" + _NUM + r")(" + _SP + r"*[xX]" + _SP + r"*)(?=\d)", text):
+    for m in re.finditer(r"(?<![\w.,\-/])(" + _NUM + r")(" + _SP + r"*[xX×]" + _SP + r"*)(?=\d)", text):
+        if "×" in m.group(2):
+            if m.group(2) == " × " or re.match(r"10(?:[⁰¹²³⁴⁵⁶⁷⁸⁹\d^⁻]|[-−–]\s*\d|\s*[-−]?\s*[⁰¹²³⁴⁵⁶⁷⁸⁹])", text[m.end():]):
+                continue
         out.append((m.start(2), m.end(2), " × "))
     return out
 

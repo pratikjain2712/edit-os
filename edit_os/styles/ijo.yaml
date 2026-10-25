@@ -15,6 +15,11 @@ headings:
 
 formatting:
   body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles; sheet silent)
+  et_al_italic_references: true  # guide S&R row 1: "et al." in italics, references included (only "&", row 4,
+                                 # spares them); the IJO editors italicise it in the list (6 of 6 articles)
+
+references:
+  label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)
 
 figures:
   # figure_label: as base, "Figure". The IJO sheet says nothing on Fig./Figure in citations; the guide does: G240 'The

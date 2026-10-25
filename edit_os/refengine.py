@@ -430,7 +430,73 @@ def find(p: Parsed) -> tuple[biblio.Record | None, str]:
         if _usable(r):
             return r, ""
         found = found or r
+    if not found:  # an abbreviated title ("home OCT guided ... nAMD"): the entry's own citation finds it
+        r = _by_citation(p)
+        if r:
+            return r, ""
     return (found, "") if found else (None, why)
+
+
+_ACRONYM = re.compile(r"^[a-z]?[A-Z]{2,6}[a-z]?s?$")
+
+
+def _words_for(acronym: str, words: list[str]) -> list[str] | None:
+    """The run of `words` whose initials spell `acronym` ("OCT": optical coherence tomography)."""
+    letters = acronym.lower().rstrip("s") if acronym.endswith("s") and acronym[:-1].isupper() else acronym.lower()
+    n = len(letters)
+    for i in range(len(words) - n + 1):
+        if "".join(w[:1].lower() for w in words[i:i + n]) == letters:
+            return words[i:i + n]
+    return None
+
+
+def expand_acronyms(title: str, full: str) -> tuple[str, int]:
+    """`title` with its acronyms written out as `full` (the record's title) has them; and how many were."""
+    spaced = [w.strip(".,:;()[]") for w in full.split()]
+    split = [x for w in spaced for x in w.split("-")]
+    out, n = [], 0
+    for w in title.split():
+        core = w.strip(".,:;()[]")
+        run = _words_for(core, split) or _words_for(core, spaced) if _ACRONYM.match(core) else None
+        if run:
+            out.append(" ".join(run))
+            n += 1
+        else:
+            out.append(w)
+    return " ".join(out), n
+
+
+def abbreviated_title_matches(p: Parsed, r: biblio.Record) -> bool:
+    """The entry is the record's paper with acronyms in its title: first author, year, journal and volume all
+    the record's, no first page that differs, and the title word for word once its acronyms are written out."""
+    _, author, year = score(p, r)
+    if not (author and year and p.title and journal_agrees(p.text, r)) or not _volume_agrees(p.text, r):
+        return False
+    c = citation(p.text)
+    if c and c[3] and _first_page(r.pages) and _first_page(c[3]) != _first_page(r.pages):
+        return False
+    expanded, n = expand_acronyms(p.title, r.title)
+    return n > 0 and fuzz.token_sort_ratio(fold(expanded), fold(r.title)) >= 90
+
+
+_ENTRY_VOLUME = re.compile(r"\b((?:19|20)\d{2})[^;:\n]{0,20};\s*(\d+)")
+
+
+def _volume_agrees(text: str, r: biblio.Record) -> bool:
+    m = _ENTRY_VOLUME.search(text)
+    vol = re.sub(r"\D.*", "", r.volume or "")
+    return bool(m and vol) and m.group(2).lstrip("0") == vol.lstrip("0")
+
+
+def _by_citation(p: Parsed) -> biblio.Record | None:
+    """PubMed by first author, year and volume, for an entry whose title PubMed's search cannot match."""
+    m = _ENTRY_VOLUME.search(p.text)
+    if not (m and p.first_surname and p.title and p.year) or not any(_ACRONYM.match(w.strip(".,:;()[]"))
+                                                                    for w in p.title.split()):
+        return None
+    term = f"{p.first_surname}[au] AND {p.year}[dp] AND {m.group(2)}[vi]"
+    ok = [r for r in biblio.pubmed_fetch(biblio.pubmed_search(term)) if abbreviated_title_matches(p, r)]
+    return ok[0] if len(ok) == 1 and _usable(ok[0]) else None
 
 
 DIFFERS = "differs from the published article"
@@ -600,6 +666,10 @@ def _usable_title(r: biblio.Record, p: Parsed | None) -> str:
     m = re.fullmatch(r"\s*\[(.+)\]\s*\.?\s*", title or "", re.S)
     if m:  # PubMed brackets titles translated into English: "[Solid limbal dermoid ...]."
         title = m.group(1).strip()
+        own = re.fullmatch(r"\s*(\S.*?)\s*\[(.+)\]\s*\.?\s*", p.title or "", re.S) if p else None
+        if own and fuzz.token_sort_ratio(fold(own.group(2)), fold(title)) >= 85:
+            # the author gave the original (transliterated) title with the English one in brackets: both stay
+            return f"{own.group(1)} [{own.group(2).strip()}]"
     if p and p.title and (_mostly_upper(title) or r.source == "crossref" and len(title) < 0.6 * len(p.title)):
         return p.title  # ALL-CAPS (PubMed or CrossRef) or truncated CrossRef titles: keep the author's wording
     if _mostly_upper(title):  # no author title to fall back on: sentence case it, acronyms are lost
@@ -618,6 +688,7 @@ Marfan Stevens Johnson Vogt Koyanagi Harada Bruch Bruch's Descemet Descemet's Bo
 Tenon Tenon's Müller Muller Purkinje Horner Horner's Adie Argyll Robertson Bell's Down's Hodgkin Kaposi
 Wilms Ewing Merkel Langerhans Sturge Weber Hippel Lindau Moyamoya Susac Terson Purtscher Coats' Mooren Mooren's
 Zeiss Topcon Optovue Cirrus Spectralis Pentacam Orbscan Medmont Nidek Haag Streit Tono-Pen Icare
+Ziemer Alcon Schwind Bausch Lomb Moria Abbott Allergan Visx Amaris Ellex Lumenis Iridex Oculus Keratograph
 Africa African America American Asia Asian Europe European Australia Australian India Indian China Chinese Japan
 Korea Nepal Pakistan Bangladesh Sri Lanka Iran Iraq Turkey Egypt Nigeria Ethiopia Kenya Ghana Brazil Colombia
 Mexico Canada Germany France Italy Spain Portugal Netherlands Sweden Norway Denmark Finland Switzerland Austria
@@ -766,6 +837,8 @@ def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
             out.append(w)
             first = True
             continue
+        if w.startswith("["):  # "... stepeni [Results of ...]": a translated title in brackets starts anew
+            first = True
         core = re.sub(r"^\W+|\W+$", "", w)
         plain = re.fullmatch(r"[A-Z][a-z'’]+(?:-[A-Za-z][a-z'’]*)*", core) is not None
         parts = core.split("-")
@@ -905,6 +978,8 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     end = "" if title.endswith(("?", "!")) else "."
     issue = _issue(r, style)
     volume = re.sub(r"\s*\(?suppl.*$", "", r.volume, flags=re.I)
+    if style.get("references.drop_issue", True):  # PubMed's "50 Pt 1": the part goes with the issue (guide, e.g. 3)
+        volume = re.sub(r"\s*\(?\s*(?:Pt|Part)\.?\s*\d+[A-Za-z]?\s*\)?\s*$", "", volume)
     pages = format_pages(record_pages(r, p), style)
     cite = f"{journal_name(r, style)} {r.year};{volume}{issue}"
     cite += f":{pages}" if pages else ""

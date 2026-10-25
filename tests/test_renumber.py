@@ -218,8 +218,13 @@ def test_bracketed_labels_renumbered(tmp_path):
         doc.add_paragraph(f"[{n}] {_ref(n)}")
     path = tmp_path / "b.docx"
     doc.save(path)
-    t = _apply(str(path), _style(), tmp_path)
+    st = _style()
+    st.settings["references"]["label_period"] = False
+    t = _apply(str(path), st, tmp_path)
     assert t[3].startswith("[1] Author2") and t[4].startswith("[2] Author1")
+    # IJO writes the labels "1. ": the moved entries and the label edits do not collide
+    t = _apply(str(path), _style(), tmp_path)
+    assert t[3].startswith("1. Author2 A") and t[4].startswith("2. Author1 A")
 
 
 def test_citation_at_end_survives_added_back_matter(tmp_path):

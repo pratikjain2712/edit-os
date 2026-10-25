@@ -211,7 +211,7 @@ def test_doi_line_and_broken_entry_join_the_entry_above(tmp_path):
               "3. Haddad C, Okoro A. Simulation in obstetrics. Lancet. 2019;3:4-5.",
               "Conflicts of interest: None, 2024")
     refs = references.extract(ms)
-    assert [r.number for r in refs] == [1, 2, 3, None]
+    assert [r.number for r in refs] == [1, 2, 3]  # the note after the list ends it
     assert refs[0].full_text.endswith("2020;12:40-6. doi:10.1000/vr.1")
     assert refs[1].full_text.endswith("Expert Rev Surg Med. 2017;4(2):1-9.")
     assert not refs[2].continuation  # a note after a complete entry stays apart

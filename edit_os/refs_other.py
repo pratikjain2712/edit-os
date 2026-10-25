@@ -164,6 +164,25 @@ def _edition(m: re.Match) -> str:
     return f"{ordinal(n)} ed."
 
 
+# Google Scholar's chapter: "Chapter. InBook Title 2021 Nov 21 (pp. 167-175). Cham: Springer International Publishing."
+_SCHOLAR_CHAPTER = re.compile(
+    rf"^(?P<head>.+?\.\s+In)(?::\s*|\s+|(?=[A-Z]))(?P<book>[A-Z].+?)\.?\s+(?P<year>(?:19|20)\d\d)(?:\s+{_MONTH}(?:\s+\d{{1,2}})?)?"
+    r"\s*\(\s*pp?\.?\s*(?P<pages>[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?)\s*\)\s*[.,]?\s*(?P<pub>[^()]*?)\s*\.?\s*$")
+
+
+def fix_scholar_chapter(body: str) -> str:
+    """Google Scholar's chapter export in the guide's edited-book order (S: "...In: Laragh JH, Brenner BM, editors.
+    Hypertension: ... New York: Raven Press; 1995. p. 465-78."): "In: Book Title. City: Publisher; Year. p. xx-xx".
+    Only the author's own data is moved; the date's month and day go (the guide's book template has the year)."""
+    m = _SCHOLAR_CHAPTER.match(body)
+    if not m:
+        return body
+    pub = m.group("pub").strip(" .,;")
+    out = f"{m.group('head')}: {m.group('book').rstrip(' .,')}."
+    out += f" {pub}; {m.group('year')}" if pub else f" {m.group('year')}"
+    return out + f". p. {m.group('pages')}"
+
+
 def fix_edition(body: str) -> str:
     return re.sub(r"\bed\.\.(?!\.)", "ed.", _EDITION.sub(_edition, body))
 
@@ -306,6 +325,7 @@ def template(text: str, kind: str, title: str = "") -> Fixed:
         rest = _tidy(rest).lstrip(".").strip()
     body = _tidy(body).rstrip(" .,;:")
     if kind in (BOOK, CHAPTER, REPORT, THESIS, CONFERENCE, WEBSITE):
+        body = fix_scholar_chapter(body) if kind in (BOOK, CHAPTER) else body
         body = fix_edition(body) if kind in (BOOK, CHAPTER) else body
         body = fix_editors(body) if kind in (BOOK, CHAPTER, REPORT) else body
         if kind in (BOOK, CHAPTER, REPORT, WEBSITE, THESIS):
@@ -660,6 +680,8 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
         if not verified and cfg("verify_books"):
             bc = verify_book(parts["book"] or p.title, _surnames(p, parts), parts["year"] or p.year,
                              parts["chapter"] if kind == CHAPTER else "", text)
+            if not bc.verified and kind == CHAPTER and parts["chapter"] and parts["book"]:
+                bc = verify_book(p.title, _surnames(p, parts), parts["year"] or p.year, "", text)  # the chapter's record
             if bc.verified:
                 verified = True
                 notes.append(f"book found in {bc.source}: {bc.title[:80]}; confirms {', '.join(bc.confirmed)}")
