@@ -27,7 +27,8 @@ _STOP = re.compile(
     r"|appendix|appendices|supplementary|acknowledg|tables? and figures)",
     re.I,
 )
-_LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|\d+(?=\s))\s*")
+# (a bare number is a label, but not a year opening the rest of an entry: "2025 Feb;39:238-50.")
+_LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|(?!(?:19|20)\d{2}\s+(?:[A-Z][a-z]{2}|\d))\d+(?=\s))\s*")
 # Not an entry: Word's form-field markers ("Bottom of Form") and rule lines ("______") under the list.
 _NOT_ENTRY = re.compile(r"^\s*(?:(?:top|bottom)\s+of\s+form|[_\-–—=*~.\s]+)\s*$", re.I)
 # "Riazi-Esfahani H, Masoomian B, ...": a surname and initials, as a reference entry starts.
@@ -47,6 +48,12 @@ _NOTE = re.compile(r"^\s*(?:conflicts? of interests?|funding|financial support|s
 _AUTHORS_ONLY = re.compile(r"^\s*(?:[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}\s*,\s*)+"
                            r"(?:[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}|et al)\s*[.,]?\s*$")
 _PAGES_OR_YEAR = re.compile(r"\b(?:19|20)\d{2}\b|\d+\s*[-–]\s*\d+")
+# The rest of an entry: the journal and its citation ("Trans Sect Ophthalmol 1977; 83:763-70.", "BMC Ophthalmol.
+# 2024 Jan 18; 24:24.") or the date opening it ("2024 Apr 17; 16."), on a paragraph of its own.
+_CITATION_TAIL = re.compile(r"^[^;:]{0,90}?\b(?:19|20)\d{2}\b[^;:\n]{0,20};\s*\d+\s*(?:\([^)]*\))?\s*(?::\s*[A-Za-z]?\d+[^;]*)?\.?\s*$")
+_DATE_START = re.compile(r"^\s*(?:19|20)\d{2}\s+(?:[A-Z][a-z]{2}\b|\d)")
+# The author list broken off before the last initials: "..., Ben Yahia S, Zaouali" / "S, et al. Final diagnosis ..."
+_INITIALS_START = re.compile(r"^\s*[A-Z]{1,3}\s*(?:,|\.\s|\s+[A-Z])")
 
 
 @dataclass
@@ -78,6 +85,12 @@ def continues(prev: str, raw: str) -> bool:
     if _CITATION.search(prev) or _LOOKS_LIKE_REFERENCE.match(raw) or _PARTICLE_START.match(raw) \
             or _APA_START.match(raw):
         return False
+    if _LOOKS_LIKE_REFERENCE.match(prev) and not _YEAR.search(prev):
+        # authors and title above, no citation yet: the journal line, or the rest of the author list
+        if _CITATION_TAIL.match(raw) or _DATE_START.match(raw) and len(raw) < 60:
+            return True
+        if not prev.rstrip().endswith((".", "?", "!")) and _INITIALS_START.match(raw):
+            return True
     if _AUTHORS_ONLY.match(prev) and not _YEAR.search(prev):
         return True  # "Siransy L, Dembele B, Sekongo Y." on a line of its own: the title follows
     if not _PAGES_OR_YEAR.search(raw) or len(raw) > 200:
@@ -89,6 +102,16 @@ def continues(prev: str, raw: str) -> bool:
     start = raw.lstrip()[:1]
     unfinished = not prev.rstrip().endswith((".", "?", "!"))
     return start.islower() or unfinished or bool(re.match(r"\s*(?:19|20)\d{2}\s*[;:(,]", raw))
+
+
+def ends_list(raw: str, refs: list[Reference]) -> bool:
+    """`raw`, an unlabelled paragraph that does not continue the entry above, is back matter after a
+    numbered list ("Declaration of patient consent", "Conflicts of interest: None"), not an entry."""
+    if _NOTE.match(raw):
+        return not _LOOKS_LIKE_REFERENCE.match(raw)
+    if not refs or any(r.number is None for r in refs) or continues(refs[-1].full_text, raw):
+        return False  # an author-year list: every entry is unlabelled
+    return not (_YEAR.search(raw) or _LOOKS_LIKE_REFERENCE.match(raw) or _ID_ONLY.match(raw) or _URL_ONLY.match(raw))
 
 
 def find_heading(ms: Manuscript) -> int | None:
@@ -113,6 +136,10 @@ def extract(ms: Manuscript) -> list[Reference]:
                 p.numbered or _LABEL.match(raw) or _LOOKS_LIKE_REFERENCE.match(raw)):
             break  # (a numbered entry the author styled as a heading is still an entry)
         m = _LABEL.match(raw)
+        if m and not raw[m.end():].strip():
+            continue  # a stray label on a line of its own ("6."): no entry
+        if not m and not p.numbered and ends_list(raw, refs):
+            break  # "Declaration of patient consent" and its text after the list
         if not m and refs and continues(refs[-1].full_text, raw):
             refs[-1].continuation.append((p.id, raw))
             continue

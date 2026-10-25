@@ -29,6 +29,11 @@ QUERY_TEXT = {
     "references.duplicate_removed": "References ({a} and {b}) are identical, so duplicate reference has been "
                                     "removed and references are renumbered in text and list.",
     "references.duplicate": "References ({a} and {b}) are identical. Kindly check.",
+    "references.renumber_blocked": "References are not cited in sequential order, but the reference list could not "
+                                   "be renumbered automatically ({why}). Kindly renumber the references in text and "
+                                   "list.",
+    "references.not_renumbered": "This paragraph in the reference list is not a numbered reference and was left out "
+                                 "of the renumbering. Kindly check.",
 }
 
 
@@ -200,6 +205,8 @@ class Plan:
     uncited: list[int] = field(default_factory=list)
     mapping: dict[int, int] = field(default_factory=dict)  # old number -> new number
     apply: bool = False  # renumber (reorder and/or drop duplicates)
+    skipped: list[references.Reference] = field(default_factory=list)  # unnumbered paragraphs left in place
+    blocked: str = ""  # why a list cited out of order could not be renumbered (queried)
 
     @property
     def reordered(self) -> bool:
@@ -292,10 +299,22 @@ def plan(ms: Manuscript, style: JournalStyle) -> Plan:
     ms._renumber_plan = pl
     if not style.get("renumber.enabled", True):
         return pl
-    refs = references.extract(ms)
-    if not refs or [r.number for r in refs] != list(range(1, len(refs) + 1)):
-        return pl  # no list, author-year, or labels out of sequence: leave it to the editor
+    every = references.extract(ms)
+    refs = [r for r in every if r.number is not None]
+    if not refs or len(refs) * 2 < len(every):
+        return pl  # no list, or an author-year one
+    if [r.number for r in refs] != list(range(1, len(refs) + 1)):
+        # labels out of sequence: leave it to the editor, but say so when the citations need renumbering
+        pl.occurrences = occurrences(ms, style, len(refs))
+        first = []
+        for o in pl.occurrences:
+            first += [n for n in sorted(o.numbers) if n not in first]
+        if first != sorted(first):
+            pl.blocked = "the list's numbers are not 1 to {}".format(len(refs))
+        pl.occurrences = []
+        return pl
     pl.refs = refs
+    pl.skipped = [r for r in every if r.number is None]  # an unnumbered paragraph in a numbered list: left in place
     n = len(refs)
     pl.occurrences = occurrences(ms, style, n)
     if not pl.occurrences:
@@ -332,7 +351,9 @@ def _formatted_entries(ms: Manuscript, style: JournalStyle) -> dict[str, str]:
     out = {}
     for r in references.extract(ms):
         text = ms.by_id(r.para_id).text
-        for c in sorted((c for c in cs.changes if c.para_id == r.para_id), key=lambda c: c.start, reverse=True):
+        # (the label's own edits stay with the position: only the entry moves)
+        mine = (c for c in cs.changes if c.para_id == r.para_id and c.start >= r.offset and c.reason != "ref_label")
+        for c in sorted(mine, key=lambda c: c.start, reverse=True):
             text = text[:c.start] + c.new + text[c.end:]
         out[r.para_id] = text
     return out
@@ -406,8 +427,14 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
 
     queries.TEXT.update({k: v for k, v in QUERY_TEXT.items() if k not in queries.TEXT})
     pl = plan(ms, style)
+    if pl.blocked:
+        heading = references.find_heading(ms)
+        qs.add(ms.paragraphs[heading].id, "references.renumber_blocked", why=pl.blocked)
     if not pl.refs:
         return
+    if pl.apply:
+        for r in pl.skipped:  # never skipped silently
+            qs.add(r.para_id, "references.not_renumbered", r.offset, r.offset + len(r.text))
     if pl.apply and style.get("header.renumber.enabled", True):
         return  # the query and the old -> new table go at the top of the file (header.py), as the editors put them
     by_num = {r.number: r for r in pl.refs}

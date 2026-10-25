@@ -52,7 +52,8 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   operators: "+±"
   percent_space: true         # "50 %" -> "50%"
   value_unit_space: true      # "123mg" -> "123 mg"
-  units: [μg, µg, μs, µs, Hertz, μL, µL, μl, µl, mm, cm, km, mg, rpm, nm]
+  units: [μg, µg, μs, µs, Hertz, μL, µL, μl, µl, mm, cm, km, mg, rpm, nm,
+          mmHg, nJ, μJ, µJ, mJ, gm]  # the last six: not in the guide's table, same rule (IJO editors: "50 mmHg", "20 nJ")
   bracket_inner_space: true   # "( 80 )" -> "(80)"
   double_period: true         # "80.." -> "80."
   multiplication: true        # "10x20" -> "10 × 20"
@@ -105,6 +106,7 @@ references:
   et_al: "et al."
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"
   page_range_compress: true    # 101-109 -> 101-9
+  label_period: false          # typed labels as "1. ": "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (per journal)
   page_range_dash: "-"
   drop_issue: true             # 2017;12(3):101-9 -> 2017;12:101-9
   no_period_before_year: true  # J Med Genet. 1987;24 -> J Med Genet 1987;24
@@ -134,7 +136,10 @@ expected_h1: [conclusion]
 
 formatting:  # run formatting from the pre-editing guide, rendered as tracked formatting
   enabled: true
-  et_al_italic: true           # body "et al." in italics (never in the reference list)
+  et_al_italic: true           # body "et al." in italics
+  et_al_italic_references: false  # ... and in the reference list. The guide's search-and-replace row 1 ("et al" ->
+                               # "et al.", italics) excludes nothing (only row 4, "&", spares references), but the
+                               # other sheets are silent and AIAN says "not required to be in italics": per journal
   et_al_period: true           # "et al" -> "et al."
   latin_italic: true           # in vivo, in vitro, in situ, ex vivo
   p_values: true               # probability P in italics (G294 "capital case with italics style"; editors: 0 of 532

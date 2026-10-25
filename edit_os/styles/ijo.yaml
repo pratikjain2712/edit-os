@@ -25,11 +25,16 @@ formatting:
   body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles; sheet silent)
   heading_bold_tagged: true    # S: "H1 | Caps, Bold" and "H2 | Sentence Case, Bold": the heads the tool tags in bold
   heading_bold_levels: [1, 2]  # (S: "H3 | Sentence Case, Italics")
+  et_al_italic_references: true  # guide S&R row 1: "et al." in italics, references included (only "&", row 4,
+                                 # spares them); the IJO editors italicise it in the list (6 of 6 articles)
 
 citations:
   # "[3,4,5]" -> "[3-5]", "[1,3,4,5]" -> "[1,3-5]" in every citation, not only renumbered ones (the IJO editors,
   # 510 / 837 / 702; the sheet is silent: S328 only sets the hyphen, S330 keeps two numbers a list)
   compress_from: 3
+
+references:
+  label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)
 
 figures:
   # S300 "Figure citation | Fig. 1": the sheet speaks, so it wins over the guide's G240 ("Figure" for "Fig.");
