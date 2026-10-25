@@ -457,6 +457,9 @@ def move_blocks(ms: Manuscript, info: dict, changes: ChangeSet, statuses, *, tra
             later = next((k for k in kept if new[k] > new[o]), None)
             els = blocks[o]
             if tracked:
+                # A paragraph already deleted (a caption moved into its table, legends.py) stays where it is, deleted.
+                els = [e for e in els if not (e.tag == qn("w:p") and e.find(f"{qn('w:pPr')}/{qn('w:rPr')}/{qn('w:del')}")
+                                              is not None and not paragraph_text(e).strip())]
                 copies = [copy.deepcopy(e) for e in els]
                 for c in copies:
                     _accept(c)

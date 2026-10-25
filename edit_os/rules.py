@@ -910,6 +910,7 @@ def _opens_paragraph(c: Change) -> bool:
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) -> ChangeSet:
     """Run rules in order; drop any proposal that overlaps one already kept."""
     kept: list[Change] = []
+    dropped_groups: set[str] = set()
     resolved = set()  # reference paragraphs already rebuilt from PubMed / CrossRef
     for name, rule in RULES.items():
         if only and name not in only:
@@ -934,6 +935,11 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
                                              and k.start <= c.start <= k.end for k in kept)
             if not clash and not same_point and not moved:
                 kept.append(c)
+            elif getattr(c, "_group", None):
+                dropped_groups.add(c._group)
+    # Changes that only make sense together (a legend part run on: the text added to the legend and its own
+    # paragraph deleted) go together: when one of them lost an overlap, all of them go.
+    kept = [c for c in kept if getattr(c, "_group", None) not in dropped_groups]
     # Formatting on text that a kept change replaces is moot (the replacement carries its own
     # format), and showing it would split one edit into two suggestions.
     replaced = [k for k in kept if not k.format_only and k.end > k.start]

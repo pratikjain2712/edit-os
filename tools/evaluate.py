@@ -11,7 +11,11 @@ closure = (d(O,T) - d(U,T)) / d(O,T): the share of the editor's edits we reprodu
 any edits we made that the editor did not (those push it down). d is a token edit distance.
 Changed paragraphs are also counted as helped (closer to the editor) or hurt (further away).
 
-Usage: python tools/evaluate.py DATA_DIR JOURNAL [--per-rule] [--show-hurt]
+With --join-paragraphs, a paragraph whose paragraph mark the editor deleted (a part legend run on into its figure's
+legend, a line broken by hand joined) is scored as joined to the next one, as Word shows it once the changes are
+accepted; by default each paragraph is scored on its own (the numbers reported so far).
+
+Usage: python tools/evaluate.py DATA_DIR JOURNAL [--per-rule] [--show-hurt] [--join-paragraphs]
 """
 
 from __future__ import annotations
@@ -35,10 +39,12 @@ from edit_os.changes import Status  # noqa: E402
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
-def tracked_pairs(docx_bytes: bytes) -> list[tuple[str, str]]:
-    """(text before the editor's changes, text after) for each paragraph of a tracked file."""
+def tracked_pairs(docx_bytes: bytes, join: bool = False) -> list[tuple[str, str]]:
+    """(text before the editor's changes, text after) for each paragraph of a tracked file. `join`: a paragraph whose
+    mark the editor deleted takes the next paragraph's text after it (that one's own text after is then empty)."""
     root = etree.fromstring(zipfile.ZipFile(io.BytesIO(docx_bytes)).read("word/document.xml"))
     pairs = []
+    carry = None
     for p in root.iter(W + "p"):
         before, after = [], []
         for el in p.iter(W + "t", W + "delText", W + "tab"):
@@ -48,7 +54,16 @@ def tracked_pairs(docx_bytes: bytes) -> list[tuple[str, str]]:
                 before.append(txt)
             if W + "del" not in anc and el.tag != W + "delText":
                 after.append(txt)
-        pairs.append(("".join(before), "".join(after)))
+        b, a = "".join(before), "".join(after)
+        target = len(pairs)
+        if carry is not None:
+            pairs[carry] = (pairs[carry][0], pairs[carry][1] + a)
+            a, target = "", carry
+        pairs.append((b, a))
+        carry = None
+        if join and p.find(f"{W}pPr/{W}rPr/{W}del") is not None and pairs[target][1].strip() \
+                and not any(x.tag == W + "tbl" for x in p.iterancestors()):
+            carry = target
     return pairs
 
 
@@ -86,7 +101,7 @@ def apply_text(text: str, changes) -> str:
     return "".join(ch for ch, _ in best)
 
 
-def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
+def evaluate(article_dir: str, journal: str, only=None, show_hurt=False, join=False):
     src = manuscript_from_zip(os.path.join(article_dir, "original.zip"))
     if src is None:
         return None
@@ -111,7 +126,7 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
         ours = [apply_text(p.text, cs.for_paragraph(p.id)) for p in ms.paragraphs]
 
     editor: dict[str, list[str]] = {}
-    for before, after in tracked_pairs(te):
+    for before, after in tracked_pairs(te, join):
         editor.setdefault(before.strip(), []).append(after)
     r = dict(changes=len(cs.changes), dOT=0, dUT=0, matched=0, paragraphs=len(originals), helped=0, hurt=0)
     for o, u, ref in zip(originals, ours, is_ref):
@@ -146,7 +161,8 @@ def main(argv):
     for label, only in runs:
         tot = dict(dOT=0, dUT=0, changes=0, helped=0, hurt=0, matched=0, paragraphs=0)
         for d in dirs:
-            r = evaluate(d, journal, only, show_hurt="--show-hurt" in argv and label == "all")
+            r = evaluate(d, journal, only, show_hurt="--show-hurt" in argv and label == "all",
+                         join="--join-paragraphs" in argv)
             if not r:
                 continue
             for k in tot:

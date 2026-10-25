@@ -180,7 +180,7 @@ def test_pipeline_tracked_insertion_and_clean_copy_only_when_accepted(tmp_path, 
     texts = [t for t, _ in _texts(res.path("tracked"))]
     i = texts.index("First author:")
     assert texts[i - 1].startswith("2. Rao") and texts[i + 1] == "Asha Lakshmi Kumar"
-    assert texts[i + 3] == "Figure Legends"
+    assert texts[i + 3] == "Figure Legend"  # one figure: the IJO editors' singular heading
     para = _texts(res.path("tracked"))[i][1]
     assert para.find(f"{W}pPr/{W}rPr/{W}ins") is not None and para.find(f"{W}ins") is not None  # tracked insertion
     assert "First author:" not in [t for t, _ in _texts(res.path("clean"))]  # pending: not in the clean copy

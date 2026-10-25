@@ -175,6 +175,19 @@ figures:                        # figure and table citations and captions (rules
   table_footnote_end_period: null  # delete: the period ending a table's last footnote goes ("SD, standard deviation.")
   table_caption_case: null      # sentence: "Table 1: Baseline Characteristics" -> "Table 1: Baseline characteristics"
                                 # (S: 'followed by caption content in bold style and Sentence Case'); null: as typed
+  table_footnote_delimiter: null  # ",": "CDVA = ...; SD = ..." -> "CDVA = ..., SD = ..." between abbreviation
+                                  # definitions in table notes (S: "Comma should be delimiter between abbreviations")
+  table_heads_title_case: false # column heads in ALL CAPS -> Title Case (S / G205 "In case the content is in All Caps
+                                # then please make it as Title Case"); words the text writes in capitals stay
+  legend_run_on: false          # true: a legend's parts typed as separate paragraphs ("Fig.1 A ...", "Fig.1 B ...",
+                                # "(C) ...", "b. ...") run on into one legend (G264); false: each part keeps its line,
+                                # the repeated label replaced by "(b) "
+  legends_to_end: false         # true: legends in the body (or after the tables) move after the references, before
+                                # the tables (G265, G195), under `legends_heading` (legends.py); one move suggestion
+  legends_heading: null         # the heading over the legends ("Figure Legends"); an author's "Legends:" /
+                                # "Legends to Figures" / "Image description" is renamed to it; null: as typed
+  legends_heading_single: null  # the heading when there is one figure ("Figure Legend"); null: legends_heading
+  table_caption_row: false      # true: a table caption next to its table goes into a merged first row (legends.py)
   queries: true                 # out of order, cited without caption, caption never cited
   renumber: true                # tables / figures first cited out of order -> renumbered in citations and captions and put
                                 # in the new order (rules_figures.renumber_plan, header.move_blocks). S (every sheet but

@@ -21,6 +21,29 @@ figures:
   # word "Figure" should be used in case it is abbreviated'. The IJO editors write "Fig." / "Figs." (64 of 75 citations,
   # 16 of 17 articles): owner's list.
   compress_lists: true          # stylesheet: "Tables 1–6"
+  # S: "In case part labels and content are present in separate paragraphs, make them run-on with space as delimiter"
+  # (G264): "Fig.1 A ..." + "Fig.1 B ...", "(C) ..." / "b. ..." lines -> one legend, as the IJO editors do in all 8
+  # articles with such lines (510, 702, 769, 867, 1016, 2155, 2835, 3136; in 510, 867 and 2155 by deleting the
+  # paragraph marks, which tools/evaluate.py scores only with --join-paragraphs).
+  legend_run_on: true
+  # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold style and Sentence Case.'
+  table_caption_case: sentence
+  # S (table footnotes): "Period should be deleted at end of last abbreviation definition" / "... at end of last
+  # footnote" and "Comma should be delimiter between abbreviations." Whether a definition reads "term = definition"
+  # (the live line) or "term: definition" (the struck one, and the editors) is the owner's question: left as typed.
+  table_footnote_end_period: delete
+  table_footnote_delimiter: ","
+  table_heads_title_case: true  # S: "In case the content is in All Caps then please make it as Title Case" (G205)
+  # G265: "The caption(s) should be placed at end of document (before table if present)", G195: tables "at end of
+  # document after figure captions". Legends in the body move after the references (and the First author block),
+  # under a "Figure Legends" heading (the sheet is silent; the IJO editors have a heading in 17 of 18 articles with
+  # legends: "Figure Legends" 10, "Figure Legend" 4, "Figure legends" 3).
+  legends_to_end: true
+  legends_heading: Figure Legends
+  legends_heading_single: Figure Legend   # one figure: the editors' singular in 4 of 5 (702, 1016, 2155, 2698)
+  # The sheet is silent on where a table caption sits; the IJO editors put it in a merged first row of the table in
+  # every article with tables (8 of 8: 769, 1130, 1226, 1862, 2835, 2891, 3136, 510), above or below it as typed.
+  table_caption_row: true
 
 front_matter:
   initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'

@@ -106,7 +106,8 @@ def main(argv: list[str]) -> int:
             if is_tracked and qs.queries:
                 queries.write_comments(ms, qs)
             tracked.render(ms, changes, tracked=is_tracked)
-            frontmatter.render_inserts(ms, inserts, tracked=is_tracked)
+            frontmatter.render_inserts(ms, [n for n in inserts if type(n) is frontmatter.NewParagraph],
+                                       tracked=is_tracked)
             ms.save(out)
             print(out)
         if qs.queries:

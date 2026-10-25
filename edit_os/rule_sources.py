@@ -113,6 +113,13 @@ RULES: dict[str, Locator] = {
                        "table figure citation bracket order"),
     "fig_captions": L("Figure / table caption", "Caption labels and end punctuation",
                       (r"caption|label|legend",), (r"caption|legend|label",), "caption label bold period table figure"),
+    "fig_legends_move": L("Figure legends at the end", "Figure legends moved after the references, before the tables",
+                          (r"caption|legend",), (r"caption", r"end\s+of\s+document"),
+                          "caption placed end document before table", first="guide"),
+    # no stylesheet line: the journal's editors' heading over the legends
+    "fig_legends_heading": L("Figure Legends heading", "A heading over the figure legends"),
+    # no stylesheet line: the journal's editors put the caption in a merged first row of the table
+    "table_caption_row": L("Table caption in the table", "The table caption in a merged first row of its table"),
     "ref_lookup": L("Reference rebuilt from PubMed / CrossRef", "Entry rebuilt from the verified record in the journal's "
                     "reference style", (r"pubmed|index medicus",), (r"pubmed",), "update pubmed volume page number"),
     "ref_other": L("Reference format", "Books, websites and reports in the journal's template",
