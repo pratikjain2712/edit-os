@@ -14,6 +14,10 @@ citations:
   next_to_author: true      # "Liu et al. found ... (P = 0.02).[17]" -> "Liu et al.[17] found ...": one citation
                             # closing the passage that names one study, its reference's first author that name
   next_to_author_max_sentences: 4  # at most 3 sentence breaks between the name and the citation
+  author_match_query: true  # "Surname et al. [n]" naming another first author than reference n -> query (S, 41 of 42
+                            # sheets: "Match author names in the references list with those in citations"; guide E.g. 6)
+  compress_from: null       # 3: runs of 3+ numbers in any citation as a range, "[3,4,5]" -> "[3-5]" (renumbered
+                            # citations always: renumber.compress_from)
 
 headings:
   tag: true  # prefix headings with <H1> / <H2> for typesetting
@@ -154,7 +158,8 @@ figures:                        # figure and table citations and captions (rules
   citations: true
   brackets: square              # (Figure 1) -> [Figure 1]
   before_full_stop: false       # "immunized. (Table 1)" -> "immunized [Table 1]." (square brackets only)
-  figure_label: Figure          # "Fig. 1" -> "Figure 1" (every journal but IJO in the editors' files)
+  unbold_citations: false       # true: bold figure / table citations in running text -> roman
+  figure_label: Figure          # "Fig. 1" -> "Figure 1" (G240; IJO's sheet says "Fig. 1")
   lowercase_labels: false       # true: body citations written "table 2" / "figure 1" -> "Table 2" / "Figure 1"
   figure_label_plural: Figures
   part_labels: upper            # body citations: Figure 1a -> Figure 1A (G245 "Figure part labels should be in uppercase";

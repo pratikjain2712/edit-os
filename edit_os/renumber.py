@@ -52,10 +52,10 @@ def expand(inner: str) -> list[int] | None:
     return out
 
 
-def compress(nums: list[int], style: JournalStyle) -> str:
+def compress(nums: list[int], style: JournalStyle, least: int | None = None) -> str:
     """Sorted, unique numbers as a citation: runs of `compress_from`+ become ranges."""
     nums = sorted(set(nums))
-    least = style.get("renumber.compress_from", 3)
+    least = least or style.get("renumber.compress_from", 3)
     dash = style.get("citations.range_dash", "-")
     parts, i = [], 0
     while i < len(nums):

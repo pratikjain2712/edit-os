@@ -170,7 +170,7 @@ def test_figure_renumbering_and_kjo_queries_instead(tmp_path):
         c.status = Status.ACCEPTED
     tracked.render(docmodel.load(path), cs, tracked=False).save(tmp_path / "c.docx")
     texts = [p.text for p in docmodel.load(str(tmp_path / "c.docx")).paragraphs]
-    assert "The scan [Figure 1] and the photograph [Figure 2a and 2b] differ." in texts  # IJO: "Figure 2a and 2b"
+    assert "The scan [Fig. 1] and the photograph [Fig. 2a and 2b] differ." in texts  # IJO (S300 "Fig. 1")
     k = next(i for i, t in enumerate(texts) if t.startswith("Figure 2: Photograph"))
     assert texts[k + 1] == "Figure 1: Scan"  # renumbered in place (the legends move when the file is rendered)
 

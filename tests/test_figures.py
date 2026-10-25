@@ -41,14 +41,14 @@ BODY = [
 
 
 def test_ijo_figure_citations(tmp_path):
-    # The guide (the IJO sheet is silent): G240 "Figure" for "Fig.", G245 part labels in uppercase; the sheet's
-    # "Tables 1–6" for runs of tables.
+    # S300 "Figure citation | Fig. 1" (the sheet wins over the guide's G240); G245 part labels in uppercase; the
+    # sheet's "Tables 1–6" for runs of tables.
     t = _apply(_doc(tmp_path, BODY), _style("ijo"), tmp_path)
-    assert t[1] == "Lesions were seen [Figure 1A]. Figure 2 shows the scan [Table 2, Figure 1]."
-    assert t[2] == "Both eyes [Figures 1 and 2] and parts [Figure 3A-B]; see [Figure 3A and 3B]."
-    assert t[3] == "Montage in Figure 4A-D; Figure 5 shows it [Table 2], as in Tables 1–3 for 71] [Figure 1]."
-    assert t[4] == "Table 1 and 25 patients were seen; a figure 1a and a 3-mm cut [Figure 1]. Table 1 depicts it."
-    assert t[5] == "Results were in [Supplementary Table 1]. Delayed [Figures 1–3]."
+    assert t[1] == "Lesions were seen [Fig. 1A]. Fig. 2 shows the scan [Table 2, Fig. 1]."
+    assert t[2] == "Both eyes [Figs. 1 and 2] and parts [Fig. 3A-B]; see [Fig. 3A and 3B]."
+    assert t[3] == "Montage in Fig. 4A-D; Fig. 5 shows it [Table 2], as in Tables 1–3 for 71] [Fig. 1]."
+    assert t[4] == "Table 1 and 25 patients were seen; a figure 1a and a 3-mm cut [Fig. 1]. Table 1 depicts it."
+    assert t[5] == "Results were in [Supplementary Table 1]. Delayed [Figs. 1–3]."
 
 
 def test_fig_label_lower_parts_and_lists_switches(tmp_path):

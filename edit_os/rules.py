@@ -38,6 +38,42 @@ def body_paragraphs(ms: Manuscript) -> list[Paragraph]:
 _NUMS = r"\d{1,3}(?:\s*[,–—\-]\s*\d{1,3})*"
 _ROUND = re.compile(r"(\s*)\((" + _NUMS + r")\)([.,;:]?)")
 _SQUARE = re.compile(r"(\s*)\[(" + _NUMS + r")\]([.,;:]?)")
+# "[14.15]": a full stop typed for the comma between two reference numbers (the second the larger, no leading zero;
+# after a word only when they are consecutive).
+_SQUARE_DOT = re.compile(r"(\s*)\[([1-9]\d{0,2})\.([1-9]\d{0,2})\]([.,;:]?)")
+# A year right before a round-bracket number: "previously reported in 2008 (7), presented" cites (a count after a
+# number, "45 (12)", does not).
+_YEAR_BEFORE_ROUND = re.compile(r"(?:\b(?:in|since|from|until|by|during)|\bet\.?\s+al\.?,?)\s+(?:19|20)\d{2}$", re.I)
+
+
+class _DotCitation:
+    """A "[14.15]" match read as "[14,15]": the span as typed, the numbers with their comma."""
+
+    def __init__(self, m: re.Match):
+        self._m = m
+
+    def start(self, g: int = 0) -> int:
+        return self._m.start()
+
+    def end(self, g: int = 0) -> int:
+        return self._m.end()
+
+    def span(self, g: int = 0) -> tuple[int, int]:
+        return self._m.span()
+
+    def group(self, g: int = 0) -> str:
+        m = self._m
+        return {0: m.group(0), 1: m.group(1), 2: f"{m.group(2)},{m.group(3)}", 3: m.group(4)}[g]
+
+
+def _dot_citations(text: str) -> list[_DotCitation]:
+    out = []
+    for m in _SQUARE_DOT.finditer(text):
+        a, b, prev = int(m.group(2)), int(m.group(3)), text[:m.start()].rstrip()
+        # "failure.[14.15]" or "shown [14.15]" cite; "the ratio [1.5]" is a value
+        if b > a and (re.search(r"[.,;:)]$", prev) or (b == a + 1 and re.search(r"[A-Za-z]$", prev))):
+            out.append(_DotCitation(m))
+    return out
 
 
 def normalise_citation(inner: str, style: JournalStyle) -> str | None:
@@ -56,6 +92,11 @@ def normalise_citation(inner: str, style: JournalStyle) -> str | None:
             parts.append(str(int(item)))
         else:
             return None  # "(0)" is never a reference number
+    least = style.get("citations.compress_from")
+    if least:  # "[3,4,5]" -> "[3-5]", "[1,3,4,5]" -> "[1,3-5]" (numbers in ascending order only)
+        nums = renumber.expand(",".join(parts))
+        if nums and all(b > a for a, b in zip(nums, nums[1:])):
+            return renumber.compress(nums, style, least)
     return style.get("citations.multiple_delimiter", ",").join(parts)
 
 
@@ -369,19 +410,22 @@ def _citation_candidates(ms: Manuscript, style: JournalStyle) -> tuple[int, list
     n_refs = max((r.number or 0 for r in refs), default=len(refs)) or len(refs)
     front = front_matter_ids(ms)
     # The body and the tables (wherever they are; their notes too): "Garg et al., 2018[10]".
+    # Running text the author typed in a Word heading style (a long paragraph) is body text all the same.
     paras = [p for p in renumber.citation_paragraphs(ms)
-             if not p.style.lower().startswith("heading") and p.id not in front] if n_refs else []
+             if (not p.style.lower().startswith("heading") or len(p.text) > 150) and p.id not in front] if n_refs else []
     candidates: list[tuple[Paragraph, re.Match, bool]] = []
     after_number: list[tuple[Paragraph, re.Match]] = []  # "alpha of 0.88 (19)": a count, unless the sequence says not
     for p in paras:
         for pattern, is_round in ((_ROUND, True), (_SQUARE, False)):
             if is_round and (style.get("citations.brackets") != "square" or p.in_table):
                 continue  # in tables, "Male (12)" is a count
-            for m in pattern.finditer(p.text):
+            found = list(pattern.finditer(p.text)) + ([] if is_round else _dot_citations(p.text))
+            for m in found:
                 prev = p.text[:m.start()].rstrip()
                 if not prev or not_citation_before(prev, is_round, m.group(2)):
                     continue  # (the rule leaves a paragraph's opening "[23, 39]" as written)
-                if re.search(r"[\d%]$", prev):
+                cites_after = (prev.endswith("%") and not is_round) or (is_round and _YEAR_BEFORE_ROUND.search(prev))
+                if re.search(r"[\d%]$", prev) and not cites_after:  # "2% [4]," and "in 2008 (7)," cite
                     if is_round and re.search(r"\d\.\d+$", prev):
                         after_number.append((p, m))
                     continue  # counts "45 (12)"; the rule also leaves "1985[64]" as written
@@ -665,6 +709,61 @@ def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 end = len(text)
             out.append(_change(p, s, end, trail, Layer.REFERENCES, "author_citations"))
     return out
+
+
+# --- author names against the reference list ---------------------------------------------
+#
+# S (41 of 42 sheets): "Match author names in the references list with those in citations (wherever author names are
+# provided) in text"; the guide (E.g. 6) words the query. Only a name the reference list contradicts is queried:
+# "Radziwill et al. [6]" where reference 6 is "Bae JS, ...".
+
+AUTHOR_QUERY = ("Kindly confirm whether author names in the references list are matching with the citations (wherever "
+                "author names are provided) in text: {name} et al. is cited as reference {n}, whose first author is "
+                "{first}.")
+_ET_AL_END = re.compile(r"\bet\.?\s+al\b\.?,?\s*$")
+
+
+def author_name_mismatches(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, int, int, str, int, str]]:
+    """(paragraph, start, end, cited name, reference number, the reference's first author) for each "Surname et al.
+    [n]" whose reference n has a different first author."""
+    if not style.get("citations.author_match_query", True):
+        return []
+    refs = references.extract(ms)
+    by_num = {r.number: r for r in refs if r.number is not None}
+    if not by_num:
+        return []
+    skip = front_matter_ids(ms) | rules_sections.abstract_ids(ms)
+    proposals: dict[str, list[Change]] = {}
+    for c in rule_citations(ms, style):
+        if c.old.lstrip().startswith("("):
+            proposals.setdefault(c.para_id, []).append(c)
+    out = []
+    for p in renumber.citation_paragraphs(ms):
+        if p.id in skip or rules_figures.caption_match(p) is not None:
+            continue
+        round_ok = [(c.start, c.end) for c in proposals.get(p.id, [])]
+        for s, e, nums in _citation_spans(p, round_ok):
+            before = p.text[:s]
+            m = _ET_AL_END.search(before)
+            if not m or len(nums) != 1 or nums[0] not in by_num:
+                continue
+            words = _surname_words_before(before, m.start())
+            keys = _author_keys(by_num[nums[0]].text)
+            first = re.split(r"[,;]", by_num[nums[0]].text.strip(), maxsplit=1)[0].strip()
+            parts = {_name_key(w) for w in re.split(r"[\s\-‐]+", first) if not _is_initials(w)}
+            if not words or not keys or _mention_matches(words, keys[0]) or _name_key(words[-1]) in parts:
+                continue  # "Nalcacioglu et al." for "Nalcacioglu-Yüksekkaya P"
+            start = before.rfind(words[0], 0, m.start())
+            out.append((p, start, e, words[-1], nums[0], first))
+    return out
+
+
+def add_author_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
+    from . import queries
+
+    queries.TEXT.setdefault("references.author_mismatch", AUTHOR_QUERY)
+    for p, s, e, name, n, first in author_name_mismatches(ms, style):
+        qs.add(p.id, "references.author_mismatch", s, e, name=name, n=n, first=first)
 
 
 # --- headings ------------------------------------------------------------------------

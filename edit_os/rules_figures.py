@@ -62,6 +62,8 @@ _LABEL_ANYCASE = re.compile(
 _NUM = re.compile(r"\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z])")
 _PART = re.compile(r"\(([a-zA-Z])\)|-?([A-Za-z])(?![A-Za-z0-9])")
 _BARE_PART = re.compile(r"\(([A-Za-z])\)|([A-Za-z])(?=\s*(?:[)\]},;.:]|and\b|&|$))")
+# A part letter typed apart from its number: "(Figure 1 b- d)", "Figure 1 A, B" (not "Figure 1 a decrease").
+_SPACED_PART = re.compile(r"\s([A-Za-z])(?=\s*(?:[-–—,;)\]}]|and\b|&|$))")
 _RANGE = re.compile(r"\s*(-|–|—|\bto\b)\s*")
 _JOIN = re.compile(r"\s*(,|;|\band\b|&)\s*")
 _FIRST_SEP = re.compile(r"(?:\s*[-_]\s*|\s+|)(?:No\.?\s*)?", re.I)
@@ -88,6 +90,7 @@ class Segment:
     items: list[Item] = field(default_factory=list)
     joins: list[str] = field(default_factory=list)  # join before each item after the first
     join_before: str = ""  # join before this segment's label (segments after the first)
+    no_number: bool = False  # "(Figure B-C)": parts with no figure number (`sole_figure` supplies it)
 
 
 @dataclass
@@ -108,9 +111,10 @@ def _parse_num(text: str, i: int):
 
 def _parse_part(text: str, i: int):
     m = _PART.match(text, i)
-    if not m:
-        return "", i
-    return m.group(1) or m.group(2), m.end()
+    if m:
+        return m.group(1) or m.group(2), m.end()
+    m = _SPACED_PART.match(text, i)
+    return (m.group(1), m.end()) if m else ("", i)
 
 
 def _parse_item(text: str, i: int, bare_ok: bool):
@@ -139,6 +143,17 @@ def _parse_item(text: str, i: int, bare_ok: bool):
     return item, j
 
 
+# A figure part with no number, closing its brackets: "(Figure A)", "(Figure  E-F)", "(Figure B and C)".
+_BARE_FIGURE = re.compile(r"([A-Z])(?:\s*(-|–|—|\bto\b)\s*([A-Z]))?(?=\s*(?:[)\]},]|and\b|&))")
+
+
+def _parse_bare(text: str, i: int):
+    m = _BARE_FIGURE.match(text, i)
+    if not m:
+        return None, i
+    return Item(None, m.group(1), to_part=m.group(3) or "", dash=m.group(2) or ""), m.end()
+
+
 def parse_groups(text: str, anycase: bool = False) -> list[Group]:
     """Figure/table citation groups in `text`, e.g. "Table 2, Figure 1" or "Figs. 2a and 2b"."""
     label_re = _LABEL_ANYCASE if anycase else _LABEL
@@ -159,6 +174,9 @@ def parse_groups(text: str, anycase: bool = False) -> list[Group]:
             seg = Segment(_kind(lab.group("word")), lab.group("supp") or "", join_before=join_before)
             k = _FIRST_SEP.match(text, lab.end()).end()
             item, k = _parse_item(text, k, False)
+            if item is None and bracketed and not segs and seg.kind == FIG and not plural:
+                item, k = _parse_bare(text, k)  # "(Figure B-C)": the parts of a figure with no number
+                seg.no_number = item is not None
             if item is None:
                 break
             seg.items.append(item)
@@ -236,6 +254,34 @@ def _render_item(it: Item, kind: str, style: JournalStyle) -> str:
     return s
 
 
+def _part_runs(seg: Segment) -> tuple[list[Item], list[str]]:
+    """Items and joins with three or more consecutive parts of one figure as a range: "1A, 1B, 1C" -> "1A-C"
+    (G246: "In case citation range is present then please delete number if repeated")."""
+    items, joins = list(seg.items), list(seg.joins)
+    out_items: list[Item] = []
+    out_joins: list[str] = []
+    i = 0
+    while i < len(items):
+        j = i
+        num = items[i].num
+        def simple(it):
+            return len(it.part) == 1 and not it.to_num and not it.to_part
+        if num is not None and simple(items[i]):
+            while (j + 1 < len(items) and simple(items[j + 1]) and items[j + 1].num in (None, num)
+                   and joins[j] in (",", "and", "&") and ord(items[j + 1].part.lower()) == ord(items[j].part.lower()) + 1
+                   and items[j + 1].part.isupper() == items[i].part.isupper()):
+                j += 1
+        if j - i >= 2:
+            out_items.append(Item(num, items[i].part, to_part=items[j].part, dash="-"))
+        else:
+            out_items += items[i:j + 1]
+            out_joins += joins[i:j]
+        if j + 1 < len(items):
+            out_joins.append(joins[j])
+        i = j + 1
+    return out_items, out_joins
+
+
 def _label(kind: str, plural: bool, style: JournalStyle) -> str:
     if kind == TABLE:
         return "Tables" if plural else "Table"
@@ -274,9 +320,11 @@ def render_group(g: Group, style: JournalStyle) -> str:
                 and all(b == a + 1 for a, b in zip(nums, nums[1:]))):
             out.append(f"{nums[0]}{style.get('figures.range_dash', '–')}{nums[-1]}")  # Tables 1, 2 and 3 -> 1–3
             continue
-        for k, it in enumerate(seg.items):
+        items, joins = _part_runs(seg) if seg.kind == FIG and style.get("figures.compress_lists") else \
+            (seg.items, seg.joins)
+        for k, it in enumerate(items):
             if k:
-                out.append(_join(seg.joins[k - 1]))
+                out.append(_join(joins[k - 1]))
             out.append(_render_item(it, seg.kind, style))
     return "".join(out)
 
@@ -525,24 +573,80 @@ _OPEN, _CLOSE = "([{", ")]}"
 _STOP_BEFORE = re.compile(r"(?:(?<![\w.])(?!(?:al|etc|vs|approx|fig|figs|no)\b)[A-Za-z]{2,}|\d|%|\))(\.)\s*$")
 
 
+# A word or two after the citation inside its brackets: "(Figure 1, top)", "(Figure 2, left panel)".
+_SUFFIX = re.compile(r"\s*,\s*([a-z]+(?:\s+[a-z]+){0,2})\s*(?=[)\]}])")
+
+
+def sole_figure(ms: Manuscript) -> int | None:
+    """The number of the manuscript's only figure caption, if it has exactly one figure."""
+    nums = {c.number for c in captions(ms) if c.kind == FIG}
+    return next(iter(nums)) if len(nums) == 1 else None
+
+
+def _with_number(g: Group, sole: int | None) -> bool:
+    """Give "(Figure B-C)" its figure number when the manuscript has one figure; False when it cannot."""
+    for seg in g.segments:
+        if seg.no_number:
+            if sole is None:
+                return False
+            seg.items[0].num = sole
+    return True
+
+
+def _unbold(p: Paragraph, fmts: list[dict], lo: int, hi: int) -> list[Change]:
+    """Bold figure / table citation in running text -> roman: "[{b:Table 3 and Figure 1}]" (IJO editors)."""
+    from .rules import _change
+
+    t = p.text
+    if len(fmts) != len(t) or not any(fmts[i].get("bold") for i in range(lo, hi)):
+        return []
+    if not any(ch.isalnum() and not fmts[i].get("bold") for i, ch in enumerate(t) if not lo <= i < hi):
+        return []  # a bold line: its citation stays as the line is
+    out, i = [], lo
+    while i < hi:
+        if fmts[i].get("bold") and not t[i].isspace():
+            j = i
+            while j < hi and (fmts[j].get("bold") or t[j].isspace()):
+                j += 1
+            while t[j - 1].isspace():
+                j -= 1
+            out.append(_change(p, i, j, t[i:j], Layer.TABLES_FIGURES, "fig_citations", {"bold": False}))
+            i = j
+        else:
+            i += 1
+    return out
+
+
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.citations", True):
         return []
+    from .rules_format import char_formats
+
     square = style.get("figures.brackets", "square") == "square"
     before_stop = style.get("figures.before_full_stop", False)
+    unbold = style.get("figures.unbold_citations", False)
+    sole = sole_figure(ms)
     out = []
     for p in _citation_paragraphs(ms):
         t = p.text
+        fmts = char_formats(p) if unbold else []
         # "table 2" -> "Table 2" (S: "Table citation | Tables 1–6; Table 1"), when figures.lowercase_labels is on
         for g in parse_groups(t, anycase=bool(style.get("figures.lowercase_labels", False))):
+            if not _with_number(g, sole):
+                continue
             new = render_group(g, style)
+            mine: list[Change] = []
             s, e = g.start, g.end
             # Bracketed: the group is the whole content of (...), {...} or a mismatched [...).
             ls = len(t[:s]) - len(t[:s].rstrip(" "))
             rs = len(t[e:]) - len(t[e:].lstrip(" "))
-            if t[e + rs:e + rs + 1] == "," and t[e + rs + 1:].lstrip(" ")[:1] in (")", "}"):
+            suffix = ""
+            sm = _SUFFIX.match(t, e)
+            if sm:  # "(Figure 1, top)" -> "[Figure 1, top]"
+                suffix, rs = f", {sm.group(1)}", sm.end() - e
+            elif t[e + rs:e + rs + 1] == "," and t[e + rs + 1:].lstrip(" ")[:1] in (")", "}"):
                 rs += 1 + len(t[e + rs + 1:]) - len(t[e + rs + 1:].lstrip(" "))  # "(Figure 1,2,3,)"
-            if t[e + rs:e + rs + 1] == "." and t[e + rs + 1:].lstrip(" ")[:1] in _CLOSE:
+            elif t[e + rs:e + rs + 1] == "." and t[e + rs + 1:].lstrip(" ")[:1] in _CLOSE:
                 rs += 1 + len(t[e + rs + 1:]) - len(t[e + rs + 1:].lstrip(" "))  # "(Table 1.)": a stray period
             o, c = s - ls - 1, e + rs
             bracketed = o >= 0 and c < len(t) and t[o] in _OPEN and t[c] in _CLOSE
@@ -551,20 +655,36 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if o > 0 and (t[o - 1].isalnum() or t[o - 1] == "]"):
                     lead = " "  # "71](Figure 1)" -> "71] [Figure 1]"
                 old = t[o:c + 1]
-                repl = f"{lead}[{new}]"
+                repl = f"{lead}[{new}{suffix}]"
                 stop = _STOP_BEFORE.search(t, 0, o) if before_stop else None
-                if stop and re.match(r"\s*(?:$|[A-Z])", t[c + 1:]):
-                    # "fully immunized. (Table 1) The" -> "fully immunized [Table 1]. The"
-                    k = stop.start(1)
-                    out += _diff(p, k, t[k:c + 1], f" [{new}].", "fig_citations")
+                # "fully immunized. (Table 1) The" -> "fully immunized [Table 1]. The"; with a second stop after it,
+                # "presentation. [Fig 1a, 1b, 1c]. On" -> "presentation [Fig. 1A-C]. On"
+                end = c + 1 if stop and re.match(r"\s*(?:$|[A-Z])", t[c + 1:]) else \
+                    c + 2 if stop and re.match(r"\.(?:\s|$)", t[c + 1:]) else None
+                if end is not None:
+                    from .rules import _change
+                    mine.append(_change(p, stop.start(1), s, " [", Layer.TABLES_FIGURES, "fig_citations"))
+                    mine += _diff(p, s, t[s:end], f"{new}{suffix}].", "fig_citations")
                 elif repl != old:
+                    from .rules import _change
                     if lead:
-                        from .rules import _change
-                        out.append(_change(p, o, o, " ", Layer.TABLES_FIGURES, "fig_citations"))
-                        repl = repl[1:]
-                    out += _diff(p, o, old, repl, "fig_citations")
-            elif new != t[s:e]:
-                out += _diff(p, s, t[s:e], new, "fig_citations")
+                        mine.append(_change(p, o, o, " ", Layer.TABLES_FIGURES, "fig_citations"))
+                    if t[o:s] != "[":  # the opening bracket with any space inside it: "( Figure 1" -> "[Fig. 1"
+                        mine.append(_change(p, o, s, "[", Layer.TABLES_FIGURES, "fig_citations"))
+                    mine += _diff(p, s, t[s:c + 1], f"{new}{suffix}]", "fig_citations")
+                lo, hi = o, c + 1
+            else:
+                if new != t[s:e]:
+                    mine += _diff(p, s, t[s:e], new, "fig_citations")
+                lo, hi = s, e
+            if unbold:
+                flat = _unbold(p, fmts, lo, hi)
+                if flat:
+                    for ch in mine:
+                        if ch.new.strip():
+                            ch.format = {"bold": False}
+                    mine += flat
+            out += mine
     return out
 
 
@@ -582,8 +702,11 @@ class Citation:
 def citations(ms: Manuscript) -> list[Citation]:
     """Figure and table citations in the body, in reading order (supplementary ones left out)."""
     out = []
+    sole = sole_figure(ms)
     for p in _citation_paragraphs(ms):
         for g in parse_groups(p.text, anycase=True):
+            if not _with_number(g, sole):
+                continue
             for seg in g.segments:
                 if seg.supp:
                     continue

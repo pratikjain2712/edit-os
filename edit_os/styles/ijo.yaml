@@ -16,11 +16,23 @@ headings:
 formatting:
   body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles; sheet silent)
 
+citations:
+  # "[3,4,5]" -> "[3-5]", "[1,3,4,5]" -> "[1,3-5]" in every citation, not only renumbered ones (the IJO editors,
+  # 510 / 837 / 702; the sheet is silent: S328 only sets the hyphen, S330 keeps two numbers a list)
+  compress_from: 3
+
 figures:
-  # figure_label: as base, "Figure". The IJO sheet says nothing on Fig./Figure in citations; the guide does: G240 'The
-  # word "Figure" should be used in case it is abbreviated'. The IJO editors write "Fig." / "Figs." (64 of 75 citations,
-  # 16 of 17 articles): owner's list.
+  # S300 "Figure citation | Fig. 1": the sheet speaks, so it wins over the guide's G240 ("Figure" for "Fig.");
+  # the IJO editors write "Fig." / "Figs." too (64 of 75 citations, 16 of 17 articles).
+  figure_label: Fig.
+  figure_label_plural: Figs.
   compress_lists: true          # stylesheet: "Tables 1–6"
+  # "visit. (Figure 1A)" -> "visit [Fig. 1A]." and "hypopyon. [Figure 1A, B]" -> "hypopyon [Fig. 1A, B].": the IJO
+  # editors in every such article (2202, 2449, 1862, 3136, 510; the sheet is silent)
+  before_full_stop: true
+  # "{b:Table 3 and Figure 1}" in running text -> roman: the IJO editors in 6 of 6 articles (1130, 1226, 183, 1862,
+  # 2202, 2835; the sheet is silent, and formatting.body_unbold stays off for other bold)
+  unbold_citations: true
 
 front_matter:
   initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
