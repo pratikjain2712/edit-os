@@ -120,6 +120,7 @@ class Plan:
     warnings: list[dict] = field(default_factory=list)
     files: list[FigureFile] = field(default_factory=list)
     queries: list[tuple[str, str, dict]] = field(default_factory=list)  # (para_id, queries.TEXT key, format values)
+    legends: dict[int, str] = field(default_factory=dict)  # figure -> where its legend came from (no legend in the text)
 
 
 def settings(style: JournalStyle) -> dict:
@@ -176,6 +177,61 @@ def supplied_files(zip_path: str) -> list[FigureFile]:
     return out
 
 
+# --- legends sent outside the manuscript -------------------------------------------------------
+
+_LEGENDS_FILE = re.compile(r"legend|caption", re.I)
+
+
+def supplied_legends(zip_path: str, style: JournalStyle) -> dict[int, tuple[str, str]]:
+    """Figure number -> (legend text after "Figure N: ", where it came from), for figures the manuscript has no legend
+    for: a separate legends file in the zip ("LEGENDS.docx", "Figures Legends.docx"), else the submission XML's
+    <image><legend> for the figure's file (the IJO editor of 2449: "Followed XML file for Figure captions")."""
+    import tempfile
+
+    from lxml import etree
+
+    from . import docmodel
+
+    out: dict[int, tuple[str, str]] = {}
+    try:
+        z = zipfile.ZipFile(zip_path)
+    except (OSError, zipfile.BadZipFile):
+        return out
+    names = [n for n in z.namelist() if not n.startswith("__MACOSX") and not os.path.basename(n).startswith(".")]
+    for n in names:
+        base = os.path.basename(n)
+        if not n.lower().endswith(".docx") or not _LEGENDS_FILE.search(base) or re.search(r"manuscript", base, re.I):
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "legends.docx")
+            with open(path, "wb") as fh:
+                fh.write(z.read(n))
+            try:
+                found = rules_figures.legend_texts(docmodel.load(path), style)
+            except Exception:  # an unreadable file: nothing from it
+                found = {}
+        for num, text in found.items():
+            out.setdefault(num, (text, base))
+    xmls = [n for n in names if n.lower().endswith(".xml")]
+    for n in xmls:
+        try:
+            root = etree.fromstring(z.read(n))
+        except etree.XMLSyntaxError:
+            continue
+        for img in root.iter("image"):
+            fname = (img.findtext("image_file_name") or "").strip()
+            legend = (img.findtext("legend") or "").strip()
+            if not fname or not legend:
+                continue
+            num, _, problem = parse_name(fname)
+            if num is None or problem or num in out:
+                continue
+            text = rules_figures.legend_from_text(legend, num, style)
+            if text:
+                out[num] = (text, os.path.basename(n))
+    return out
+
+
 # --- the manuscript's legends and pictures ----------------------------------------------------
 
 def _legends(ms: Manuscript) -> dict[int, list[int]]:
@@ -190,18 +246,11 @@ def _legends(ms: Manuscript) -> dict[int, list[int]]:
 
 
 def _end_slot(ms: Manuscript) -> tuple[str, str]:
-    """Where figures with no legend go: before the first table caption after the reference list (G195: tables at
-    the end, after the figure captions), else after the last paragraph with text."""
-    from . import references
-    index = {p.id: i for i, p in enumerate(ms.paragraphs)}
-    refs = [index[r.para_id] for r in references.extract(ms) if r.para_id in index]
-    after = max(refs) if refs else -1
-    tables = sorted(index[c.para_id] for c in rules_figures.captions(ms)
-                    if c.kind != rules_figures.FIG and c.para_id in index and index[c.para_id] > after)
-    if tables:
-        return ms.paragraphs[tables[0]].id, "before"
-    last = max((i for i, p in enumerate(ms.paragraphs) if p.text.strip() or has_picture(p.element)), default=0)
-    return ms.paragraphs[last].id, "after"
+    """Where figures with no legend go: where the back of the article starts after the reference list, before the
+    tables (legends.back_slot; G195: tables at the end, after the figure captions), else after the last paragraph with
+    text."""
+    from . import legends
+    return legends.back_slot(ms) or (ms.paragraphs[-1].id, "after")
 
 
 def _neighbours(ms: Manuscript, i: int, pictures: set[int]) -> list[int]:
@@ -341,6 +390,7 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
                                   f"no figure legend accounts for ({pids}), so which figures are missing is unclear."))
         return out
 
+    supplied = supplied_legends(zip_path, style) if any(n not in legends for n in by_num) else {}
     max_w, max_h = _text_area(ms)
     max_h = int(max_h * float(cfg.get("max_height", 0.85)))
     per_row = max(1, int(cfg.get("parts_per_row", 2)))
@@ -397,18 +447,24 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
             continue
         below = cfg.get("position", "above") == "below"
         legend = ""
-        if no_legend:  # picture, then "Figure N: ???" (S/G266: image first, its caption below), query the author
+        if no_legend:  # picture, then its legend (S/G266: image first, its caption below)
             anchor, where = _end_slot(ms)
-            legend = f"Figure {num}: ???"
-            out.queries.append((anchor, "figures.legend_missing", {"n": num}))
+            text, origin = supplied.get(num, ("", ""))
+            if text:  # the legend from the submission's other material (a legends file, the XML)
+                legend = f"Figure {num}: {text}"
+                out.legends[num] = origin
+            else:  # "Figure N: ???" and a query to the author
+                legend = f"Figure {num}: ???"
+                out.queries.append((anchor, "figures.legend_missing", {"n": num}))
         else:
             first, last = block(num)
             anchor, where = ms.paragraphs[last if below else first].id, "after" if below else "before"
+        files_ = [os.path.basename(i["name"]) for i in images]
+        detail = ", ".join(files_) + (f"; legend from {out.legends[num]}" if num in out.legends else "")
         out.inserts.append(FigureInsert(
             id=f"fig_ins{next(n_ins)}", anchor=anchor, legend=legend,
             where=where, runs=[], role="figure", reason=REASON, images=images, figure=num,
-            provenance=provenance.make("figure_file", "Figure file", ", ".join(os.path.basename(i["name"]) for i in images),
-                                       files=[os.path.basename(i["name"]) for i in images])))
+            provenance=provenance.make("figure_file", "Figure file", detail, files=files_)))
     return out
 
 
@@ -473,7 +529,12 @@ def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuse
         block = [p]
         if n.legend:
             block.append(_legend_paragraph(n.legend, tracked, ids, author, date))
-        if n.where == "after":
+        if n.where == "after" and n.legend:  # a figure with no legend in the text, at the end of the document:
+            body = ms.document.element.body     # after the First author block and the legends heading
+            last = body[-1] if len(body) and body[-1].tag == qn("w:sectPr") else None
+            for el in block:
+                (last.addprevious(el) if last is not None else body.append(el))
+        elif n.where == "after":
             prev = tail.get(n.anchor, anchor)  # several figures after one paragraph keep their order
             for el in block:
                 prev.addnext(el)

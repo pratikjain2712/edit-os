@@ -233,6 +233,8 @@ def _numbers(seg_items: list[Item]) -> set[int]:
 def _case(part: str, style: JournalStyle, legend: bool = False) -> str:
     """A figure part label in the journal's case: `figures.part_labels` in body citations and, in legends,
     `figures.legend_part_case` when set (the guide: citations "Figure 1A", legends "(a)")."""
+    if style is None:
+        return part
     mode = (legend and style.get("figures.legend_part_case")) or style.get("figures.part_labels", "lower")
     return part.lower() if mode == "lower" else part.upper() if mode == "upper" else part
 
@@ -366,6 +368,20 @@ class Caption:
     match: re.Match
 
 
+# A figure legend that opens with its first part label: "Figure 1 a. Pre-operative map", "Fig.1 A Face photograph",
+# "Figure 2 A) axial", "Figure 3.A (OD) OCT".
+_LEAD_PART = re.compile(r"(?P<a>[A-La-l])(?:\s*[–-]\s*(?P<b>[A-La-l]))?(?P<punct>[.:)])?(?=\s+\S|\s*\()")
+_VERB = r"(?:shows?|summari[sz]es|depicts?|presents?|lists?|gives?|illustrates?|demonstrates?|reveals?)\b"
+
+
+def lead_part(rest: str) -> re.Match | None:
+    """The part label a legend's text opens with ("a." / "A" / "A)"), unless a verb follows ("Figure 1 A shows")."""
+    m = _LEAD_PART.match(rest)
+    if m is None or re.match(r"\s*" + _VERB, rest[m.end():]):
+        return None
+    return m
+
+
 def caption_match(p: Paragraph) -> re.Match | None:
     if p.style.lower().startswith("heading"):
         return None
@@ -376,13 +392,16 @@ def caption_match(p: Paragraph) -> re.Match | None:
     if not re.search(r"\w", rest):
         return None  # "Figure 2..   ": a label with no caption text (a placeholder), left as typed
     has_punct = bool(re.search(r"[.:\-–—]", m.group("sep")))
-    if not has_punct:
+    is_fig = not m.group("word").lower().startswith(("tab", "graph"))
+    # "Figure 1 a. Pre-operative ...", "Fig.1 A Face ...": a legend opening with its first part label
+    parted = is_fig and not m.group("part") and lead_part(rest) is not None
+    if not has_punct and not parted:
         # "Table 2 Detection rate" is a caption; "Table 2 shows ..." is a sentence.
         if not (rest[0].isupper() or rest[0] == "(") or re.match(r"[A-Z](?:[\s).:,-]|$)", rest):
-            return None  # "Figure 2 A) axial ..." is a part label, not a caption separator
-        if re.match(r"\w+\s+(?:shows?|summari[sz]es|depicts?|presents?|lists?|gives?|illustrates?)\b", rest):
             return None
-    elif m.group("sep").strip().startswith(".") and rest[0].islower():
+        if re.match(r"\w+\s+" + _VERB, rest):
+            return None
+    elif has_punct and m.group("sep").strip().startswith(".") and rest[0].islower() and not parted:
         return None
     if m.group("num").isdigit():
         n = int(m.group("num"))
@@ -416,36 +435,420 @@ def _end_period(rest: str) -> int | None:
     return len(stripped) - 1
 
 
-# Part labels inside a legend: "(A)", "(A, B)", "(C–E)", "(1A)" (its own figure's number), and bare
-# "a) ... b) ..." labels. Letters a-l only: "(R)", "(T)" in a legend are seldom part labels.
+# --- figure legends: part labels, parts typed on their own lines ----------------------------
+#
+# G263: "In case part labels are present then they should be in small case enclosed within round brackets"; G264:
+# "In case part labels and content are present in separate paragraphs please make them run-on with space as
+# delimiter" (the IJO sheet says the same, S292). A legend is its "Figure N" paragraph and the paragraphs that
+# continue it: the next parts of the same figure ("Figure 1B: ...", "Fig.1 B ..."), paragraphs that open with the
+# next part label ("(C) ...", "b. ...", "D–F: Case 2."), and lines the author broke by hand ("  postoperative and the
+# differential maps").
+
+# Bracketed part labels: "(A)", "(A, B)", "(C–E)", "(1A)" (its own figure's number). Letters a-l only: "(R)",
+# "(T)" in a legend are seldom part labels.
 _LEGEND_PART = re.compile(r"\((?P<num>\d{1,2})?\s*(?P<parts>[A-La-l](?:\s*(?:,|and|&|-|–|to)\s*\d{0,2}[A-La-l])*)\)")
-_BARE_LEGEND_PART = re.compile(r"(?<![\w(\[.])(?P<l>[A-La-l])\)(?=\s)")
+# Unbracketed part labels, taken only when they run in order (a, b, c, ...): "A. Toxoplasmosis B. ...", "A: Causal
+# plot ... B: Funnel plot", "A–C: Case 1.", "a) ... b) ...", "B & C. ...".
+_BARE_LABEL = re.compile(r"(?<![\w(\[.,/'’\-–])(?P<a>[A-La-l])(?:\s*(?P<dash>[–-])\s*(?P<b>[A-La-l]))?"
+                        r"(?:(?P<punct>[.:)])(?=\s|$)|(?=\s*&\s*(?:[A-La-l](?:[.:)]|\s)|$)))")
+# A heading over the figure legends: "Figure Legends", "Legends:", "Legends to Figures", "FIG LEGENDS",
+# "Image description".
+LEGENDS_HEADING = re.compile(
+    r"^\s*(?:<H\d>)?\s*(?:(?:(?:figures?|figs?\.?|images?|photos?)\s+)?(?:legends?|captions?|descriptions?)"
+    r"(?:\s+(?:to|for|of)\s+(?:the\s+)?(?:figures?|images?|photographs?))?|figures?)\s*:?\s*$", re.I)
+_UNNUMBERED = re.compile(r"^\s*(?P<lab>Fig(?:ure)?\.?\s*)(?=\()")
 
 
-def _legend_parts(p: Paragraph, rest_start: int, number: int, style: JournalStyle) -> list[Change]:
-    """Part labels in a figure legend in the journal's case, in round brackets, without the
-    figure's number: "(1A)" -> "(a)", "(A, B)" -> "(a, b)", "a) ... b) ..." -> "(a) ... (b) ..."."""
-    text = p.text
-    out: list[Change] = []
-    for m in _LEGEND_PART.finditer(text, rest_start):
+def _next(letter: str) -> str:
+    return chr(ord(letter) + 1)
+
+
+@dataclass
+class _Token:
+    seg: int  # 0: the legend paragraph, k: its k-th continuation paragraph
+    start: int
+    end: int
+    first: str  # first part letter, lower case
+    last: str
+    new: str  # the label as it should read
+    bracketed: bool
+    weak: bool = False  # a bare letter opening the text without punctuation ("Fig.1 A Face"): needs a neighbour part
+    edit: bool = True  # False: stands for a part read from the caption label ("Figure 1B: ...")
+
+
+@dataclass
+class Legend:
+    """A figure legend: its paragraph and the paragraphs that continue it."""
+    para: Paragraph
+    number: int
+    cap: Caption | None  # None: an unnumbered legend ("Figure (A, B): ...", a lone paragraph under a legends heading)
+    label: tuple[int, int] = (0, 0)  # unnumbered: the span the "Figure 1: " label replaces
+    conts: list[tuple[Paragraph, str]] = field(default_factory=list)  # (paragraph, "label" | "part" | "wrap")
+
+    @property
+    def paragraphs(self) -> list[Paragraph]:
+        return [self.para] + [q for q, _ in self.conts]
+
+
+def _tokens(text: str, start: int, number: int, style: JournalStyle, seg: int, opening: int | None) -> list[_Token]:
+    """Part-label candidates in text[start:]; `opening`: where a bare opening label may stand ("A Face photograph")."""
+    out: list[_Token] = []
+    for m in _LEGEND_PART.finditer(text, start):
         if m.group("num") and int(m.group("num")) != number:
             continue
         inner = m.group("parts")
-        nums = re.findall(r"\d+", inner)
-        if any(int(n) != number for n in nums):
+        if any(int(n) != number for n in re.findall(r"\d+", inner)):
             continue
         if not m.group("num") and len(inner) == 1 and inner.lower() not in "abcdefgh":
             continue
         new = "(" + re.sub(r"\d+", "", re.sub(r"[A-La-l]", lambda x: _case(x.group(0), style, True), inner)) + ")"
         new = re.sub(r"\s*&\s*", " and ", new) if "&" in new else new
-        if new != m.group(0):
-            out += _diff(p, m.start(), m.group(0), new, "fig_captions.parts")
-    bare = list(_BARE_LEGEND_PART.finditer(text, rest_start))
-    letters = [b.group("l").lower() for b in bare]
-    if len(bare) >= 2 and letters == [chr(ord("a") + i) for i in range(len(letters))]:
-        for b in bare:
-            out += _diff(p, b.start(), b.group(0), f"({_case(b.group('l'), style, True)})", "fig_captions.parts")
+        letters = re.findall(r"[A-La-l]", inner)
+        out.append(_Token(seg, m.start(), m.end(), letters[0].lower(), letters[-1].lower(), new, True))
+    taken = [(t.start, t.end) for t in out]
+    for m in _BARE_LABEL.finditer(text, start):
+        if any(s < m.end() and m.start() < e for s, e in taken):
+            continue
+        a, b = m.group("a"), m.group("b")
+        lab = _case(a, style, True) + (m.group("dash") + _case(b, style, True) if b else "")
+        new = f"({lab})" + (":" if m.group("punct") == ":" else "")
+        out.append(_Token(seg, m.start(), m.end(), a.lower(), (b or a).lower(), new, False))
+    if opening is not None:
+        lm = lead_part(text[opening:])
+        if lm and not lm.group("punct") and not any(t.start == opening + lm.start() for t in out):
+            a, b = lm.group("a"), lm.group("b")
+            lab = _case(a, style, True) + ("–" + _case(b, style, True) if b else "")
+            out.append(_Token(seg, opening + lm.start(), opening + lm.end(), a.lower(), (b or a).lower(), f"({lab})",
+                              False, weak=True))
+    return sorted(out, key=lambda t: t.start)
+
+
+def _select(tokens: list[_Token]) -> list[_Token]:
+    """The part labels of one legend: bracketed ones always; unbracketed ones only in letter order from (a), and only
+    when the legend has at least two parts."""
+    expected, acc = "a", []
+    for t in tokens:
+        if t.bracketed or t.first == expected:
+            acc.append(t)
+            expected = _next(t.last)
+    out = []
+    for i, t in enumerate(acc):
+        if t.weak:
+            prev, nxt = (acc[i - 1] if i else None), (acc[i + 1] if i + 1 < len(acc) else None)
+            if not ((prev and _next(prev.last) == t.first) or (nxt and nxt.first == _next(t.last))):
+                continue
+        out.append(t)
+    if len(out) < 2:
+        out = [t for t in out if t.bracketed]
     return out
+
+
+def _expected_after(text: str, start: int, number: int, style: JournalStyle, expected: str) -> str:
+    """The part letter that would come next after the labels in text[start:]."""
+    for t in _tokens(text, start, number, style, 0, start):
+        if t.bracketed or t.first == expected:
+            expected = _next(t.last)
+    return expected
+
+
+def _label_part(m: re.Match) -> str:
+    """The part letter a caption label carries: "Figure 1B: ..." -> "B", "Fig.1 B Face ..." -> "B"."""
+    if m.group("part"):
+        return m.group("part")
+    lp = lead_part(m.group("rest"))
+    return lp.group("a") if lp and not lp.group("b") else ""
+
+
+def legends(ms: Manuscript) -> list[Legend]:
+    """The figure legends outside tables, in document order, each with its continuation paragraphs. Cached."""
+    cached = getattr(ms, "_fig_legends", None)
+    if cached is not None:
+        return cached
+    paras = ms.paragraphs
+    caps = {c.para_id: c for c in captions(ms) if c.kind == FIG}
+    out: list[Legend] = []
+    used: set[str] = set()
+    for i, p in enumerate(paras):
+        c = caps.get(p.id)
+        if c is None or p.in_table or p.id in used:
+            continue
+        leg = Legend(p, c.number, c)
+        _continue(ms, leg, i, c.match.start("rest"), caps, used)
+        out.append(leg)
+    if not out:
+        leg = _unnumbered(ms, caps, used)
+        if leg is not None:
+            out.append(leg)
+    ms._fig_legends = out
+    return out
+
+
+def _continue(ms: Manuscript, leg: Legend, i: int, start: int, caps: dict, used: set) -> None:
+    from .docmodel import has_picture
+
+    paras = ms.paragraphs
+    part = _label_part(leg.cap.match) if leg.cap else ""
+    expected = _next(part.lower()) if part else "a"
+    expected = _expected_after(leg.para.text, start, leg.number, None, expected)
+    blanks = 0
+    for q in paras[i + 1:]:
+        t = q.text
+        if q.in_table or has_picture(q.element):
+            break
+        if not t.strip():
+            blanks += 1
+            if blanks > 2:
+                break
+            continue
+        c2 = caps.get(q.id)
+        if c2 is not None:
+            p2 = _label_part(c2.match)
+            if c2.number == leg.number and p2:
+                leg.conts.append((q, "label"))
+                expected = _expected_after(t, c2.match.start("rest"), leg.number, None, _next(p2.lower()))
+            else:
+                break
+        elif q.style.lower().startswith("heading") or t.lstrip().startswith("<H") or LEGENDS_HEADING.match(t):
+            break
+        else:
+            lead = len(t) - len(t.lstrip())
+            bm = _LEGEND_PART.match(t, lead) or _BARE_LABEL.match(t, lead)
+            first = re.search(r"[A-La-l]", bm.group(0)).group(0).lower() if bm else ""
+            if bm and first == expected:
+                leg.conts.append((q, "part"))
+                expected = _expected_after(t, lead, leg.number, None, expected)
+            elif q.numbered and _letter_list(ms, q) and not bm:
+                leg.conts.append((q, "list"))  # "a. Preoperative" as a Word list item: the letter is numbering
+                expected = _next(expected)
+            elif not blanks and lead >= 2 and t.lstrip()[:1].islower():
+                leg.conts.append((q, "wrap"))  # a line the author broke by hand
+            else:
+                break
+        used.add(q.id)
+        blanks = 0
+
+
+def _letter_list(ms: Manuscript, p: Paragraph) -> bool:
+    """Whether a numbered paragraph is lettered (a., b., ...) by Word's list numbering."""
+    try:
+        numbering = ms.document.part.numbering_part.element
+    except (AttributeError, KeyError, NotImplementedError):
+        return False
+    num_pr = p.element.find(f"{_W}pPr/{_W}numPr")
+    if num_pr is None:
+        return False
+    num_id = num_pr.find(f"{_W}numId")
+    ilvl = num_pr.find(f"{_W}ilvl")
+    nid = num_id.get(f"{_W}val") if num_id is not None else None
+    lvl = ilvl.get(f"{_W}val") if ilvl is not None else "0"
+    for num in numbering.iter(f"{_W}num"):
+        if num.get(f"{_W}numId") != nid:
+            continue
+        aid = num.find(f"{_W}abstractNumId")
+        for an in numbering.iter(f"{_W}abstractNum"):
+            if aid is not None and an.get(f"{_W}abstractNumId") == aid.get(f"{_W}val"):
+                for lv in an.iter(f"{_W}lvl"):
+                    if lv.get(f"{_W}ilvl") == lvl:
+                        fmt = lv.find(f"{_W}numFmt")
+                        return fmt is not None and fmt.get(f"{_W}val") in ("lowerLetter", "upperLetter")
+    return False
+
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _unnumbered(ms: Manuscript, caps: dict, used: set) -> Legend | None:
+    """A manuscript with one figure and no "Figure N" label: "Figure (A, B): Slit-lamp ..." or the one paragraph under
+    a legends heading ("Image description") -> Figure 1."""
+    from .docmodel import has_picture
+
+    paras = ms.paragraphs
+    for i, p in enumerate(paras):
+        if p.in_table:
+            continue
+        m = _UNNUMBERED.match(p.text)
+        if m and _LEGEND_PART.match(p.text, m.end()):
+            leg = Legend(p, 1, None, (m.start("lab"), m.end("lab")))
+            _continue(ms, leg, i, m.end(), caps, used)
+            return leg
+    for i, h in enumerate(paras):
+        if h.in_table or not LEGENDS_HEADING.match(h.text) \
+                or not re.search(r"legend|caption|description", h.text, re.I):
+            continue
+        rest = [(j, q) for j, q in enumerate(paras[i + 1:], i + 1) if q.text.strip() or has_picture(q.element)]
+        if not rest:
+            return None
+        j, q = rest[0]
+        text = q.text.strip()
+        if q.in_table or has_picture(q.element) or len(text.split()) < 4 or q.style.lower().startswith("heading") \
+                or text.startswith("<H") or caption_match(q) is not None:
+            return None
+        leg = Legend(q, 1, None, (len(q.text) - len(q.text.lstrip()),) * 2)
+        _continue(ms, leg, j, leg.label[1], caps, used)
+        tail = [x for k, x in rest[1:] if x not in leg.paragraphs]
+        return leg if not tail else None  # more paragraphs after it: not clearly a single legend
+    return None
+
+
+def _apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:
+    for s, e, new in sorted(edits, reverse=True):
+        text = text[:s] + new + text[e:]
+    return text
+
+
+def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bool | None = None) -> list[Change]:
+    from .rules import _change
+    from .rules_format import char_formats
+
+    out: list[Change] = []
+    run_on = bool(style.get("figures.legend_run_on", False) if run_on is None else run_on) and leg.conts
+    sep = style.get("figures.caption_separator", ": ")
+    p = leg.para
+    # The label of the legend paragraph and where its text starts.
+    if leg.cap is not None:
+        m = leg.cap.match
+        rest_start, part = m.start("rest"), m.group("part") or ""
+        prefix = f"({_case(part, style, True)}) " if part else ""
+        dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(leg.number) + r"[A-Za-z]?\s*[.:\-–]\s*",
+                       m.group("rest"), re.I)
+        if dup and not part:  # "Figure 3: Figure 3. Fundus ..." -> drop the repeated label
+            rest_start += dup.end()
+        label_span = (m.end("lead"), rest_start)
+    else:
+        rest_start, part, prefix = leg.label[1], "", ""
+        label_span = leg.label
+    new_label = f"Figure {leg.number}{sep}{prefix}"
+    old_label = p.text[label_span[0]:label_span[1]]
+    if old_label != new_label:
+        label_changes = _diff(p, label_span[0], old_label, new_label, "fig_captions.label")
+        for c in label_changes:
+            if c.start == c.end == label_span[0] and not old_label:
+                c.format = {"bold": True}  # "Figure 1: " put in front of an unlabelled legend: bold (G260)
+        out += label_changes
+    # G260: 'The label should be "Figure<space>#:<space>" in 12 points font size bold style'
+    fmts0 = char_formats(p)
+    word = re.match(r"\s*\S+(?:\s+\d+)?\s*[:.]?", old_label) if old_label.strip() else None
+    word_end = label_span[0] + len(word.group(0)) if word else 0
+    if word and not all(f.get("bold") for f, ch in zip(fmts0[label_span[0]:word_end], p.text[label_span[0]:word_end])
+                        if not ch.isspace()):
+        out.append(_change(p, label_span[0], word_end, p.text[label_span[0]:word_end], Layer.TABLES_FIGURES,
+                           "fig_captions.label", {"bold": True}))
+    # Part labels across the legend and its continuations.
+    tokens: list[_Token] = []
+    if part:
+        tokens.append(_Token(0, -1, -1, part.lower(), part.lower(), "", True, edit=False))
+    tokens += _tokens(p.text, rest_start, leg.number, style, 0, None if part else rest_start)
+    starts = {0: rest_start}
+    labels: dict[int, tuple[int, int, str]] = {}  # continuation k -> (start, end, new) of its "Figure 1B: " label
+    for k, (q, kind) in enumerate(leg.conts, 1):
+        if kind == "label":
+            m2 = caption_match(q)
+            p2 = m2.group("part") or ""
+            starts[k] = m2.start("rest")
+            labels[k] = (m2.end("lead"), m2.start("rest"), f"({_case(p2, style, True)}) " if p2 else "")
+            if p2:
+                tokens.append(_Token(k, -1, -1, p2.lower(), p2.lower(), "", True, edit=False))
+            tokens += _tokens(q.text, starts[k], leg.number, style, k, None if p2 else starts[k])
+        elif kind == "list":
+            starts[k] = len(q.text) - len(q.text.lstrip())
+            tokens.append(_Token(k, starts[k], starts[k], "", "", "", False, edit=False))  # lettered in _select
+        else:
+            starts[k] = len(q.text) - len(q.text.lstrip())
+            tokens += _tokens(q.text, starts[k], leg.number, style, k, starts[k] if kind == "part" else None)
+    lettered: dict[int, str] = {}  # list-item continuation -> the letter Word's numbering shows
+    expected = "a"
+    for t in tokens:
+        if not t.first and not t.edit:
+            t.first = t.last = lettered[t.seg] = expected
+        if t.first:
+            expected = _next(t.last)
+    chosen = [t for t in _select(tokens) if t.edit]
+    texts = [p.text] + [q.text for q, _ in leg.conts]
+    for t in chosen:  # "(a)  Coronal" -> "(a) Coronal"
+        gap = re.match(r"\s{2,}(?=\S)", texts[t.seg][t.end:])
+        if gap:
+            t.end, t.new = t.end + gap.end(), t.new + " "
+    if not style.get("figures.legend_part_labels", True):  # only a bracketed label opening the legend: "(A)" -> "(a)"
+        chosen = [t for t in chosen if t.seg == 0 and t.bracketed and t.start == rest_start]
+    edits: dict[int, list[tuple[int, int, str]]] = {}
+    for t in chosen:
+        edits.setdefault(t.seg, []).append((t.start, t.end, t.new))
+    # The legend paragraph's own part labels: lower case in round brackets, set plain (not bold).
+    fmts = char_formats(p)
+    for s, e, new in edits.get(0, []):
+        bold = any(f.get("bold") for f in fmts[s:e])
+        if new != p.text[s:e] or bold:
+            out.append(_change(p, s, e, new, Layer.TABLES_FIGURES, "fig_captions.parts",
+                               {"bold": False} if bold else None))
+    # The final period: add | delete | keep (figures.figure_caption_end_period; unset: caption_end_period).
+    end_mode = style.get("figures.figure_caption_end_period")
+    if end_mode is None:
+        keep = style.get("figures.caption_end_period", False) or style.get("figures.caption_end_period_keep")
+        end_mode = "keep" if keep else "delete"
+    if run_on:
+        pieces, prev_text = [], _apply_edits(p.text, edits.get(0, []))
+        group = f"legend-{p.id}"
+        for k, (q, kind) in enumerate(leg.conts, 1):
+            e2 = list(edits.get(k, []))
+            if k in labels:
+                s, e, new = labels[k]
+                e2.append((0, e, new))  # "Figure 1B: " -> "(b) "; "Fig.1 " before a bare "B" -> ""
+            piece = _apply_edits(q.text, e2).strip()
+            if not piece:
+                continue
+            if kind == "list":
+                piece = f"({_case(lettered.get(k, 'a'), style, True)}) " + piece
+            joint = " "
+            if kind != "wrap" and not re.search(r"[.;:,!?&]$", (pieces[-1] if pieces else prev_text).rstrip()):
+                joint = ". "
+            pieces.append(joint + piece)
+            c = _change(q, 0, len(q.text), "", Layer.TABLES_FIGURES, "fig_captions.run_on")
+            c._group = group
+            out.append(c)
+        if pieces:
+            tail = "".join(pieces)
+            if end_mode == "delete" and _end_period(tail) is not None:
+                tail = tail[:_end_period(tail)] + tail[_end_period(tail) + 1:].rstrip()
+            k = len(p.text.rstrip())
+            c = _change(p, k, len(p.text), tail, Layer.TABLES_FIGURES, "fig_captions.run_on", {"bold": False})
+            c._group = group
+            out.append(c)
+            return out
+    _end_changes(out, p, rest_start, end_mode, edits.get(0, []))
+    for k, (q, kind) in enumerate(leg.conts, 1):
+        fq = char_formats(q)
+        for s, e, new in edits.get(k, []):
+            bold = any(f.get("bold") for f in fq[s:e])
+            if new != q.text[s:e] or bold:
+                out.append(_change(q, s, e, new, Layer.TABLES_FIGURES, "fig_captions.parts",
+                                   {"bold": False} if bold else None))
+        if k in labels:  # "Figure 1A. ..." then "Figure 1B. ...": the second is part (b) of Figure 1
+            s, e, new = labels[k]
+            if q.text[s:e] != new:
+                out += _diff(q, s, q.text[s:e], new, "fig_captions.label")
+            _end_changes(out, q, starts[k], end_mode, edits.get(k, []))
+    return out
+
+
+def _end_changes(out: list[Change], p: Paragraph, rest_start: int, end_mode: str, edits) -> None:
+    from .rules import _change
+
+    rest = p.text[rest_start:]
+    if end_mode == "add":
+        body = rest.rstrip()
+        if body and not body.endswith((".", "?", "!", ":")):
+            k = rest_start + len(body)
+            out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions.period_added"))
+    elif end_mode == "delete":
+        i = _end_period(rest)
+        if i is not None:
+            k = rest_start + i
+            if any(s <= k < e for s, e, _ in edits):
+                return
+            end = len(p.text) if not p.text[k + 1:].strip() else k + 1  # "folds. " -> "folds"
+            out.append(_change(p, k, end, "", Layer.TABLES_FIGURES, "fig_captions.end_period"))
+
+
 
 
 # A table footnote under a table: abbreviations ("SD, standard deviation", "SE = standard error"), symbols ("*P <
@@ -488,17 +891,139 @@ def _footnote_periods(ms: Manuscript) -> list[Change]:
     return out
 
 
+
+def _footnote_delimiters(ms: Manuscript) -> list[Change]:
+    """S (IJO): "Comma should be delimiter between abbreviations": "CDVA = corrected ...; SD = standard deviation" ->
+    "CDVA = corrected ..., SD = standard deviation". Only between "term = definition" / "term: definition" pairs
+    (whether "=" or ":" is the owner's question; the definitions are left as typed)."""
+    from .rules import _change
+
+    out, seen = [], set()
+    paras = ms.paragraphs
+    blocks = [q for block in table_footnotes(ms) for q in block]
+    after_table = False
+    for q in paras:  # the first paragraph under a table, whatever it opens with
+        if q.in_table:
+            after_table = True
+        elif q.text.strip():
+            if after_table and caption_match(q) is None:
+                blocks.append(q)
+            after_table = False
+    for q in blocks:
+        if q.id in seen:
+            continue
+        seen.add(q.id)
+        t = q.text
+        for m in re.finditer(r";(?=\s*[A-Za-zµμ%][\w%µμ\-/]{0,14}\s*[=:]\s*\S)", t):
+            before = t[:m.start()].split(";")[-1]
+            if re.search(r"(?:^|[(,.]\s*|\s)[A-Za-zµμ%][\w%µμ\-/]{0,14}\s*[=:]\s*\S", before):
+                out.append(_change(q, m.start(), m.end(), ",", Layer.TABLES_FIGURES, "fig_captions.footnote_delimiter"))
+    return out
+
+
+_MINOR = {"a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or", "per", "the",
+          "to", "vs", "versus", "via", "with"}
+
+
+def _title_word(w: str, first: bool, acronyms: set[str]) -> str:
+    if len(w) == 1 or w in acronyms or not w.isalpha():
+        return w  # "P", "LASIK" (an abbreviation the text uses), "6MONTHS"
+    low = w.lower()
+    return low if (low in _MINOR and not first) else low.capitalize()
+
+
+def _table_heads_title_case(ms: Manuscript) -> list[Change]:
+    """S / G205: column heads "In case the content is in All Caps then please make it as Title Case": "1 WEEK
+    POSTOPERATIVE" -> "1 Week Postoperative", "P VALUE" -> "P Value". Words the running text writes in capitals
+    ("LASIK", "BCVA") stay as they are."""
+    from . import docview
+    from .rules import _change, body_paragraphs
+    from .rules_format import _header_rows
+
+    paras = docview.classify(ms)
+    by_id = {p.id: p for p in ms.paragraphs}
+    for d in paras:
+        d["el"] = by_id[d["id"]].element
+    heads = _header_rows(paras)
+    acronyms = {w for p in body_paragraphs(ms) if not re.fullmatch(r"[^a-z]*", p.text)
+                for w in re.findall(r"\b[A-Z][A-Z0-9]+\b", p.text)}
+    out = []
+    for d in paras:
+        cell = d["cell"]
+        if not cell or cell["table"] not in heads or cell["row"] not in heads[cell["table"]]:
+            continue
+        p = by_id[d["id"]]
+        words = re.findall(r"[A-Za-z]+", p.text)
+        if not words or any(w != w.upper() for w in words) \
+                or not any(len(w) >= 4 and w not in acronyms for w in words):
+            continue  # not all capitals, or only abbreviations ("SD", "IOP")
+        first = True
+        for m in re.finditer(r"[A-Za-z]+", p.text):
+            new = _title_word(m.group(0), first, acronyms)
+            first = False
+            if new != m.group(0):
+                out.append(_change(p, m.start(), m.end(), new, Layer.TABLES_FIGURES, "fig_captions.table_head_case"))
+    return out
+
+
+def heading_above(ms: Manuscript, i: int) -> int | None:
+    """Index of the legends heading right above paragraph i (pictures and blank lines between), if there is one."""
+    from .docmodel import has_picture
+
+    for j in range(i - 1, max(-1, i - 5), -1):
+        p = ms.paragraphs[j]
+        if p.in_table:
+            return None
+        if p.text.strip():
+            return j if LEGENDS_HEADING.match(p.text) else None
+        if not has_picture(p.element) and j < i - 3:
+            return None
+    return None
+
+
+def _legends_heading(ms: Manuscript, style: JournalStyle, legs: list[Legend]) -> list[Change]:
+    """The author's heading over the legends in the journal's words: "Legends:", "Legends to Figures", "FIG LEGENDS",
+    "Image description" -> "Figure Legends" ("Figure Legend" for one figure), bold."""
+    from .rules import _change
+    from .rules_format import char_formats
+
+    many = style.get("figures.legends_heading")
+    if not many or not legs:
+        return []
+    single = style.get("figures.legends_heading_single") or many
+    head = single if len({leg.number for leg in legs}) == 1 else many
+    index = {p.id: i for i, p in enumerate(ms.paragraphs)}
+    h = heading_above(ms, min(index[leg.para.id] for leg in legs))
+    if h is None:
+        return []
+    p = ms.paragraphs[h]
+    s, e = len(p.text) - len(p.text.lstrip()), len(p.text.rstrip())
+    if p.text.lstrip().startswith("<"):
+        return []
+    bold = all(f.get("bold") for f, ch in zip(char_formats(p)[s:e], p.text[s:e]) if not ch.isspace())
+    if p.text[s:e] != head:
+        return [_change(p, s, len(p.text), head, Layer.TABLES_FIGURES, "fig_legends_heading", {"bold": True})]
+    if not bold:
+        return [_change(p, s, e, head, Layer.TABLES_FIGURES, "fig_legends_heading", {"bold": True})]
+    return []
+
+
 def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.captions", True):
         return []
     out = _footnote_periods(ms) if style.get("figures.table_footnote_end_period") == "delete" else []
-    prev = None
+    if style.get("figures.table_footnote_delimiter") == ",":
+        out += _footnote_delimiters(ms)
+    if style.get("figures.table_heads_title_case"):
+        out += _table_heads_title_case(ms)
+    legs = legends(ms)
+    out += _legends_heading(ms, style, legs)
+    in_legend = {q.id for leg in legs for q in leg.paragraphs}
+    for leg in legs:
+        out += _legend_changes(ms, leg, style)
     for cap in captions(ms):
         p = ms.by_id(cap.para_id)
-        follow_on = (prev is not None and prev.kind == cap.kind == FIG and prev.number == cap.number
-                     and cap.match.group("part") and prev.match.group("part"))
-        prev = cap
-        if p.in_table:
+        if p.in_table or p.id in in_legend:
             continue
         m = cap.match
         rest = m.group("rest")
@@ -515,17 +1040,8 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(cap.number) + r"[A-Za-z]?\s*[.:\-–]\s*", rest, re.I)
         if dup and not m.group("part"):
             rest_start += dup.end()
-        elif cap.kind == FIG and not style.get("figures.legend_part_labels", True):
-            lead_part = re.match(r"\(([A-Za-z])\)", rest)
-            if lead_part and _case(lead_part.group(1), style, True) != lead_part.group(1):
-                out += _diff(p, m.start("rest") + 1, lead_part.group(1), _case(lead_part.group(1), style, True),
-                             "fig_captions.parts")
-        if cap.kind == FIG and style.get("figures.legend_part_labels", True):
-            out += _legend_parts(p, m.start("rest"), cap.number, style)
         sep = style.get("figures.caption_separator", ": ")
         new_label = f"{label} {cap.number}{suffix}{sep}{new_rest_prefix}"
-        if follow_on:  # "Figure 1A. ..." then "Figure 1B. ...": the second is part (b) of Figure 1
-            new_label = new_rest_prefix
         old_label = p.text[m.end("lead"):rest_start]
         if new_label != old_label:
             out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions.label")
@@ -541,20 +1057,9 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if end_mode is None:
             keep = style.get("figures.caption_end_period", False) or style.get("figures.caption_end_period_keep")
             end_mode = "keep" if keep else "delete"
-        if end_mode == "add":  # "Table 1: Baseline characteristics" -> "... characteristics." (stylesheets)
-            body = rest.rstrip()
-            if body and not body.endswith((".", "?", "!", ":")):
-                from .rules import _change
-                k = m.start("rest") + len(body)
-                out.append(_change(p, k, k, ".", Layer.TABLES_FIGURES, "fig_captions.period_added"))
-        elif end_mode == "delete":
-            i = _end_period(rest)
-            if i is not None:
-                from .rules import _change
-                k = m.start("rest") + i
-                end = len(p.text) if not p.text[k + 1:].strip() else k + 1  # "folds. " -> "folds"
-                out.append(_change(p, k, end, "", Layer.TABLES_FIGURES, "fig_captions.end_period"))
+        _end_changes(out, p, m.start("rest"), end_mode, [])
     return out
+
 
 
 # --- body citations ------------------------------------------------------------------
@@ -563,8 +1068,10 @@ def _citation_paragraphs(ms: Manuscript) -> list[Paragraph]:
     from .rules import body_paragraphs
 
     # Running text the author typed in a Word heading style (a long paragraph) is body text all the same.
+    in_legend = {q.id for leg in legends(ms) for q in leg.paragraphs}
     return [p for p in body_paragraphs(ms)
-            if (not p.style.lower().startswith("heading") or len(p.text) > 150) and caption_match(p) is None]
+            if (not p.style.lower().startswith("heading") or len(p.text) > 150) and caption_match(p) is None
+            and p.id not in in_legend]
 
 
 _OPEN, _CLOSE = "([{", ")]}"
@@ -915,3 +1422,42 @@ def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
                                            figure_kind=cap.kind, old=[cap.number], new=[int(new)], caption=True)
             out.append(c)
     return out
+
+
+# --- legends from other submission material (figures_insert.py) ----------------------------------
+
+def legend_texts(ms: Manuscript, style: JournalStyle) -> dict[int, str]:
+    """Figure number -> its legend text after the "Figure N: " label, edited as the legend rules edit it (parts run
+    on, part labels "(a)", end period): for legends supplied in a separate file of the submission."""
+    out: dict[int, str] = {}
+    for leg in legends(ms):
+        if leg.number in out:
+            continue
+        p = leg.para
+        changes = [c for c in _legend_changes(ms, leg, style, run_on=True) if c.para_id == p.id and not c.format_only]
+        text = _apply_edits(p.text, [(c.start, c.end, c.new) for c in changes])
+        text = re.sub(r"^\s*Figure\s+\d+\s*:\s*", "", re.sub(r"\s+", " ", text)).strip()
+        if text:
+            out[leg.number] = text
+    return out
+
+
+def legend_from_text(text: str, number: int, style: JournalStyle) -> str:
+    """A legend given as plain text (the submission XML's <legend>): its "Figure N" label dropped, part labels "(a)",
+    the end period as the journal has it."""
+    t = re.sub(r"\s+", " ", text or "").strip()
+    m = re.match(r"(?:fig(?:ure)?s?\.?)\s*(?:no\.?\s*)?" + str(number) + r"(?!\d)\s*(?:[.:\-–—]+\s*)?", t, re.I)
+    if m:
+        t = t[m.end():]
+    if not t:
+        return ""
+    toks = [x for x in _select(_tokens(t, 0, number, style, 0, 0)) if x.edit]
+    t = _apply_edits(t, [(x.start, x.end, x.new) for x in toks]).strip()
+    end_mode = style.get("figures.figure_caption_end_period")
+    if end_mode is None:
+        keep = style.get("figures.caption_end_period", False) or style.get("figures.caption_end_period_keep")
+        end_mode = "keep" if keep else "delete"
+    i = _end_period(t)
+    if end_mode == "delete" and i is not None:
+        t = t[:i].rstrip()
+    return t

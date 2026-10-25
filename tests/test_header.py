@@ -12,6 +12,9 @@ from edit_os.changes import Change, ChangeSet, Layer, Source, Status
 WHEN = datetime(2026, 10, 22, 11, 0)
 
 
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
 def _style(code="ijo"):
     st = style.load(code)
     st.settings["references"]["lookup"] = False
@@ -133,17 +136,22 @@ def test_table_renumbering_in_captions_and_citations(tmp_path):
     assert body == "Age is given in [Table 1] and sex in Table 2. Outcomes are in [Table 3]; see also Tables 3 and 4."
     assert next(t for t in texts if t.startswith("Accuracy is")) == "Accuracy is summarised in Table 4."
     # The tables are put in the new order, each with its caption and notes.
-    caps = [t for t in texts if t.startswith("Table ") and ":" in t]
+    # (IJO: each caption in a merged first row of its table, figures.table_caption_row)
+    caps = [t.rows[0].cells[0].text for t in clean.tables[1:]]
     assert caps == ["Table 1: Ages.", "Table 2: Sex.", "Table 3: Outcomes.", "Table 4: Accuracy."]
-    assert [t.rows[1].cells[1].text for t in clean.tables[1:]] == ["1", "2", "4", "3"]
-    k = texts.index("Table 3: Outcomes.")
-    assert texts[k + 1] == "Abbreviations: CI, confidence interval"  # the note moves with its table
+    assert [t.rows[2].cells[1].text for t in clean.tables[1:]] == ["1", "2", "4", "3"]
+    third = clean.tables[3]._tbl
+    nxt = third.getnext()
+    while nxt is not None and not "".join(x.text or "" for x in nxt.iter(W + "t")).strip():
+        nxt = nxt.getnext()
+    assert "".join(x.text or "" for x in nxt.iter(W + "t")) == "Abbreviations: CI, confidence interval"  # moves along
 
     # Tracked copy: the moved table is deleted where it was and inserted, edited, where it belongs.
     trk = docmodel.load(out.path("tracked"))
-    texts = [p.text for p in trk.paragraphs if not p.in_table and p.text]
+    texts = [p.text for p in trk.paragraphs if p.text]
     caps = [t for t in texts if t.startswith("Table ") and ":" in t]
     assert caps == ["Table 1: Ages.", "Table 2: Sex.", "Table 3: Outcomes.", "Table 4: Accuracy."]  # deleted text hidden
+    assert all(p.in_table for p in trk.paragraphs if p.text in caps)  # in the tables' first rows (IJO)
     xml = zipfile.ZipFile(out.path("tracked")).read("word/document.xml").decode()
     assert "<w:delText>Outcomes</w:delText>" in xml or "Outcomes</w:delText>" in xml
     assert len(Document(out.path("tracked")).tables) == 6  # header table + four + the deleted original of the moved one

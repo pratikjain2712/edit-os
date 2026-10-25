@@ -28,9 +28,9 @@ import re
 from dataclasses import dataclass, field
 from itertools import count
 
-from . import frontmatter, provenance, queries, references, rules_figures
+from . import frontmatter, provenance, queries, references
 from .changes import Layer, Source
-from .docmodel import Manuscript, has_picture
+from .docmodel import Manuscript
 from .frontmatter import Author, NewParagraph
 from .style import JournalStyle
 
@@ -44,16 +44,6 @@ queries.TEXT.update({
 
 # A block the manuscript already has: "First author:", "First Author", "First author's details:", "First author: Name".
 _EXISTING = re.compile(r"^\s*(?:<H\d>)?\s*first[\s-]+author(?:['’]s)?(?:\s+details?)?\s*(?:[:\-–]|$)", re.I)
-# A heading over the figure legends.
-_LEGENDS_HEADING = re.compile(
-    r"^\s*(?:<H\d>)?\s*(?:(?:figures?|fig\.?)\s+)?legends?(?:\s+(?:to|for|of)\s+(?:the\s+)?(?:figures?|images?))?"
-    r"(?:\s+(?:of|to|for)\s+(?:the\s+)?figures?)?\s*:?\s*$|^\s*(?:<H\d>)?\s*figures?\s*:?\s*$", re.I)
-
-
-# "Figure 1", "Fig. 2:", "Figure 1 presents ...": a figure legend after the reference list, whatever its style.
-_LEGEND_START = re.compile(r"^\s*(?:<H\d>)?\s*fig(?:ure)?s?\.?\s*\d{1,2}(?!\d)", re.I)
-
-
 @dataclass
 class Plan:
     inserts: list[NewParagraph] = field(default_factory=list)
@@ -76,33 +66,13 @@ def existing(ms: Manuscript) -> str | None:
 
 
 def slot(ms: Manuscript) -> tuple[str, str] | None:
-    """(anchor paragraph id, "before" | "after"): before the figure legends that follow the reference list (their
-    heading when they have one), else after the last paragraph of the document (outside tables)."""
-    paras = ms.paragraphs
-    if not paras:
-        return None
-    ref = references.find_heading(ms)
-    start = ref + 1 if ref is not None else 0
-    index = {p.id: i for i, p in enumerate(paras)}
-    legends = {i for c in rules_figures.captions(ms) if c.kind == rules_figures.FIG
-               and (i := index[c.para_id]) >= start and not paras[i].in_table}
-    if ref is not None:  # after the references, a legend in a heading style or written as a sentence counts too
-        legends |= {i for i in range(start, len(paras)) if not paras[i].in_table and _LEGEND_START.match(paras[i].text)}
-    legends = sorted(legends)
-    heads = [i for i in range(start, len(paras)) if not paras[i].in_table and _LEGENDS_HEADING.match(paras[i].text)
-             and (not legends or i < legends[0])]
-    if ref is not None and (heads or legends):
-        return paras[heads[0] if heads else legends[0]].id, "before"
-    if ref is None and legends:
-        return paras[legends[0]].id, "before"
-    body = [i for i, p in enumerate(paras) if not p.in_table]
-    if not body:
-        return None
-    last = body[-1]
-    filled = [i for i in body if paras[i].text.strip() or has_picture(paras[i].element)]
-    if filled and not any(paras[j].in_table for j in range(filled[-1] + 1, last + 1)):
-        last = filled[-1]  # trailing empty paragraphs stay below the block (a table after it does not)
-    return paras[last].id, "after"
+    """(anchor paragraph id, "before" | "after"): where the back of the article starts after the reference list
+    (legends.back_slot): before the figure legends that follow it (their heading, or the picture over the first
+    legend), else before the first table (G195: tables at the end, after the figure captions), else after the last
+    paragraph of the document (outside tables)."""
+    from . import legends
+
+    return legends.back_slot(ms)
 
 
 def full_name(a: Author, f: frontmatter.Fields, src: frontmatter.Sources | None, cfg: dict) -> str:

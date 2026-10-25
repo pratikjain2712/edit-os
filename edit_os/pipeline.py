@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, first_author, frontmatter, header, qc, queries, rules, style as style_mod, submission, tracked
+from . import docmodel, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -117,6 +117,8 @@ def query_from_dict(d: dict) -> tuple[queries.Query, str, str]:
 def insert_from_dict(d: dict) -> frontmatter.NewParagraph:
     if "images" in d:  # a figure supplied as a separate file (figures_insert.py)
         return figures_insert.FigureInsert.from_dict(d)
+    if "move" in d:  # legends to the end, a table caption into its table (legends.py)
+        return legends.BlockMove.from_dict(d)
     return frontmatter.NewParagraph(
         id=d["id"], anchor=d["anchor"], where=d["where"], runs=[(t, f) for t, f in d["runs"]], role=d["role"],
         status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
@@ -257,10 +259,14 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
             inserts += fa.inserts
             for pid, key in fa.queries:
                 qs.add(pid, key)
+        moves, move_notes = legends.plan(ms, st, figs.inserts)  # after the First author block: it goes first
+        inserts += moves
+        notes += move_notes
         tally({"changes": len(changes.changes), "queries": len(qs.queries), "inserts": len(inserts)})
         stage_info["style"] = {
             "ran": ran, "changes": len(style_changes.changes), "inserts": len(inserts), "figures": len(figs.inserts),
             "first_author": sum(n.reason == first_author.REASON for n in inserts),
+            "moves": sum(map(legends.is_move, inserts)),
             "queries": len(style_q.queries), "by_rule": dict(Counter(c.reason for c in style_changes.changes)),
         }
 
@@ -350,12 +356,14 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         if comments:
             queries.write_comments(ms, qs)
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
-        frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)],
-                                   tracked=is_tracked, statuses=statuses)
+        frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)
+                                        and not legends.is_move(n)], tracked=is_tracked, statuses=statuses)
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
                               align=st.get("figures.insert.align", "center"))
         author = editor or header.AUTHOR
-        notes = header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
+        # legends to the end and table captions into their tables first: renumbered tables then move with their caption
+        notes = legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date)
+        notes += header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
         if kind == "clean":
             head_notes.extend(notes)
         header.render(ms, header.lines(st, head_info, changes, statuses, stages=man["stages"], editor=editor, when=when),
