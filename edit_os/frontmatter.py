@@ -143,6 +143,7 @@ class Meta:
     running_title: str = ""
     authors: list[dict] = field(default_factory=list)  # given, surname, prefix, email, corresponding, aff
     dates: dict = field(default_factory=dict)  # received / revised / accepted -> datetime
+    keywords: str = ""  # the key words as submitted ("Orbital cellulitis, pansinusitis,intracranial extension")
 
     def text(self) -> str:
         parts = [self.article_type, self.title, self.running_title]
@@ -251,6 +252,7 @@ def parse_xml(data: bytes) -> Meta:
         m.article_type = _txt(root, ".//subj-group[@subj-group-type='Article Type']/subject") or root.get("article-type", "")
         m.title = _txt(root, ".//title-group/article-title")
         m.running_title = _txt(root, ".//alt-title[@alt-title-type='running-head']")
+        m.keywords = ", ".join(_txt(k, ".") for k in root.iter("kwd") if _txt(k, "."))
         affs = {a.get("id"): {"institution": _txt(a, "institution") or _txt(a, "."), "country": _txt(a, "country")}
                 for a in root.iter("aff")}
         for c in root.iter("contrib"):
@@ -272,6 +274,7 @@ def parse_xml(data: bytes) -> Meta:
         return m
     m.article_type = _txt(root, "articletype")
     m.title = _txt(root, "title")
+    m.keywords = _txt(root, "keywords")
     for a in root.iter("author"):
         m.authors.append(dict(
             # The portal often repeats the first name as the middle name ("Khadija" / "Khadija"): once.
@@ -362,7 +365,8 @@ _BACK_MATTER = re.compile(r"^\s*(?:<H\d>)?\s*(references?|bibliography|declarati
 _LABEL = re.compile(r"^\s*(title\s*page|running\s*(?:title|head)|short\s*title|(?:list of\s+)?authors?(?:\s*names?)?|"
                     r"author(?:'s|s')?\s*(?:names?|details|information)|contributors?|affiliations?|"
                     r"department\(?s?\)?\s*(?:and|&)\s*institution\(?s?\)?|corresponding\s*author|"
-                    r"(?:article\s*)?title|manuscript\s*type|type\s*of\s*(?:manuscript|article))\b", re.I)
+                    r"(?:article\s*)?title|manuscript\s*type|type\s*of\s*(?:manuscript|article)|"
+                    r"(?:article|manuscript)\s+file|main\s+(?:document|manuscript)|blinded\s+manuscript)\b", re.I)
 
 
 # Title-page blocks end here too: the key points / plain language summary IJO asks for come after it.
@@ -431,6 +435,10 @@ class Fields:
     proper_nouns: list[str] = field(default_factory=list)
     roles: dict[str, str] = field(default_factory=dict)  # manuscript para id -> role
     notes: list[str] = field(default_factory=list)  # for the editor: what was dropped and why
+    # Equal contribution: the mark after the authors' names ("†"), its footnote as written, the authors (indexes)
+    equal_mark: str = ""
+    equal_note: str = ""
+    equal_authors: list[int] = field(default_factory=list)
 
 
 def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
@@ -514,6 +522,11 @@ def fields_from_meta(m: Meta) -> Fields:
         if not a.get("surname"):
             continue
         aff = {k: v for k, v in (a.get("aff") or {}).items() if v}
+        code = aff.get("state", "")
+        if re.fullmatch(r"[A-Z]{2}", code) and code in _STATE_CODES_IN and aff.get("country", "India").casefold() in (
+                "india", "in") and _CITY_STATE_IN.get(_city_key(aff.get("city", "")), _STATE_CODES_IN[code]) \
+                == _STATE_CODES_IN[code]:
+            aff["state"], aff["country"] = _STATE_CODES_IN[code], "India"  # the portal's <state>MH</state>
         ids = []
         if aff:
             k = tuple(sorted(aff.items()))
@@ -783,6 +796,28 @@ _COUNTRY_CODES = {"IN": "India", "CN": "China", "US": "USA", "GB": "UK", "SA": "
                   "FR": "France", "IT": "Italy", "NL": "Netherlands", "ES": "Spain", "BR": "Brazil", "TW": "Taiwan"}
 
 
+# Indian states written short: "U.P." / "U.p" in the text (dotted: never a US state), and the submission portal's
+# two-letter codes (<state>KA</state>), read only from its XML.
+_STATE_DOTTED_IN = {"up": "Uttar Pradesh", "mp": "Madhya Pradesh", "ap": "Andhra Pradesh", "hp": "Himachal Pradesh",
+                    "tn": "Tamil Nadu", "wb": "West Bengal", "j&k": "Jammu and Kashmir", "uk": "Uttarakhand"}
+_STATE_CODES_IN = {"AP": "Andhra Pradesh", "AR": "Arunachal Pradesh", "AS": "Assam", "BR": "Bihar", "CG": "Chhattisgarh",
+                   "CT": "Chhattisgarh", "GA": "Goa", "GJ": "Gujarat", "HR": "Haryana", "HP": "Himachal Pradesh",
+                   "JH": "Jharkhand", "KA": "Karnataka", "KL": "Kerala", "MP": "Madhya Pradesh", "MH": "Maharashtra",
+                   "MN": "Manipur", "ML": "Meghalaya", "MZ": "Mizoram", "NL": "Nagaland", "OR": "Odisha", "OD": "Odisha",
+                   "PB": "Punjab", "RJ": "Rajasthan", "SK": "Sikkim", "TN": "Tamil Nadu", "TG": "Telangana",
+                   "TS": "Telangana", "TR": "Tripura", "UP": "Uttar Pradesh", "UK": "Uttarakhand", "UT": "Uttarakhand",
+                   "WB": "West Bengal", "DL": "Delhi", "PY": "Puducherry", "CH": "Chandigarh", "JK": "Jammu and Kashmir",
+                   "LA": "Ladakh"}
+
+
+def _state_name(state: str) -> str:
+    """"U.P" / "U.p." -> "Uttar Pradesh" (a dotted Indian abbreviation); anything else as written."""
+    st = (state or "").strip()
+    if "." in st or "&" in st:
+        return _STATE_DOTTED_IN.get(re.sub(r"[.\s]", "", st).casefold(), st)
+    return st
+
+
 def _city_key(city: str) -> str:
     """The town the state table knows: "Pimpri, Pune" -> "pune"."""
     return re.split(r"\s*,\s*", (city or "").strip(" ,"))[-1].casefold()
@@ -792,7 +827,7 @@ def _country(parts: dict) -> str:
     c = (parts.get("country") or "").strip()
     if c:
         return _COUNTRY_CODES.get(c, c)
-    if parts.get("state", "").casefold() in _STATES_IN or _city_key(parts.get("city", "")) in _STATES_IN \
+    if _state_name(parts.get("state", "")).casefold() in _STATES_IN or _city_key(parts.get("city", "")) in _STATES_IN \
             or (not parts.get("state") and _city_key(parts.get("city", "")) in _CITY_STATE_IN):
         return "India"
     return ""
@@ -801,15 +836,19 @@ def _country(parts: dict) -> str:
 def _state(parts: dict) -> str:
     """The state as written, or the one an Indian city is in."""
     if parts.get("state"):
-        return parts["state"]
+        return _state_name(parts["state"])
     if _country(parts).casefold() == "india":
         return _CITY_STATE_IN.get(_city_key(parts.get("city", "")), "")
     return ""
 
 
+# A home address in the correspondence ("F 1106, Asawari", "F6 Staff Quarters", "A601, Watergreen Society"): no
+# institution is put in front of it.
+_RESIDENCE = re.compile(r"(?i)\b(?:flat|apartments?|apts?|society|residency|residence|quarters|house|tower|floor|villa|"
+                        r"bungalow|plot|enclave|heights|[A-Z]\s?-?\d{2,4})\b")
 _UNIT_WORDS = re.compile(r"(?i)\b(department|departments|division|unit|units|service|services|centre|center|institute|"
                          r"school|college|laborator(?:y|ies)|lab|clinic|section|faculty|program(?:me)?|hospital|"
-                         r"university|foundation|cell|wing|ward)\b")
+                         r"university|foundation|cell|wing|ward|station)\b")
 
 
 _DEPT_LEAD = re.compile(r"(?:deptt|dept|department)\b\.?(?:\s+of\b|\s*(?=[A-Z]))\s*", re.I)
@@ -827,7 +866,7 @@ def department_form(d: str) -> str:
     m = re.fullmatch(r"(?i)(.+?)\s+department", d)
     if m and not _UNIT_WORDS.search(m.group(1)):
         return "Department of " + m.group(1)
-    if d and not _UNIT_WORDS.search(d) and len(d.split()) <= 5 and re.search(r"(?i)(?:logy|ics|ery|ine|ry|thesia|"
+    if d and not _UNIT_WORDS.search(d) and not re.search(r"(?i)\bof\b", d) and len(d.split()) <= 5 and re.search(r"(?i)(?:logy|ics|ery|ine|ry|thesia|"
                                                                              r"thesiology|tics|ology)\b", d):
         return "Department of " + d
     return d
@@ -1044,6 +1083,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             runs.append((name, B))
             marks = [number.get(same[i], "") for i in a.affs if i in same]
             marks = ",".join(sorted(dict.fromkeys(m for m in marks if m), key=int))
+            if k in f.equal_authors:
+                marks += f.equal_mark
             if marks:
                 runs.append((marks, {"bold": True, "superscript": True}))
         blocks.append(Block("authors", runs))
@@ -1103,6 +1144,9 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 qs.append(("front.country", {}))
             runs.append((text, plain))
         blocks.append(Block("affiliations", runs))
+    if f.equal_note:
+        blocks.append(Block("equal_contribution", [(f.equal_mark, {"bold": True, "superscript": True}),
+                                                   (f.equal_note, B)]))
 
     # Correspondence.
     c = f.correspondence
@@ -1133,13 +1177,29 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         if not pin and xm and re.fullmatch(r"\d{6}", re.sub(r"\s+", "", xm.get("zip", ""))):
             pin = re.sub(r"\s+", "", xm["zip"])
         country = _country({"country": c.get("country", ""), "state": c.get("state", ""), "city": c.get("city", "")})
-        if not parts and corr_author:  # the author's own affiliation
-            a = affs.get(corr_author.affs[0]) if corr_author.affs else None
-            if a:
-                parts = [_clean_part(a[k]) for k in ("department", "institution") if a.get(k)]
-                city = city or _clean_part(a.get("city", ""))
-                c = dict(c, state=c.get("state") or a.get("state", ""))
-                country = country or _country(a)
+        if corr_author is None and surname:
+            corr_author = next((a for a in f.authors if _norm(a.surname) == _norm(surname)), None)
+        a = affs.get(corr_author.affs[0]) if corr_author is not None and corr_author.affs else None
+        if not parts and a:  # S: "In case correspondence content is not present separately but the same is present
+            # in affiliation then it should be used"
+            parts = [_clean_part(department_form(a[k]) if k == "department" else a[k])
+                     for k in ("department", "institution") if a.get(k)]
+            city = city or _clean_part(a.get("city", ""))
+            c = dict(c, state=c.get("state") or a.get("state", ""))
+            country = country or _country(a)
+        elif parts and a:
+            same_city = bool(city) and _city_key(city) == _city_key(a.get("city", ""))
+            if cfg.get("correspondence_add_institution") and a.get("institution") and same_city \
+                    and not any(_UNIT_WORDS.search(p) or _RESIDENCE.search(p) for p in parts):
+                parts = [_clean_part(a["institution"])] + parts  # a street address only: the institution first
+            elif a.get("department") and _norm(parts[0]) == _norm(a.get("institution", "")):
+                parts = [_clean_part(department_form(a["department"]))] + parts  # the institution alone: its department
+            if not country and not c.get("state") and (same_city or not city):
+                # no state or country ("Tevfik Saglam St. Number:1", "Sankara Eye Hospital, Shimoga"): the
+                # affiliation's (S: "Country name must be added at the end if it is not present")
+                city = city or _place_case(_clean_part(a.get("city", "")))
+                c = dict(c, state=_state(a), city=c.get("city") or a.get("city", ""))
+                country = _country(a)
         if city:
             if pin and country.casefold() == "india" and re.fullmatch(r"\d{6}", pin):
                 city += " - " + (f"{pin[:3]} {pin[3:]}" if cfg.get("pin_spaced", True) else pin)
@@ -1495,9 +1555,20 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             f.notes.append("authors taken from the submission XML: the text names only "
                            f"{len(f.authors)} of its {len(m.authors)} authors")
             f.authors, f.affiliations = m.authors, m.affiliations
+        elif _names_from_contributions(f, src, lead):
+            # No author list in the text (a cover letter as the title page): names read off the contribution
+            # statements ("Definition of intellectual content: Dr. Radhika Paranjpe") are not the authors; the XML's are.
+            m = fields_from_meta(src.meta)
+            f.notes.append("authors taken from the submission XML: the text names authors only in contribution "
+                           "statements, and not the submission's")
+            f.authors, f.affiliations = m.authors, m.affiliations
     else:
         f = fields_from_meta(src.meta)
     _fix_roles(f, lead)
+    _link_affiliations(f, src, lead)
+    _equal_contribution(f, src, lead)
+    _xml_places(f, src.meta)
+    _xml_corresponding(f, src.meta)
     for a in f.authors:
         before = f"{a.given} {a.surname}"
         if initials_first(a):
@@ -1724,6 +1795,117 @@ def _fix_roles(f: Fields, lead: list[Paragraph]) -> None:
             rest = p.text[m.end():].strip(" :.-–\n\t") if m else ""
             if rest:
                 f.roles[p.id] = next((r for rx, r in _LABEL_ROLE if rx.match(p.text)), role)
+
+
+def _contribution_mention(text: str) -> bool:
+    """A contribution statement: "Name: role, role" or "Role, role: Name, Name"."""
+    if is_contribution_line(text):
+        return True
+    m = re.match(r"^\W*([^:\n]{2,80}?)\s*:\s*\S", text)
+    return bool(m and _ROLE_WORDS.search(m.group(1)))
+
+
+def _names_from_contributions(f: Fields, src: Sources, lead: list[Paragraph]) -> bool:
+    """Some of the text's authors are not in the submission XML, and the text names each of them only in authors'
+    contribution statements."""
+    xml = {_norm(a.get("surname", "")) for a in src.meta.authors if a.get("surname")}
+    if not xml or len(src.meta.authors) < len(f.authors):
+        return False
+    odd = [a for a in f.authors if _norm(a.surname) not in xml]
+    if not odd:
+        return False
+    lines = [t for text in list(src.first_page) + [p.text for p in lead] for t in text.split("\n") if t.strip()]
+    for a in odd:
+        hits = [t for t in lines if re.search(r"(?i)\b" + re.escape(a.surname) + r"\b", t)]
+        if not hits or not all(_contribution_mention(t) for t in hits):
+            return False
+    return True
+
+
+_EQUAL_NOTE = re.compile(r"^\s*([†‡§#¶])\s*(\S.*\b(?:contributed\s+equally|equal(?:ly)?\s+contribut\w*|joint\s+first|"
+                         r"shared?\s+(?:the\s+)?first|co-?first)\b.*)$", re.I)
+
+
+def _equal_contribution(f: Fields, src: Sources, lead: list[Paragraph]) -> None:
+    """"Yijie Lu1,2†, Yao Tan1,3†" with "†These authors contributed equally to this work ...": the mark stays after the
+    names (after the affiliation numbers) and the footnote under the affiliations, as written."""
+    lines = [t for text in list(src.first_page) + [p.text for p in lead] for t in text.split("\n") if t.strip()]
+    note = next((m for m in map(_EQUAL_NOTE.match, lines) if m), None)
+    if note is None:
+        return
+    mark = note.group(1)
+    marked = [k for k, a in enumerate(f.authors) if any(
+        re.search(re.escape(a.surname) + r"[\s\d,*]*" + re.escape(mark), t) for t in lines if not _EQUAL_NOTE.match(t))]
+    if marked:
+        f.equal_mark, f.equal_note, f.equal_authors = mark, note.group(2).strip(), marked
+
+
+def _link_affiliations(f: Fields, src: Sources, lead: list[Paragraph]) -> None:
+    """Affiliations listed without numbers ("Institutional Affiliations:" then one per line) under authors marked
+    "Dr. Varnika Sahi,1 MBBS": the marks number the list in order. Only when no author is linked yet, every mark
+    names a listed affiliation, and each author's name is followed by marks somewhere in the text."""
+    if len(f.affiliations) < 2 or any(a.affs for a in f.authors):
+        return
+    ids = sorted(f.affiliations)
+    lines = list(src.first_page) + [p.text for p in lead]
+    found: dict[int, list[int]] = {}
+    for k, a in enumerate(f.authors):
+        rx = re.compile(re.escape(a.surname) + r"\s*[,*]?\s*(\d{1,2}(?:\s*,\s*\d{1,2})*)(?!\d)")
+        for t in lines:
+            m = rx.search(t)
+            if m:
+                nums = [int(n) for n in re.findall(r"\d+", m.group(1))]
+                if all(1 <= n <= len(ids) for n in nums):
+                    found[k] = [ids[n - 1] for n in nums]
+                break
+    if len(found) != len(f.authors):
+        return
+    for k, a in enumerate(f.authors):
+        a.affs = found[k]
+    f.notes.append("authors linked to the unnumbered affiliation list by the marks after their names")
+
+
+def _xml_places(f: Fields, meta: Meta) -> None:
+    """An affiliation with no state or country ("Sankara Eye Hospital, Shimoga") completed from the submission XML when
+    its author's entry there gives the same city and an Indian state code (<state>KA</state> -> Karnataka, India):
+    S "Country name must be added at the end if it is not present"."""
+    for a in f.authors:
+        xa = next((x for x in meta.authors if _norm(x.get("surname", "")) == _norm(a.surname)), None)
+        xaff = (xa or {}).get("aff") or {}
+        code, city = (xaff.get("state") or "").strip(), (xaff.get("city") or "").strip()
+        state = _STATE_CODES_IN.get(code.upper(), "") if re.fullmatch(r"[A-Za-z]{2}", code) else \
+            (code if code.casefold() in _STATES_IN else "")
+        if not state or (xaff.get("country") or "India").strip().casefold() not in ("india", "in"):
+            continue
+        for i in a.affs:
+            aff = f.affiliations.get(i)
+            if not aff or aff.get("state") or aff.get("country") or not aff.get("city"):
+                continue
+            if _city_key(aff["city"]) != _city_key(city):
+                continue
+            known = _CITY_STATE_IN.get(_city_key(city))
+            if known and known != state:
+                continue
+            # the same place wherever it is listed (so repeated affiliations stay one)
+            for other in f.affiliations.values():
+                if not other.get("state") and not other.get("country") and _city_key(other.get("city", "")) == \
+                        _city_key(aff["city"]) and _norm(other.get("institution", "")) == _norm(aff.get("institution", "")):
+                    other["state"], other["country"] = state, "India"
+            f.notes.append(f"affiliation {aff.get('institution') or aff.get('department')!r}: {state}, India from the "
+                           f"submission XML (<state>{code}</state>)")
+
+
+def _xml_corresponding(f: Fields, meta: Meta) -> None:
+    """No corresponding author in the text: the one the submission XML marks (is_corresponding)."""
+    if any(a.corresponding for a in f.authors) or (f.correspondence or {}).get("surname"):
+        return
+    xc = next((x for x in meta.authors if x.get("corresponding")), None)
+    if xc is None:
+        return
+    a = next((a for a in f.authors if _norm(a.surname) == _norm(xc.get("surname", ""))), None)
+    if a is not None:
+        a.corresponding = True
+        f.notes.append(f"corresponding author {a.given} {a.surname} from the submission XML")
 
 
 def rule_front_matter(ms: Manuscript, style: JournalStyle) -> list[Change]:

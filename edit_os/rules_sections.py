@@ -34,6 +34,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from docx.oxml.ns import qn
+
 from . import provenance, references, submission
 from .changes import Change, Layer
 from .docmodel import Manuscript, Paragraph
@@ -133,6 +135,7 @@ class Layout:
     abstract_head: Paragraph | None = None   # the "Abstract" heading paragraph (or inline "Abstract: ...")
     abstract: list[Paragraph] = field(default_factory=list)  # abstract text paragraphs
     keywords: Paragraph | None = None
+    keywords_first: bool = False  # the key words stand above the abstract (S: "Keywords ... after the Abstract")
 
 
 def layout(ms: Manuscript) -> Layout:
@@ -175,6 +178,24 @@ def layout(ms: Manuscript) -> Layout:
                 break
             lay.abstract.append(p)
         lay.abstract = lay.abstract[:15]
+    elif kw_i is not None and (after := next((i for i in range(kw_i + 1, min(kw_i + 4, len(front)))
+                                              if is_head(front[i].text)), None)) is not None:
+        # The key words above the abstract ("KEY WORDS: ..." then "ABSTRACT: We report ..."): the abstract is the
+        # heading's own text (or the paragraph under it) and the structured parts that follow.
+        lay.abstract_head = front[after]
+        lay.keywords_first = True
+        rest = [p for p in front[after + 1:] if p.text.strip()]
+        if _words(front[after].text) > 25:
+            lay.abstract.append(front[after])
+        elif rest:
+            lay.abstract.append(rest.pop(0))
+        if lay.abstract and (lay.abstract[-1] is front[after] or _SUB_INLINE.match(lay.abstract[-1].text)
+                             or _SUB_ALONE.match(lay.abstract[-1].text)):
+            for p in rest[:12]:
+                if not (_SUB_INLINE.match(p.text) or _SUB_ALONE.match(p.text)) \
+                        or _key(p.text) in ("introduction", "background"):
+                    break
+                lay.abstract.append(p)
     elif kw_i is not None:
         # No heading: walk back from the key words over sub-headings and long paragraphs.
         found = []
@@ -406,7 +427,11 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         # Italic heads under bold ones, and "2.1.1"-numbered heads, are third level.
         level = "H3" if (italic and not bold and has_bold) or (num and num.group(1).count(".") >= 2) else "H2"
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
-        out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
+        if num and _on(style, "headings.strip_sub_numbering"):
+            # "3.2 Association ..." -> "<H2>Association ...": the number goes with the tag
+            out.append(_change(p, 0, lead + num.end(), f"<{level}>", Layer.STRUCTURE, "subheadings"))
+        else:
+            out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
         if style.get("headings.subheading_case", "keep") == "sentence":
             out += sentence_case_changes(ms, p, "subheadings",
                                          hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
@@ -501,9 +526,21 @@ def rule_abstract(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if head in lay.abstract:  # inline "Abstract: text" -> heading paragraph + text
             if _on(style, "abstract.split_inline_heading"):
                 out.append(_change(head, m.start(2), m.end(3), heading + BR, Layer.STRUCTURE, "sections_abstract"))
-        elif _on(style, "abstract.strip_heading_colon") and m.group(3).strip():
-            out.append(_change(head, m.end(2), m.end(2) + len(m.group(3).rstrip()), "", Layer.STRUCTURE,
-                               "sections_abstract"))
+                if _on(style, "abstract.heading_bold"):  # S: 'The word "Abstract" ... in bold style'
+                    out[-1].segment_format = [{"bold": True, "caps": False}, None]
+        else:
+            if _on(style, "abstract.heading_case") and m.group(2) != heading:
+                # "ABSTRACT" -> "Abstract" (S: 'The word "Abstract" should be added as heading')
+                out.append(_change(head, m.start(2), m.end(2), heading, Layer.STRUCTURE, "sections_abstract",
+                                   {"caps": False, "italic": False}))
+            if _on(style, "abstract.strip_heading_colon") and m.group(3).strip():
+                out.append(_change(head, m.end(2), m.end(2) + len(m.group(3).rstrip()), "", Layer.STRUCTURE,
+                                   "sections_abstract"))
+            if _on(style, "abstract.heading_case") and (_has_caps(head) or _any_fmt_span(head, m.start(2), m.end(2),
+                                                                                           "italic")):
+                # the all-caps attribute shows "ABSTRACT" just the same; S: bold, not italic
+                out.append(_change(head, m.start(2), m.end(2), head.text[m.start(2):m.end(2)], Layer.STRUCTURE,
+                                   "sections_abstract", {"caps": False, "italic": False}))
     elif _on(style, "abstract.add_heading") and _structured(lay):  # an unstructured one is too unsure
         first = lay.abstract[0]
         i = ms.paragraphs.index(first)
@@ -542,6 +579,47 @@ def rule_abstract(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 out.append(_change(p, m.end(2), m.end(3), want, Layer.STRUCTURE, "sections_abstract"))
         if _on(style, "abstract.subheading_bold") and new == label:
             out.append(_change(p, m.start(2), m.end(2), label, Layer.STRUCTURE, "sections_abstract", {"bold": True}))
+    if _on(style, "abstract.unbold_text"):
+        out += _unbold_abstract(lay, style)
+    return out
+
+
+def _has_caps(p: Paragraph) -> bool:
+    """A run of the paragraph has the all-caps attribute (<w:caps/>)."""
+    for el in p.element.iter(qn("w:caps")):
+        if (el.get(qn("w:val")) or "true").lower() not in ("0", "false", "off", "none"):
+            return True
+    return False
+
+
+def _unbold_abstract(lay: Layout, style: JournalStyle) -> list[Change]:
+    """S: "Abstract text should not be in bold": bold words in the abstract's text go roman (a structured abstract's
+    sub-heading labels and the heading stay bold)."""
+    from .rules_format import char_formats
+
+    out = []
+    for p in lay.abstract:
+        fm = char_formats(p)
+        if len(fm) != len(p.text):
+            continue
+        start = 0
+        m = _SUB_INLINE.match(p.text) or _SUB_ALONE.match(p.text)
+        if m:
+            start = m.end()
+        if p is lay.abstract_head:
+            start = max(start, _ABSTRACT.match(p.text).end())
+        i = start
+        while i < len(p.text):
+            if fm[i].get("bold") and not p.text[i].isspace():
+                j = i
+                while j < len(p.text) and (fm[j].get("bold") or p.text[j].isspace()):
+                    j += 1
+                e = len(p.text[:j].rstrip())
+                if any(ch.isalnum() for ch in p.text[i:e]):
+                    out.append(_change(p, i, e, p.text[i:e], Layer.STRUCTURE, "sections_abstract", {"bold": False}))
+                i = j
+            else:
+                i += 1
     return out
 
 
@@ -564,6 +642,12 @@ def _counts(word: str, body: str) -> tuple[int, int]:
     for m in re.finditer(r"(\S*)( )" + re.escape(cap) + r"\b(?![\s\-‑]+[A-Z])", body):
         prev = m.group(1)
         if prev and not prev[0].isupper() and prev[-1] not in ".!?:":
+            caps += 1
+    # An eponym written with a hyphen inside a sentence ("... of Miller-Fisher syndrome", "Turner-Kieser syndrome"):
+    # a proper noun for each of its names, however the key word joins them ("Miller Fisher syndrome").
+    for m in re.finditer(r"(\S*) ((?:[A-Z][a-zà-ÿ]+[-‐‑])+[A-Z][a-zà-ÿ]+)\b(?![\s\-‑]+[A-Z])", body):
+        prev = m.group(1)
+        if cap in re.split(r"[-‐‑]", m.group(2)) and prev and not prev[0].isupper() and prev[-1] not in ".!?:":
             caps += 1
     return lower, caps
 
@@ -620,37 +704,15 @@ def listed_keywords(ms: Manuscript) -> list[str]:
     return words
 
 
-def rule_keywords(ms: Manuscript, style: JournalStyle) -> list[Change]:
-    if not _cfg(style, "enabled", True):
-        return []
-    lay = layout(ms)
-    out = []
-    label = _cfg(style, "keywords.heading", "Keywords:")
-    p = lay.keywords
-    if p is None:
-        if lay.abstract and _on(style, "keywords.add_missing"):
-            last = lay.abstract[-1]
-            out.append(_change(last, len(last.text), len(last.text), BR + label + " ", Layer.STRUCTURE,
-                               "sections_keywords", {"italic": False, "bold": False}))
-        return out
-    text = p.text
-    m = _KW.match(text)
-    end_label = m.end()
-    have = text[m.start(2):end_label]
-    rest = text[end_label:]
-    if _on(style, "keywords.fix_heading"):
-        want = label + (" " if rest.strip() else "")
-        if have != want:
-            out.append(_change(p, m.start(2), end_label, want, Layer.STRUCTURE, "sections_keywords"))
-    list_p, base = p, end_label
-    if not rest.strip():
-        # "Key words" on its own line, the list in the next paragraph
-        nxt = _list_paragraph(ms, p)
-        if nxt is None:
-            return out
-        list_p, base, rest = nxt, 0, nxt.text
-    kws = _split_keywords(rest)
-    original = list(kws)
+def xml_keywords(ms: Manuscript) -> list[str]:
+    """The key words given in the submission XML (<keywords>), when there is one."""
+    meta = getattr(getattr(ms, "front_sources", None), "meta", None)
+    return _split_keywords(getattr(meta, "keywords", "") or "")
+
+
+def _styled_keywords(kws: list[str], ms: Manuscript, style: JournalStyle, skip: set[str]) -> list[str]:
+    """The key words as the journal writes them: no final period, no repeats, case, order."""
+    kws = list(kws)
     if _on(style, "keywords.drop_final_period") and kws and kws[-1].endswith(".") \
             and not re.search(r"\b[A-Za-z]\.$", kws[-1]):
         kws[-1] = kws[-1][:-1].rstrip()
@@ -662,7 +724,7 @@ def rule_keywords(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 uniq.append(k)
         kws = uniq
     if _on(style, "keywords.case"):
-        body = _body_text(ms, {p.id, list_p.id})
+        body = _body_text(ms, skip)
         kws = [_keyword_case(k, body) for k in kws]
     if style.get("keywords.alphabetical") and _on(style, "keywords.sort"):
         kws = sorted(kws, key=lambda k: k.lower())
@@ -670,8 +732,91 @@ def rule_keywords(ms: Manuscript, style: JournalStyle) -> list[Change]:
         first = kws[0].split(" ")[0]
         if first.lower() == first:  # not "mRNA", "pH"
             kws[0] = kws[0][0].upper() + kws[0][1:]
+    return kws
+
+
+def _keywords_line(last: Paragraph, label: str, words: str, style: JournalStyle) -> Change:
+    """A new "Keywords: ..." paragraph after `last`: the label bold (S: 'Heading should be "Keywords:" followed by a
+    colon, bold'), the list roman."""
+    c = _change(last, len(last.text), len(last.text), BR + label + " " + words, Layer.STRUCTURE, "sections_keywords",
+                {"italic": False, "bold": False})
+    if _on(style, "keywords.label_bold"):
+        c.segment_format = [None, [[len(label), {"bold": True}]]]
+    return c
+
+
+def rule_keywords(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    if not _cfg(style, "enabled", True):
+        return []
+    lay = layout(ms)
+    out = []
+    label = _cfg(style, "keywords.heading", "Keywords:")
     delim = _cfg(style, "keywords.delimiter", ", ")
+    from_xml = xml_keywords(ms) if _on(style, "keywords.from_xml") else []
+    xml_prov = provenance.make("xml", "Submission XML", "<keywords>: " + ", ".join(from_xml)) if from_xml else None
+    p = lay.keywords
+    if p is None:
+        if lay.abstract and _on(style, "keywords.add_missing"):
+            # None in the manuscript: the submission's own (editors: "Followed XML file for Keywords"), else the
+            # label alone and a query.
+            words = delim.join(_styled_keywords(from_xml, ms, style, set())) if from_xml else ""
+            out.append(_keywords_line(lay.abstract[-1], label, words, style))
+            out[-1].provenance = xml_prov
+        return out
+    text = p.text
+    m = _KW.match(text)
+    end_label = m.end()
+    have = text[m.start(2):end_label]
+    rest = text[end_label:]
+    label_bold = _on(style, "keywords.label_bold")
+    # S: "Should appear in a separate line after the Abstract": key words above the abstract move under it.
+    move = lay.keywords_first and bool(lay.abstract) and _on(style, "keywords.after_abstract")
+    list_p, base = p, end_label
+    separate = False
+    if not rest.strip():
+        # "Key words" on its own line, the list in the next paragraph
+        nxt = _list_paragraph(ms, p)
+        if nxt is not None:
+            list_p, base, rest, separate = nxt, 0, nxt.text, True
+        elif from_xml:
+            rest, list_p, base = "", None, end_label
+        else:
+            if _on(style, "keywords.fix_heading") and have != label and not move:
+                out.append(_change(p, m.start(2), end_label, label, Layer.STRUCTURE, "sections_keywords",
+                                   {"bold": True} if label_bold else None))
+            return out
+    kws = _split_keywords(rest) if list_p is not None else list(from_xml)
+    kws = _styled_keywords(kws, ms, style, {p.id} | ({list_p.id} if list_p is not None else set()))
     new_rest = delim.join(kws)
+    if move:
+        out.append(_change(p, 0, len(p.text), "", Layer.STRUCTURE, "sections_keywords"))
+        if separate:
+            out.append(_change(list_p, 0, len(list_p.text), "", Layer.STRUCTURE, "sections_keywords"))
+        out.append(_keywords_line(lay.abstract[-1], label, new_rest, style))
+        out[-1].provenance = provenance.make("manuscript", "Manuscript", "the key words, moved under the abstract "
+                                             "(stylesheet: after the Abstract)", para_id=p.id) if list_p is not None \
+            else xml_prov
+        return out
+    runon = list_p is None or (separate and _on(style, "keywords.run_on"))
+    if _on(style, "keywords.fix_heading"):
+        want = label + (" " if rest.strip() and not separate else "")
+        if have != want:
+            out.append(_change(p, m.start(2), end_label, want, Layer.STRUCTURE, "sections_keywords",
+                               {"bold": True} if label_bold else None))
+        elif label_bold:
+            ls, le = m.start(2), m.start(2) + len(have.rstrip())
+            if not _all_fmt_span(p, ls, le, "bold") or _any_fmt_span(p, ls, le, "italic"):
+                out.append(_change(p, ls, le, text[ls:le], Layer.STRUCTURE, "sections_keywords",
+                                   {"bold": True, "italic": False}))
+    if runon:
+        # S182 "Keywords: Acceptability, Hall’s technique, ...": the list runs on after the label
+        out.append(_change(p, len(text), len(text), " " + new_rest, Layer.STRUCTURE, "sections_keywords",
+                           {"bold": False, "italic": False}))
+        if list_p is None:
+            out[-1].provenance = xml_prov
+        else:
+            out.append(_change(list_p, 0, len(list_p.text), "", Layer.STRUCTURE, "sections_keywords"))
+        return out
     lead = len(rest) - len(rest.lstrip())
     trail = len(rest) - len(rest.rstrip())
     old_rest = rest[lead:len(rest) - trail]
@@ -679,6 +824,22 @@ def rule_keywords(ms: Manuscript, style: JournalStyle) -> list[Change]:
         out.append(_change(list_p, base + lead, base + lead + len(old_rest), new_rest, Layer.STRUCTURE,
                            "sections_keywords"))
     return out
+
+
+def _any_fmt_span(p: Paragraph, s: int, e: int, prop: str) -> bool:
+    from .rules_format import char_formats
+
+    fm = char_formats(p)
+    return len(fm) == len(p.text) and any(fm[i].get(prop) for i in range(s, e) if not p.text[i].isspace())
+
+
+def _all_fmt_span(p: Paragraph, s: int, e: int, prop: str) -> bool:
+    from .rules_format import char_formats
+
+    fm = char_formats(p)
+    if len(fm) != len(p.text):
+        return True
+    return all(fm[i].get(prop) for i in range(s, e) if not p.text[i].isspace())
 
 
 # --- back matter -----------------------------------------------------------------------
@@ -751,6 +912,7 @@ _CONSENT_HEAD = re.compile(
     r"^\s*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s*)?(?P<label>(?:authors?[’'`]?s?[’'`]?\s+)?declaration(?:\s+statement)?\s+of\s+"
     r"(?:the\s+)?(?:patients?[’'`]?s?[’'`]?\s+)?consent|patients?[’'`]?s?[’'`]?\s+consent(?:\s+(?:statement|form|for\s+publication))?"
     r"|participants?[’'`]?s?[’'`]?\s+consent|informed\s+consent(?:\s+statement)?)(?P<sep>\s*[:.\-–—]\s*|\s*$)", re.I)
+_BARE_CONSENT = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?(?:consent|declarations?)\s*[:.]?\s*$", re.I)
 _CONSENT_GIVEN = re.compile(r"\bconsent\b.{0,200}\b(?:obtained|given|taken|signed|provided|received)\b|"
                             r"\b(?:obtained|given|taken|signed|provided|certify)\b.{0,120}\bconsent\b", re.I)
 _CONSENT_PUBLICATION = re.compile(r"\b(?:publication|publish\w*|images?|photo\w*|clinical\s+(?:information|details)"
@@ -785,6 +947,10 @@ _IMAGE_TYPE = re.compile(r"\bimages?\b|neuroimage|photo\s*(?:essay|quiz)", re.I)
 _LETTER_TYPE = re.compile(r"\bletters?\b|correspondence", re.I)
 
 
+_LEGENDS_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*(?:figure\s+legends?|legends?(?:\s+(?:to|for|of)\s+(?:the\s+)?figures?)?"
+                           r"|figure\s+captions?|captions?)\s*:?\s*$", re.I)
+
+
 def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
     """Paragraphs that may hold back-matter statements (from the discussion on, including any
     after the reference list), and the paragraph the missing sections are added after: the last
@@ -800,14 +966,21 @@ def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
         start = len(paras) * 2 // 3
     # A label statement read as the last entries of a reference list ("Conflicts of interests: None" after
     # the references) is back matter, not a reference.
-    ref_ids = {r.para_id for r in references.extract(ms)
+    refs = references.extract(ms)
+    ref_ids = {r.para_id for r in refs
                if not (_LABEL.match(r.text) and _words(r.text) <= 12 and _LABEL.match(r.text).group("sep").strip())}
+    # So is a consent section read as the list's last entries ("Declaration of Patient Consent" and its statement).
+    for k, r in enumerate(refs):
+        if (_CONSENT_HEAD.match(r.text) or _BARE_CONSENT.match(r.text)) and _words(r.text) <= 12:
+            ref_ids.discard(r.para_id)
+            if k + 1 < len(refs) and _CONSENT_GIVEN.search(refs[k + 1].text):
+                ref_ids.discard(refs[k + 1].para_id)
     region = [p for p in ms.paragraphs[start:] if not p.in_table and p.id not in ref_ids
               and (ref_i is None or p is not ms.paragraphs[ref_i])]
     anchor = None
     if ref_i is not None:
         for p in paras[start:] if start < len(paras) else []:
-            if p.in_table or _CAPTION.match(p.text):
+            if p.in_table or _CAPTION.match(p.text) or _LEGENDS_HEAD.match(p.text):
                 break
             if p.text.strip():
                 anchor = p
@@ -985,6 +1158,26 @@ def data_availability_from_sources(ms: Manuscript) -> str:
     return ""
 
 
+def acknowledgement_from_sources(ms: Manuscript) -> tuple[str, str] | None:
+    """(label, text) of the acknowledgement on the title page (first-page file): the label's own text or the paragraph
+    after a bare "Acknowledgements:" label. Nothing for a nil one ("None") or a form's prompt."""
+    src = getattr(ms, "front_sources", None)
+    paras = [t for t in submission.texts_without_parts(list(getattr(src, "first_page", None) or [])) if t.strip()]
+    for i, text in enumerate(paras):
+        m = _LABEL.match(text)
+        if not m or _kind(m) != "ack" or not m.group("sep").strip() and text[m.end():].strip():
+            continue
+        content = text[m.end():].strip()
+        if not content and i + 1 < len(paras):
+            nxt = paras[i + 1].strip()
+            if not (_LABEL.match(nxt) or _OTHER_LABEL.match(nxt) or _CONTRIB.match(nxt) or _CONSENT_HEAD.match(nxt)
+                    or _ETHICS.match(nxt) or _DATA_HEAD.match(nxt)) and len(nxt) <= 1500:
+                content = nxt
+        if content and len(content) <= 1500 and not _nil(content) and not _DATA_TEMPLATE.search(content):
+            return m.group("ack"), _statement(content)
+    return None
+
+
 def has_data_availability(ms: Manuscript) -> bool:
     ref_ids = {r.para_id for r in references.extract(ms)}
     return any(_DATA_HEAD.match(p.text) for p in ms.paragraphs if p.id not in ref_ids and len(p.text) <= 1000)
@@ -1044,6 +1237,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     deleted: set[str] = set()   # paragraphs this rule deletes
     consumed: set[str] = set()  # statement paragraphs read with the label before them
     sections: list[_Section] = []
+    ack_seen = False            # the manuscript has an acknowledgement (or a nil one)
     candidates = []             # nil statements of a required section, which may become that section in place
     delete_nil = _on(style, "back_matter.delete_nil_statements")
     ack_heading = _cfg(style, "back_matter.acknowledgement_heading")
@@ -1053,6 +1247,10 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     contrib_on = _cfg(style, "enabled", True) and contrib_cfg.get("enabled", False)
     data_cfg = _cfg(style, "back_matter.data_availability") or {}
     data_on = _cfg(style, "enabled", True) and data_cfg.get("enabled", False)
+    # The journal's H2 is bold (IJO S: "H2 | Sentence Case, Bold"): the section headings this rule adds, renames or
+    # splits off are bold, their statements roman.
+    head_bold = _on(style, "back_matter.heading_bold")
+    hfmt = {"bold": True} if head_bold else None
     nonempty = [p for p in region if p.text.strip()]
     by_text = {p.id: p.text for p in ms.paragraphs}
     ref_i = references.find_heading(ms)
@@ -1067,6 +1265,15 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     def label_only(p: Paragraph) -> bool:
         return bool(p.text.strip()) and _words(p.text) <= 8 and not p.text.rstrip().endswith(".")
 
+    def bold_line(p: Paragraph, rule: str):
+        """A heading line already there, in bold when the journal's H2 is bold (format only)."""
+        if not head_bold or _all_fmt(p, "bold"):
+            return
+        s = len(p.text) - len(p.text.lstrip())
+        e = len(p.text.rstrip())
+        if e > s:
+            out.append(_change(p, s, e, p.text[s:e], Layer.STRUCTURE, rule, {"bold": True}))
+
     def tag_heading(p: Paragraph, m, name: str, rename: str | None = None):
         """Tag a heading line the journal's heading list does not know, drop its colon, sentence case."""
         s, e = m.start("label"), m.end("label")
@@ -1078,15 +1285,19 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             s = _tag_start(p.text, s)
             label = p.text[s:e]
         if new != label:
-            out.append(_change(p, s, e, new, Layer.STRUCTURE, f"sections_{name}"))
+            out.append(_change(p, s, e, new, Layer.STRUCTURE, f"sections_{name}", hfmt))
         end = len(p.text.rstrip())
         if not known and p.text[e:end].strip() in (":", ".", "-", "–", "—"):
             out.append(_change(p, e, end, "", Layer.STRUCTURE, f"sections_{name}"))
+        bold_line(p, f"sections_{name}")
 
     def split_inline(p: Paragraph, m, name: str, rename: str | None = None):
         """"Patient Consent: Written informed ..." -> heading paragraph + statement."""
-        out.append(_change(p, 0, m.end(), f"{tag}{rename or _sentence_label(m.group('label'))}{BR}", Layer.STRUCTURE,
-                           f"sections_{name}"))
+        c = _change(p, 0, m.end(), f"{tag}{rename or _sentence_label(m.group('label'))}{BR}", Layer.STRUCTURE,
+                    f"sections_{name}")
+        if head_bold:
+            c.segment_format = [{"bold": True}, None]
+        out.append(c)
 
     for i, p in enumerate(nonempty):
         if p.id in deleted or p.id in consumed:
@@ -1127,12 +1338,23 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 and _CONSENT_PUBLICATION.search(p.text) and _words(p.text) <= 90 \
                 and not any(s.kind == "consent" for s in sections):
             prev = nonempty[i - 1] if i else None
-            if p.id in after_refs:
+            if prev is not None and prev.id not in deleted and _BARE_CONSENT.match(prev.text) \
+                    and not any(x.para is prev for x in sections):
+                # "Consent" / "Declaration" over the statement: the section's heading, in the journal's words
+                # (IJO_702, IJO_2449: the editors wrote "Declaration of patient consent").
+                sections.append(_Section("consent", prev, True))
+                consumed.add(p.id)
+                if prev.id not in after_refs:
+                    s0, e0 = len(prev.text) - len(prev.text.lstrip()), len(prev.text.rstrip())
+                    out.append(_change(prev, s0, e0, f"{tag}{consent_cfg.get('heading', 'Declaration of patient consent')}",
+                                       Layer.STRUCTURE, "sections_consent", hfmt))
+            elif p.id in after_refs:
                 sections.append(_Section("consent", p, False))
             elif prev is None or prev.id in deleted or not label_only(prev):
                 sections.append(_Section("consent", p, False))
                 out.append(_change(p, 0, 0, f"{tag}{consent_cfg.get('heading', 'Declaration of patient consent')}{BR}",
                                    Layer.STRUCTURE, "sections_consent", {"bold": False, "italic": False}))
+                out[-1].segment_format = [hfmt] if head_bold else None
             continue
         # authors' contributions
         km = _CONTRIB.match(p.text)
@@ -1159,6 +1381,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 sections.append(_Section("contributions", p, False))
                 out.append(_change(p, 0, 0, f"{tag}{contrib_cfg.get('heading', 'Author contributions')}{BR}",
                                    Layer.STRUCTURE, "sections_contributions", {"bold": False, "italic": False}))
+                out[-1].segment_format = [hfmt] if head_bold else None
             continue
         # funding / conflicts / acknowledgement
         m = _LABEL.match(p.text)
@@ -1181,6 +1404,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         nil = _nil(content)
         kinds = ("conflict", "funding") if kind == "both" else (kind,)
         if kind == "ack":
+            ack_seen = True
             if nil and delete_nil and (content.strip() or content_p is None and i + 1 < len(nonempty)):
                 delete(p)
                 if content_p is not None:
@@ -1192,7 +1416,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 # (the author's spelling otherwise kept: "Acknowledgments" -> "Acknowledgment").
                 want = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else ack_heading
                 if label != want:
-                    out.append(_change(p, s, e, want, Layer.STRUCTURE, "sections_back_matter"))
+                    out.append(_change(p, s, e, want, Layer.STRUCTURE, "sections_back_matter", hfmt))
+                bold_line(p, "sections_back_matter")
             continue
         kept_labels = section_headings(std[kind]) - {std[kind]["heading"].lower()} if kind in std else set()
         standard = kind in std and m.group("label").lower() in section_headings(std[kind])
@@ -1200,6 +1425,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             # The standard heading with a "None" under it: keep both, word the statement as the journal does.
             satisfied.add(kind)
             sections.append(_Section(kind, p, True))
+            bold_line(p, "sections_back_matter")
             body = content_p.text.strip()
             default = std[kind].get("default", "")
             short = body.rstrip(".").lower() in ("none", "nil", "not applicable", "na", "n/a")
@@ -1226,6 +1452,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if content_p is None and content.strip():
             # "Funding: Eye Research Foundation grant 12." -> heading paragraph + statement
             out.append(_change(p, 0, m.end(), f"{tag}{sec['heading']}{BR}", Layer.STRUCTURE, "sections_back_matter"))
+            if head_bold:
+                out[-1].segment_format = [{"bold": True}, None]
         else:
             s, e = m.start("label"), m.end("label")
             head_end = len(p.text.rstrip())
@@ -1236,13 +1464,20 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 new = heading if tagged or p.text.lstrip().startswith("<H") else tag + heading
                 if tag and new.startswith(tag):
                     s = _tag_start(p.text, s)
-                out.append(_change(p, s, e, new, Layer.STRUCTURE, "sections_back_matter"))
+                out.append(_change(p, s, e, new, Layer.STRUCTURE, "sections_back_matter", hfmt))
             if not tagged and p.text[e:head_end].strip() in (":", "."):
                 out.append(_change(p, e, head_end, "", Layer.STRUCTURE, "sections_back_matter"))
+            if content_p is not None or not content.strip():
+                bold_line(p, "sections_back_matter")
+
+    moved_consent = _move_consent(ms, style, sections, nonempty, deleted, after_refs, out) \
+        if consent_on and consent_cfg.get("move") else None
 
     # A nil statement becomes the journal's section in place ("Funding: None" -> "Financial support and sponsorship
     # / Nil.") when that keeps the journal's order; the rest stay deleted and the sections are added below.
     order = list(_cfg(style, "back_matter.order") or ["consent", "contributions", "funding", "conflict"])
+    if "ack" not in order:  # an acknowledgement added from the title page goes before the financial support
+        order.insert(order.index("funding") if "funding" in order else len(order), "ack")
     rank = {k: i for i, k in enumerate(order)}
     pos = {p.id: i for i, p in enumerate(ms.paragraphs)}
     done: set[str] = set(satisfied)
@@ -1262,9 +1497,10 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         lead = len(p.text) - len(p.text.lstrip())
         known = levels.get(_key(p.text)) or p.text.lstrip().startswith("<H")  # heading_tags tags it: no second tag
         out.append(_change(p, lead, e0, f"{'' if known else tag}{sec['heading']}", Layer.STRUCTURE,
-                           "sections_back_matter"))
+                           "sections_back_matter", hfmt))
         if content_p is None:
-            out.append(_change(p, e0, len(p.text), BR + sec.get("default", ""), Layer.STRUCTURE, "sections_back_matter"))
+            out.append(_change(p, e0, len(p.text), BR + sec.get("default", ""), Layer.STRUCTURE, "sections_back_matter",
+                               {"bold": False} if head_bold else None))
         else:
             if e0 < len(p.text):
                 out.append(_change(p, e0, len(p.text), "", Layer.STRUCTURE, "sections_back_matter"))
@@ -1278,12 +1514,35 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     # --- sections to add: the standard statements, patient consent, authors' contributions ---
     new: dict[str, list[str]] = {}
     origins: dict[str, dict | None] = {}  # kind -> where its text comes from (provenance)
+    # Statements given on the title page left above the main text ("FUNDING/SUPPORT- Hyderabad Eye Research
+    # Foundation ...", deleted there by submission.py): the section's text when the back has none.
+    given: dict[str, tuple[str, Paragraph]] = {}
+    for label, content, fp in submission.front_statements(ms, getattr(ms, "_submission_style", None) or style):
+        m = _LABEL.match(f"{label.replace('/', ' ')}: {content}")
+        if m and _kind(m) in ("funding", "conflict") and not _nil(content):
+            given.setdefault(_kind(m), (_statement(content), fp))
     for kind, sec in std.items():
         if kind not in satisfied:
+            if kind in given:
+                new[kind] = [f"{tag}{sec['heading']}", given[kind][0]]
+                origins[kind] = provenance.make("manuscript", "Manuscript title-page statement", given[kind][0],
+                                                para_id=given[kind][1].id)
+                continue
             new[kind] = [f"{tag}{sec['heading']}", sec.get("default", "")]
             origins[kind] = provenance.make("journal_style", "Journal's standard text",
                                             f"{sec['heading']}: the journal's wording for a missing section")
+    if ack_heading is not None and not ack_seen and _on(style, "back_matter.acknowledgement_from_sources"):
+        # S382 "Acknowledgments | ... Retain if given": an acknowledgement given only on the title page
+        got = acknowledgement_from_sources(ms)
+        if got:
+            label, text = got
+            want = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else ack_heading
+            new["ack"] = [f"{tag}{_sentence_label(want)}", text]
+            fsrc = getattr(ms, "front_sources", None)
+            origins["ack"] = provenance.make("title_page", "Title page", text, file=getattr(fsrc, "first_page_name", ""))
     have = {s.kind for s in sections}
+    if moved_consent:
+        new["consent"], origins["consent"] = moved_consent
     if consent_on:
         if "consent" in have or has_consent_statement(ms):
             plan["consent"] = "exists"
@@ -1336,7 +1595,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             else:
                 plan["data"] = "missing"
     if not _on(style, "back_matter.add_missing"):
-        new = {k: v for k, v in new.items() if k in ("consent", "contributions", "data")}
+        new = {k: v for k, v in new.items() if k in ("consent", "contributions", "data", "ack")}
     if anchor is None:
         # No reference list found: add the sections after the last statement read here.
         seen = [p for p in nonempty if p.id in deleted or p.id in consumed or any(x.para is p for x in sections)]
@@ -1391,6 +1650,14 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     by_id = {p.id: p for p in ms.paragraphs}
     fmt = {"bold": False, "italic": False, "superscript": False}
     consent_text = (new.get("consent") or [None, None])[1] if plan.get("consent") == "added" else None
+    heads = {v[0] for v in new.values() if v}
+
+    def segments(lines: list[str], lead: bool) -> list[dict | None] | None:
+        """Bold for the heading lines (head_bold), the statements as `fmt`; `lead`: an empty first segment."""
+        if not head_bold:
+            return None
+        return ([None] if lead else []) + [hfmt if ln in heads else None for ln in lines]
+
     for (where, pid), lines in targets.items():
         p = by_id[pid]
         prov = provenance.combine([origins.get(k) for k in target_kinds.get((where, pid), [])])
@@ -1400,17 +1667,83 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             "sections_back_matter.added" if any(k in std for k in target_kinds.get((where, pid), [])) else "sections_back_matter"
         if where == "after":
             out.append(_change(p, len(p.text), len(p.text), BR + BR.join(lines), Layer.STRUCTURE, reason, fmt))
+            out[-1].segment_format = segments(lines, True)
         else:
             # Merge with a heading this rule adds at the same point ("before" an unlabelled statement).
             mine = next((c for c in out if c.para_id == pid and c.start == c.end == 0), None)
             if mine is not None:
                 out.remove(mine)
                 out.append(_change(p, 0, 0, BR.join(lines) + BR + mine.new, Layer.STRUCTURE, reason, mine.format))
+                if head_bold:
+                    out[-1].segment_format = segments(lines, False) + list(mine.segment_format or [None])
             else:
                 out.append(_change(p, 0, 0, BR.join(lines) + BR, Layer.STRUCTURE, reason, fmt))
+                out[-1].segment_format = segments(lines, False)
         if prov:  # the change just added (a merged heading included)
             out[-1].provenance = prov
     return out
+
+
+def _move_consent(ms: Manuscript, style: JournalStyle, sections: list[_Section], nonempty: list[Paragraph],
+                  deleted: set[str], after_refs: set[str], out: list[Change]) -> tuple[list[str], dict] | None:
+    """S392 (IJO): the patient consent section's "Placement is before the "Financial support and sponsorship"
+    section". A consent section after the reference list (or the figure legends), or after a funding / conflicts
+    statement, is moved: its paragraphs are deleted there (tracked) and its heading and statement come back as a
+    section placed in the journal's order with the others. Returns the lines to insert and their provenance."""
+    cons = next((x for x in sections if x.kind == "consent" and x.para.id not in deleted), None)
+    if cons is None:
+        return None
+    at = {p.id: i for i, p in enumerate(nonempty)}
+    if cons.para.id not in at:
+        return None
+    i = at[cons.para.id]
+    funding_before = any((m := _LABEL.match(q.text)) and _kind(m) in ("funding", "conflict", "both")
+                         for q in nonempty[:i] if q.id not in after_refs)
+    if cons.para.id not in after_refs and not funding_before:
+        return None
+    cfg = _cfg(style, "back_matter.consent") or {}
+    standard = cfg.get("heading", "Declaration of patient consent")
+    tag = "<H2>" if style.get("headings.tag") else ""
+    p = cons.para
+    paras = [p]
+    statements: list[str] = []
+    cm = _CONSENT_HEAD.match(p.text)
+    if cm:
+        label = cm.group("label")
+        heading = standard if cfg.get("rename_heading") and re.search(r"patient|declaration", label, re.I) \
+            else _sentence_label(label)
+        content = p.text[cm.end():].strip()
+        if content:
+            statements.append(content)
+    elif _BARE_CONSENT.match(p.text):
+        heading = standard
+    else:  # an unlabelled statement
+        heading = standard
+        statements.append(p.text.strip())
+    if not statements or cons.heading:
+        starts = {x.para.id for x in sections}
+        for q in nonempty[i + 1:i + 4]:
+            if q.id in starts or q.id in deleted or q.in_table or _CAPTION.match(q.text) or _LEGEND.match(q.text) \
+                    or (q.id in after_refs) != (p.id in after_refs) or label_only_text(q.text) \
+                    or _key(q.text) in ("references", "reference", "bibliography") \
+                    or any(r.match(q.text) for r in (_LABEL, _CONSENT_HEAD, _CONTRIB, _ETHICS, _DECLARATIONS, _DATA_HEAD)):
+                break
+            paras.append(q)
+            statements.append(q.text.strip())
+    if not statements:
+        return None
+    gone = {q.id for q in paras}
+    out[:] = [c for c in out if c.para_id not in gone]
+    for q in paras:
+        out.append(_change(q, 0, len(q.text), "", Layer.STRUCTURE, "sections_consent"))
+        deleted.add(q.id)
+    origin = provenance.make("manuscript", "Manuscript", "the patient consent section, moved before Financial support "
+                             "and sponsorship (stylesheet)", para_id=p.id)
+    return [f"{tag}{heading}"] + statements, origin
+
+
+def label_only_text(text: str) -> bool:
+    return bool(text.strip()) and _words(text) <= 8 and not text.rstrip().endswith(".")
 
 
 def _supplementary(ms: Manuscript, style: JournalStyle) -> list[Change]:
@@ -1483,7 +1816,8 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         hi = style.get("keywords.max")
         if hi and len(kws) > hi:
             qs.add(lay.keywords.id, "keywords.too_many", n=hi)
-    elif lay.keywords is None and lay.abstract and _on(style, "keywords.add_missing"):
+    elif lay.keywords is None and lay.abstract and _on(style, "keywords.add_missing") \
+            and not (_on(style, "keywords.from_xml") and xml_keywords(ms)):
         qs.add(lay.abstract[-1].id, "keywords.missing")
     if _cfg(style, "back_matter.enabled", True):
         ref_i = references.find_heading(ms)

@@ -147,6 +147,7 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   bold_labels: [Keywords, Key words, Key word, Key messages, Key message]
   heading_bold: true           # first-level section headings (Introduction, Methods, ...) in bold
   heading_bold_tagged: false   # every heading the tool tags <H1> / <H2> / <H3> (a line of its own) in bold
+  heading_bold_levels: [1, 2, 3]  # ... at these levels
   heading_no_underline: true   # no underline in headings
   body_unbold: true            # stray bold inside running text (labels and run-in headings stay)
 
@@ -244,12 +245,16 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
                                # silent but IJO, IJNMR, IJA, SGMJ: "Methods"); editors keep "Methods": owner's list
     drop: []                   # headings the journal does not print, e.g. [introduction]
     reference_heading: null    # e.g. References: the reference list's heading "Reference" / "Bibliography" -> it
+    strip_sub_numbering: false  # "3.2 Association ..." -> "Association ..." on the sub-headings the tool tags <H2> / <H3>
     bold: false                # bold recognised headings (most are bold already)
   abstract:
     heading: Abstract
     add_heading: true            # insert "Abstract" before an abstract that has none
     split_inline_heading: true   # "Abstract: text" -> heading paragraph + text
     strip_heading_colon: true    # "Abstract:" -> "Abstract"
+    heading_case: false          # "ABSTRACT" (typed, or the all-caps attribute) -> `heading` (per journal: IJO)
+    heading_bold: false          # the heading split off an inline "ABSTRACT: text" in bold (per journal: IJO)
+    unbold_text: false           # bold words in the abstract's text go roman (sub-heading labels stay; IJO sheet)
     subheading_colon: true       # "Purpose:To" -> "Purpose: To"; "Methods" on its own line -> "Methods: "
     subheading_case: title       # keep | title | upper (S: "Headings in a structured abstract should be in Title case and
     subheading_bold: true        # bold followed by a colon", 41 sheets; the guide's caps lose to them)
@@ -271,6 +276,10 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     dedupe: true
     add_missing: true            # add the "Keywords:" line after the abstract and query
     max_query: true              # S (41 sheets): "minimum three keywords and a maximum of five keywords" -> query
+    after_abstract: false        # key words above the abstract move under it (per journal: IJO sheet)
+    label_bold: false            # "Keywords:" in bold, also when added (per journal: IJO S176)
+    run_on: false                # "Keywords:" on a line of its own, the list below: the list runs on after the label
+    from_xml: false              # no key words in the manuscript: the submission XML's <keywords> instead of a query
   letter_salutation: null       # letters: "Sir," / "Dear Sir/Madam," -> this (e.g. "Dear Editor,"); null: as typed (G: silent)
   back_matter:  # measured on the editors' tracked files (160 articles, 34 journals)
     enabled: true
@@ -286,17 +295,22 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     acknowledgement_heading: singular  # S (41 sheets): 'If heading "Acknowledgements" is present, then please delete
                                        # "s"' (singular: drop the final s; a string: that heading; null: as typed).
                                        # Editors changed 0 of 17: owner's list
+    acknowledgement_from_sources: false  # an acknowledgement given only on the title page is added before the
+                                         # financial support (per journal: IJO S382 "Retain if given")
     supplementary_heading: null  # G151: supporting information retained as it is; the 19 sheets that ask for the
                                  # “Supplementary Material” heading set it (no editor added it: 0 of 6 articles)
     patient_consent_query: true  # case report with no consent statement anywhere: "Kindly confirm whether consent
                                  # form obtained or not?" (the pre-editing query in all 8 such case reports)
     order: [consent, contributions, funding, conflict]  # where added sections go among those already there
+    heading_bold: false          # the section headings added, renamed or split off in bold (per journal: IJO H2)
     consent:  # "Declaration of patient consent" (every stylesheet but JOS, KJO, IJNMR, JDRNTRUHS)
       enabled: true
       heading: Declaration of patient consent
       head_unlabelled: true      # an author's consent statement with no heading gets the heading; an inline
                                  # "Patient Consent: Written ..." becomes heading + statement
       rename_heading: false      # the author's own consent heading -> `heading` (AIAN); IJO editors keep it as written
+      move: false                # a consent section after the references / legends or after the funding and conflicts
+                                 # statements moves before them (per journal: IJO S392)
       add_missing: true          # no consent statement and identifiable patient images (an image article, or a case
                                  # report / letter whose legends show clinical photographs): heading + standard text
       query: true                # ... and the stylesheet's query "Please ensure that patient consent form has been obtained."
@@ -340,6 +354,9 @@ submission:  # parts of a submission inside the manuscript file (edit_os/submiss
   delete_phone: true           # phone-only lines before the abstract (35 of 45; NI editors keep them)
   delete_orcid: false          # ORCID-only lines: kept or reworded by most journals (16 of 43 changed, 17 kept)
   delete_title_repeat: true    # "Title - ..." over the abstract when the title page above already has the title
+  delete_front_statements: true  # "Running head- ...", "FUNDING/SUPPORT- ...", "CONFLICT OF INTEREST- None" left between
+                               # the abstract and the main text (IJO_2202): deleted; funding and conflicts feed the
+                               # back-matter sections
   # Kept as they are (no setting): "Key learning points" / "Key messages" (9 of 12 kept), "Plain language summary",
   # "Highlights" / "What is known?" (4 of 4). "AQ: Followed XML file for Article Type" is not added: editors wrote it
   # in 14 of 160 articles with no consistent trigger (3 of 23 whose stated type differs from the XML).
@@ -353,6 +370,8 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   title_case: sentence           # sentence | title | as_is (article title; the running head is always sentence case)
   capital_after_colon: true      # "dermoids: A comprehensive review"
   initial_period: true           # "Anjum S. K. Joad" (false: "Anjum S K Joad")
+  correspondence_add_institution: false  # a correspondence street address (not a home: flat, society, quarters) in the
+                                 # author's city gets the affiliation's institution in front (per journal: IJO)
   abbreviate_middle_names: true  # guide and editors: "Anjum Syed Khan Joad" -> "Anjum S. K. Joad"
   # Initials after a name go before it (guide: "Swamy AN" -> "A. N. Swamy"; frontmatter.initials_first). Applied
   # always (no setting). Editors split: JEHP / MJDRDYPU did it in 5 of 8 articles; across all journals many keep

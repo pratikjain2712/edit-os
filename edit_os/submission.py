@@ -74,10 +74,16 @@ _STOP = re.compile(
 _RUNNING_HEAD = re.compile(r"^\W*(?:<RH>)?[^:\n]{1,60}?,?\s+et\s+al\.?\s*:")
 _COUNT = re.compile(
     r"(?i)^\W*(?:total\s+)?(?:(?:number|no\.?)\s+of\s+(?:figures?|tables?|words?|references?|pages?|images?|photographs?|"
-    r"illustrations?)|(?:total\s+|manuscript\s+|abstract\s+|text\s+|article\s+)?word\s*counts?|total\s+(?:images?|figures?|tables?|"
+    r"illustrations?)|(?:total\s+|manuscript\s+|abstract\s+|text\s+|article\s+)?word\s*counts?|words|total\s+(?:images?|figures?|tables?|"
     r"pages?))\b\s*(?:\([^)]{0,80}\))?\s*[:\-–=]\s*(?:~?\s*\d[\d,]*\b.{0,60}|not\s+applicable\.?|nil\.?|none\.?|)\s*$")
 _COUNT_MORE = re.compile(r"(?i)^\W*(?:abstract|text|manuscript|article|main\s+text|body|figures?|tables?|references?|images?)"
                          r"\s*[:\-–]\s*~?\s*\d[\d,]*\s*(?:words?\W*$|\([^)]{0,80}\)\W*$|\W*$)")
+# Title-page statements left between the abstract and the main text ("Running head- ...", "FUNDING/SUPPORT- ...",
+# "CONFLICT OF INTEREST- None"): the editors delete them (the funding and conflicts ones become the back-matter
+# sections: rules_sections reads them through `front_statements`).
+_FRONT_STATEMENT = re.compile(
+    r"(?i)^\W*(?P<label>running\s+(?:title|head)|short\s+title|conflicts?\s+of\s+interests?|competing\s+interests?|"
+    r"funding(?:\s*/\s*support)?|financial\s+support|sources?\s+of\s+(?:funding|support))\s*[:\-–—]\s*(?P<content>\S.*)$")
 _PHONE = re.compile(r"(?i)^\W*(?:phone|ph|tel|telephone|mobile|mob|cell|contact)(?:\s*(?:no\.?|number|numbers))?\s*[:.\-–]?\s*"
                     r"\+?[\d\s()\-/,+]{6,}\W*$")
 _ORCID = re.compile(r"(?i)^\W*orcid\b.{0,120}$")
@@ -345,6 +351,17 @@ def detect(ms: Manuscript, style: JournalStyle | None = None) -> _Found:
         if cfg.get("delete_orcid", False) and len(t) < 300 and all(_ORCID.match(x) for x in lines):
             add("orcid", k, k + 1, DELETE)
             continue
+    # "Running head- ...", "FUNDING/SUPPORT- ..." between the abstract and the main text
+    if cfg.get("delete_front_statements", True):
+        for k in range(body + 1, min(len(paras), body + 30)):
+            p = paras[k]
+            t = p.text.strip()
+            if re.match(r"(?i)^\W*(?:<H\d>)?\s*(?:\d+\.?\s*)?(?:introduction|background)\b", t):
+                break
+            if k in used or p.in_table or not t or len(t) > 300:
+                continue
+            if _FRONT_STATEMENT.match(t):
+                add("front_statement", k, k + 1, DELETE)
     # "Title - ..." over the abstract when the title page above already gives the title
     if cfg.get("delete_title_repeat", True):
         for k in range(min(body + 1, len(paras))):
@@ -383,6 +400,18 @@ def deleted_ids(ms: Manuscript, style: JournalStyle | None = None) -> set[str]:
 def cover_letter_paragraphs(ms: Manuscript, style: JournalStyle | None = None) -> list[str]:
     """The text of the cover letter(s) found in the manuscript (the back-matter rule reads contributions there)."""
     return [p.text for part in detect(ms, style).parts if part.kind == "cover_letter" for p in part.paras if p.text.strip()]
+
+
+def front_statements(ms: Manuscript, style: JournalStyle | None = None) -> list[tuple[str, str, Paragraph]]:
+    """(label, content, paragraph) of the title-page statements deleted between the abstract and the main text."""
+    out = []
+    for part in detect(ms, style).parts:
+        if part.kind == "front_statement":
+            for p in part.paras:
+                m = _FRONT_STATEMENT.match(p.text.strip())
+                if m:
+                    out.append((m.group("label"), m.group("content").strip(), p))
+    return out
 
 
 def notice_names(ms: Manuscript) -> list[tuple[str, str]]:
@@ -437,7 +466,8 @@ def rule_submission(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 PART_LABELS = {"copyright_notice": "Portal copyright notice", "cover_letter": "Cover letter",
                "reviewer_reply": "Reply to reviewers", "counts": "Word counts", "phone": "Phone numbers",
-               "title_repeat": "Repeated title", "form": "Submission form"}
+               "title_repeat": "Repeated title", "form": "Submission form",
+               "front_statement": "Title-page statement"}
 
 
 def warnings(ms: Manuscript, style: JournalStyle) -> list[dict]:

@@ -4,9 +4,17 @@ name: Indian Journal of Ophthalmology
 
 headings:
   # No "Introduction" and no "Abstract" tag: the editors' habit (the sheet is silent).
+  # G139 'Content like "Case History" or "Case Report" ... should be first level heading': the case report's own
+  # sections too ("Case Description", "Treatment and Outcome": IJO_1016, IJO_183).
   h1: [materials and methods, methods, methodology, patients and methods, subjects and methods,
        results, discussion, conclusion, conclusions, references, case report, case reports,
-       case presentation, review of literature]
+       case presentation, review of literature, case description, case history, case summary,
+       treatment and outcome, treatment and outcomes]
+  # as base, with "Diagnosis" under a case description (IJO_1016) and an "Ethics" statement head (IJO_2891)
+  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
+       acknowledgements, author contribution statement, author contributions, data availability statement,
+       ethical approval, ethics approval, ethics, ethics statement, diagnosis]
 
 # references.journal_drop_qualifier: as base (Index Medicus titles keep "Eye (Lond)")
 # statistics.space_around_operators: as base (G297 "add space on either side of operators"; the IJO editors leave
@@ -15,6 +23,8 @@ headings:
 
 formatting:
   body_unbold: false           # bold inside running text is left as typed (1 of 11 in 19 articles; sheet silent)
+  heading_bold_tagged: true    # S: "H1 | Caps, Bold" and "H2 | Sentence Case, Bold": the heads the tool tags in bold
+  heading_bold_levels: [1, 2]  # (S: "H3 | Sentence Case, Italics")
 
 figures:
   # figure_label: as base, "Figure". The IJO sheet says nothing on Fig./Figure in citations; the guide does: G240 'The
@@ -23,6 +33,10 @@ figures:
   compress_lists: true          # stylesheet: "Tables 1–6"
 
 front_matter:
+  # A street address only, in the corresponding author's city: the affiliation's institution in front of it (IJO_769;
+  # S: "In case correspondence content is not present separately but the same is present in affiliation then it
+  # should be used"). Not before a home address (flat, society, quarters).
+  correspondence_add_institution: true
   initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
 
 sections:
@@ -35,6 +49,10 @@ sections:
              patient and methods: Methods, methodology: Methods}
     case: title  # S: "H1 | Caps, Bold, Roman" -- "Caps" read as capitalised words (Title case): owner confirmed 2026-10-24; the IJO editors use Title case
     drop: [introduction]  # the IJO editors delete the Introduction heading (the sheet is silent)
+    bold: true  # S: "H1 | Caps, Bold" / "H2 | Sentence Case, Bold": the recognised headings in bold
+    reference_heading: References  # "Reference" over the list -> "References" (IJO_2891; S: "References")
+    strip_sub_numbering: true  # "3.2 Association between ..." -> "Association between ..." on a sub-heading (IJO_2891;
+                               # the sheet is silent)
   abstract:
     # S: 'Change “Aim” to “Purpose' and 'Materials and Methods”, “Subject and Methods”, “Patient and Methods” etc.
     # change as only “Methods'
@@ -42,8 +60,23 @@ sections:
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, aim: Purpose, aims: Purpose}
     word_limit_query: false  # the IJO sheet has no word-limit line
+    heading_case: true       # S: 'The word "Abstract" should be added as heading': "ABSTRACT" (typed or all-caps) -> "Abstract"
+    heading_bold: true       # ... 'in bold style and left aligned' (an inline "ABSTRACT: We report ..." split off)
+    unbold_text: true        # S: "Abstract text should not be in bold"
+  keywords:
+    after_abstract: true     # S: "Should appear in a separate line after the Abstract" (key words above it move)
+    label_bold: true         # S176: 'Heading should be "Keywords:" followed by a colon, bold'
+    run_on: true             # S182 "Keywords: Acceptability, Hall’s technique, ...": a list on the next line runs on
+    from_xml: true           # none in the manuscript: the submission XML's (editors: "Followed XML file for Keywords",
+                             # 3 of 3 articles whose XML has them) instead of the query
   back_matter:  # IJO editors (19 + 2 articles): consent, contributions, financial support, conflicts
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+    acknowledgement_from_sources: true  # S382 "Acknowledgments | This section is not mandatory. Retain if given"
+    heading_bold: true  # S: "H2 | Sentence Case, Bold": the section headings added, renamed or split off are bold
+    consent:
+      # S392: 'Placement is before the "Financial support and sponsorship" section': a consent section after the
+      # references / legends or after the funding and conflicts statements is moved there (the editors in 6 of 6).
+      move: true
     # consent heading: as base, S 'Declaration of Patient Consent | “Declaration of patient consent” should be present'
     # (the IJO editors' "Author’s declaration statement of patient consent" is not the sheet's); authors' own
     # headings are kept as written (rename_heading off: the sheet is silent).

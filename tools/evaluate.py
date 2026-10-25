@@ -86,6 +86,22 @@ def apply_text(text: str, changes) -> str:
     return "".join(ch for ch, _ in best)
 
 
+def moved_back(originals: list[str], ours: list[str], cs) -> list[str]:
+    """A paragraph our changes delete and insert elsewhere (a section moved to its place: the consent statement
+    before the financial support, the key words under the abstract) is scored as its inserted copy: pairing by
+    position cannot see a move, the editor's own moves included."""
+    lines = [ln for c in cs.changes if not c.format_only for ln in c.new.split(tracked.PARAGRAPH_BREAK)
+             if len(ln.strip()) >= 20]
+    out = list(ours)
+    for i, (o, u) in enumerate(zip(originals, ours)):
+        if u.strip() or len(o.strip()) < 20 or not lines:
+            continue
+        best = min(lines, key=lambda ln: distance(o, ln))
+        if distance(o, best) <= len(tokens(o)) // 3:
+            out[i] = best
+    return out
+
+
 def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
     src = manuscript_from_zip(os.path.join(article_dir, "original.zip"))
     if src is None:
@@ -109,6 +125,7 @@ def evaluate(article_dir: str, journal: str, only=None, show_hurt=False):
             c.status = Status.ACCEPTED
         tracked.render(docmodel.load(path), cs, tracked=False)  # refuses stale or overlapping changes
         ours = [apply_text(p.text, cs.for_paragraph(p.id)) for p in ms.paragraphs]
+        ours = moved_back(originals, ours, cs)
 
     editor: dict[str, list[str]] = {}
     for before, after in tracked_pairs(te):

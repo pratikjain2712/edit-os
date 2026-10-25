@@ -81,7 +81,7 @@ _RPR_ORDER = [qn(f"w:{t}") for t in (
     "rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof "
     "snapToGrid vanish webHidden color spacing w kern position sz szCs highlight u effect bdr shd "
     "fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange").split()]
-_TOGGLES = {"italic": "w:i", "bold": "w:b", "small_caps": "w:smallCaps"}
+_TOGGLES = {"italic": "w:i", "bold": "w:b", "small_caps": "w:smallCaps", "caps": "w:caps"}
 _VERT = {"superscript": "superscript", "subscript": "subscript"}
 # Properties a change clears (False): the elements removed for each.
 _CLEARED = {"size": ("w:sz", "w:szCs"), "highlight": ("w:highlight",)}
@@ -254,7 +254,7 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
         if not c.new:
             continue
         first, *rest = c.new.split(PARAGRAPH_BREAK)
-        ins = _new_run(template, first, c.format)
+        ins = _new_run(template, first, c.segment(0))
         if doomed and tracked:
             anchor.addnext(ins)
         elif after:
@@ -329,8 +329,8 @@ def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, i
                 for el in pp.findall(qn("w:numPr")):
                     pp.remove(el)
             p.append(pp)
-        if seg:
-            run = _new_run(template, seg, c.format)
+        for text, fmt in c.pieces(i + 1, seg):
+            run = _new_run(template, text, fmt)
             p.append(run)
             if tracked:
                 _wrap("w:ins", run, ids, c.author, date)

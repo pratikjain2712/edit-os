@@ -672,6 +672,16 @@ def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
 _NUMBERING = re.compile(r"^\s*(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s+")
 
 
+def _front_matter_ids(ms: Manuscript, style: JournalStyle) -> set[str]:
+    """Title-page paragraphs the front-matter step rewrites or deletes (the article type, title, author lines)."""
+    if not style.get("front_matter.enabled", True) or getattr(ms, "_front_plan", None) is None:
+        return set()
+    pl = ms._front_plan
+    roles = pl.fields.roles if pl.fields is not None else {}
+    return {pid for pid, r in roles.items() if r not in (None, "body", "other_front_matter")} \
+        | {c.para_id for c in pl.changes}
+
+
 def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("headings.tag"):
         return []
@@ -679,9 +689,10 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
     levels.update({name: "H2" for name in style.get("headings.h2", [])})
     out = []
     in_abstract = rules_sections.abstract_ids(ms)  # "Results" there is an abstract sub-heading
+    front = _front_matter_ids(ms, style)  # "Case Report" as the article type on the title page is no heading
     for p in ms.paragraphs:
         text = p.text
-        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H") or p.id in in_abstract:
+        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H") or p.id in in_abstract or p.id in front:
             continue
         core = _NUMBERING.sub("", text).strip()
         key = core.rstrip(":").strip().lower()
@@ -902,6 +913,14 @@ RULES = {"front_matter": frontmatter.rule_front_matter, **RULES}
 RULES = {"submission": frontmatter.submission.rule_submission, **RULES}  # cover letter, reply to reviewers: first
 
 
+_HEADING_RULES = {"heading_tags", "sections_headings", "subheadings"}
+
+
+def _drops_paragraph(c: Change, lengths: dict[str, int]) -> bool:
+    """`c` deletes all of its paragraph's text."""
+    return not c.new and c.start == 0 and bool(c.old.strip()) and c.end == lengths.get(c.para_id, -1)
+
+
 def _opens_paragraph(c: Change) -> bool:
     from .tracked import PARAGRAPH_BREAK
     return c.new.startswith(PARAGRAPH_BREAK)
@@ -910,6 +929,7 @@ def _opens_paragraph(c: Change) -> bool:
 def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) -> ChangeSet:
     """Run rules in order; drop any proposal that overlaps one already kept."""
     kept: list[Change] = []
+    lengths = {p.id: len(p.text) for p in getattr(ms, "paragraphs", None) or []}
     resolved = set()  # reference paragraphs already rebuilt from PubMed / CrossRef
     for name, rule in RULES.items():
         if only and name not in only:
@@ -920,6 +940,10 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
         for c in rule(ms, style):
             if name == "references" and c.para_id in resolved:
                 continue
+            if c.reason.startswith("sections_") and _drops_paragraph(c, lengths):
+                # A back-matter section moved or deleted as a whole: the heading rules' tag and case edits on its
+                # heading line go with it (nothing is left to tag).
+                kept = [k for k in kept if not (k.para_id == c.para_id and k.reason in _HEADING_RULES)]
             # A formatting-only change and a text change may overlap (the renderer applies the
             # formatting first); two formatting changes clash only when they set the same property.
             clash = any(k.para_id == c.para_id and c.start < k.end and k.start < c.end
