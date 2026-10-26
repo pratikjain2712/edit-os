@@ -268,7 +268,7 @@ def test_legends_from_the_xml_and_a_legends_file(tmp_path):
     out = pipeline.edit(z, ijo(), str(tmp_path / "out"), stages=("style",), accept_all=True)
     body = _body(out.path("clean"))
     i = body.index("Figure Legends")
-    assert body[i + 1:] == ["[picture] ", "Figure 1: (a) Slit-lamp photograph. (b) At 1 week", "[picture] ",
+    assert body[i + 1:] == ["[picture] ", "Figure 1: (a) Slit-lamp photograph. (b) At 1 week.", "[picture] ",
                             "Figure 2: ???", "[picture] ",
-                            "Figure 3: Anterior segment OCT. (a) Preoperative. (b) Postoperative"]
+                            "Figure 3: Anterior segment OCT. (a) Preoperative. (b) Postoperative."]
     assert out.summary["queries"]["by_check"].get("figures.legend_missing") == 1

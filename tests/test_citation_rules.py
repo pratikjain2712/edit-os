@@ -139,7 +139,7 @@ def test_legend_part_labels(tmp_path):
     st = _style()
     st.settings["figures"]["legend_part_labels"] = False
     _, t = _run(_save(tmp_path, paras, "b.docx"), st, tmp_path, ["fig_captions"])
-    assert t[1] == "Figure 2: Fundus. (A, B) Discs in both eyes. (C) Imaging"  # off: as typed
+    assert t[1] == "Figure 2: Fundus. (A, B) Discs in both eyes. (C) Imaging."  # off: labels as typed
 
 
 LONG = "The patients were examined in the clinic and their records were reviewed in full detail. " * 3

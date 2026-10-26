@@ -293,7 +293,7 @@ def test_acknowledgement_singular_and_supplementary_heading_from_the_stylesheet(
     assert "<H1>Acknowledgement" in run(path2)  # IJO: the guide's (UK) spelling
     st = style.load("ijo")
     st.settings["sections"]["back_matter"]["acknowledgement_heading"] = None
-    assert "<H2>Acknowledgments" in run(path2, st)
+    assert "<H1>Acknowledgments" in run(path2, st)  # IJO: first level either way
 
 
 def test_added_consent_has_its_own_reason(tmp_path):

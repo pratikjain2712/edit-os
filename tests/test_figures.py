@@ -106,7 +106,7 @@ def test_captions(tmp_path):
     assert t[8] == "Table 2: Baseline characteristics."  # S: table "caption should end with a period"
     assert t[9] == "Table 4: Outcomes."
     assert t[10] == "Table 5: Costs."
-    assert t[11] == "Figure 6: (a) axial and (b) sagittal views"  # G263: part labels "(a)"
+    assert t[11] == "Figure 6: (a) axial and (b) sagittal views."  # G263: part labels "(a)"
     t = _apply(_doc(tmp_path, CAPTIONS), _style("base"), tmp_path)
     assert t[5:7] == ["Figure 1: (a) Slit-lamp photograph of the right eye", "(b) B-scan, et al."]  # no run-on
 
