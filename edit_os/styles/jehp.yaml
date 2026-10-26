@@ -170,12 +170,12 @@ references:
   # At most two initials per author: "Chandrasena PPCM" -> "Chandrasena PP" (the editors 6 of 8; owner, 2026-10-26)
   max_initials: 2
 
-# references.non_indexed_journal: full as base (owner, 2026-10-26: keep -- not in NLM's list -> CrossRef's full title) (S: "Use complete name of the journal for non-indexed journals"): a CrossRef
-# journal NLM does not list keeps its full title. The editors wrote an ISO-style abbreviation for 13 of 15 such
-# journals ("Interact Technol Smart Educ", "J Learn Sci"): owner's list. "Indexed" is read as listed by NLM
-# (J_Medline): "MIS Q", "Cogent Educ", "Glob J Health Sci" are NLM's abbreviations and stay so, while the editors of
-# 1732 wrote "MIS Quarterly", "Cogent Education" (not MEDLINE-indexed): owner's question whether non-indexed means
-# "not in NLM's list" or "not indexed for MEDLINE".
+# references.non_indexed_journal: full as base (S: "Use complete name of the journal for non-indexed journals"): a
+# CrossRef journal NLM does not list keeps its full title. "Indexed" is read as listed by NLM (J_Medline): "MIS Q",
+# "Cogent Educ", "Glob J Health Sci" are NLM's abbreviations and stay so. The editors wrote an ISO-style abbreviation
+# for 13 of 15 unlisted journals ("Interact Technol Smart Educ", "J Learn Sci"), and the editors of 1732 wrote "MIS
+# Quarterly", "Cogent Education"; the owner keeps the rule as it is: not in NLM's list -> CrossRef's full title
+# (owner, 2026-10-26).
 
 submission:
   copyright_notice_prefix: "Query: "  # JEHP editors write "Query: " before the copyright notice (7 of 9)
@@ -199,7 +199,8 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   # Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font (Word's inserted symbols, w:sym), never ×, ®, ©, µ
   # (owner, 2026-10-26)
   symbol_font: {enabled: true}
-  # S: "fourth level ... underlined": the tool tags three levels only (no fourth-level detection yet)
+  # S: "fourth level ... underlined" (owner, 2026-10-26: H4 underlined): the tool tags three levels only, so there
+  # is no H4 to underline yet (heading_underline_levels to add once fourth-level detection exists)
 
 # copyedit.abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by
 # abbreviation in parentheses (only abbreviation should be used thereafter)": full form after the definition ->

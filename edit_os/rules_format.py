@@ -423,14 +423,15 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if p.id in levels and not front and not label and levels[p.id] in unbold_levels:
             emit(p, _regions(text, lambda i: not text[i].isspace() and bool(f[i].get("bold")), is_not("bold")),
                  {"bold": False}, "fmt_heading_unbold", Layer.STRUCTURE)
-        if p.id in tagged and not front and not label and levels[p.id] not in unbold_levels:
-            emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
-                 {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
+        if p.id in tagged and not front and not label:
+            if levels[p.id] not in unbold_levels:
+                emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
+                     {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
         elif kind == "heading" and not front:
             # A section heading is short and stands alone ("Keywords: a; b" is a labelled paragraph).
             short = len(text.strip()) <= 80 and not text.rstrip().endswith(".") and not label and \
                 not re.search(r":\s*\S", text)
-            if d["level"] == 1 and short and _on(style, "heading_bold"):
+            if d["level"] == 1 and short and _on(style, "heading_bold") and levels.get(p.id) not in unbold_levels:
                 emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
                      {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
             if _on(style, "heading_no_underline"):

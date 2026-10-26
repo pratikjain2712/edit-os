@@ -929,7 +929,8 @@ _SENTENCE = re.compile(r"(?<!\b[a-z])(?<!\bvs)(?<!\bal)(?<!\be\.g)(?<!\bi\.e)\.\
 
 def _is_term(term: str) -> bool:
     t = term.split()[0]
-    if re.fullmatch(r"[A-Z][a-z]+", t) or t.lower() in _MINOR or t.lower() in ("values", "data", "note", "notes"):
+    # "or" is a word, "OR" (odds ratio) an abbreviation
+    if re.fullmatch(r"[A-Z][a-z]+", t) or t in _MINOR or t.lower() in ("values", "data", "note", "notes"):
         return False
     return bool(re.search(r"[A-Z]", t)) or len(t) <= 3
 

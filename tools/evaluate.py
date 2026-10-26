@@ -47,9 +47,10 @@ def tracked_pairs(docx_bytes: bytes, join: bool = False) -> list[tuple[str, str]
     carry = None
     for p in root.iter(W + "p"):
         before, after = [], []
-        for el in p.iter(W + "t", W + "delText", W + "tab"):
+        for el in p.iter(W + "t", W + "delText", W + "tab", W + "sym"):
             anc = {a.tag for a in el.iterancestors()}
-            txt = "\t" if el.tag == W + "tab" else (el.text or "")
+            # a Symbol-font <w:sym> ("±" inserted by Insert > Symbol) as the text view reads it (docmodel.sym_char)
+            txt = "\t" if el.tag == W + "tab" else docmodel.sym_char(el) if el.tag == W + "sym" else (el.text or "")
             if W + "ins" not in anc:
                 before.append(txt)
             if W + "del" not in anc and el.tag != W + "delText":

@@ -565,15 +565,15 @@ _CORRESPONDENCE_LINE = re.compile(r"(?i)correspond|address\s+for|\b(?:phone|tel|
 
 def affiliation_postal_code(source: str, aff: dict) -> str:
     """The postal code the title page writes next to an affiliation's city ("Chennai - 600006", "Tokyo 102-8554",
-    "75006 Paris"), on a line that also names the affiliation's institution or department; "" when none. The model
-    is told to leave postal codes out; this reads them back from the text (S: "All the affiliations should be
-    complete": owner, 2026-10-26)."""
+    "75006 Paris", Iran's ten digits "Hamadan 6517838736"), on a line that also names the affiliation's institution
+    or department; "" when none. The model is told to leave postal codes out; this reads them back from the text
+    (S: "All the affiliations should be complete": owner, 2026-10-26)."""
     city = (aff.get("city") or "").strip()
     unit = _norm(aff.get("institution") or aff.get("department") or "")
     if not city or not unit:
         return ""
     c = re.escape(city)
-    after = re.compile(rf"(?i)\b{c}\b\s*[,\-–]?\s*(\d{{3}}\s?\d{{3}}|\d{{3}}-\d{{4}}|\d{{4,5}})(?![\d/])")
+    after = re.compile(rf"(?i)\b{c}\b\s*[,\-–]?\s*(\d{{5}}-?\d{{5}}|\d{{3}}\s?\d{{3}}|\d{{3}}-\d{{4}}|\d{{4,5}})(?![\d/])")
     before = re.compile(rf"(?i)(?<![\d\-/])(\d{{4,6}})\s+{c}\b")
     for line in source.splitlines():
         if unit not in _norm(line) or _CORRESPONDENCE_LINE.search(line):

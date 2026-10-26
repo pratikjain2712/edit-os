@@ -60,6 +60,8 @@ citations:
 
 references:
   label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)
+  # max_initials: as base (none). The owner cuts initials to two for JEHP and for IJO only if its editors do; they
+  # keep all of them ("Relvas LJM", "Ting DSW", "Meenink HCM": 12 of 12 in ijo_new): owner, 2026-10-26.
 
 figures:
   # S300 "Figure citation | Fig. 1": the sheet speaks, so it wins over the guide's G240 ("Figure" for "Fig.");
@@ -109,10 +111,10 @@ front_matter:
   # S: "In case correspondence content is not present separately but the same is present in affiliation then it
   # should be used"). Not before a home address (flat, society, quarters).
   correspondence_add_institution: true
-  initial_period: false
+  initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
   # S: "All the affiliations should be complete": the postal code the title page gives after the city stays
   # ("Chennai - 600 006"); "Faculty of ..." units stay as written (owner, 2026-10-26)
-  affiliation_postal_code: true  # S: 'In author name no need dot (.) in middle name “John B John'
+  affiliation_postal_code: true
 
 sections:
   letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
