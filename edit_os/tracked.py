@@ -128,6 +128,28 @@ def apply_format(rpr, fmt: dict) -> None:
                 c = OxmlElement("w:color")
                 c.set(qn("w:val"), "auto")
                 _rpr_insert(rpr, c)
+        elif prop == "size" and on is not False:  # points -> half-points, the complex-script size too
+            for tag in ("w:sz", "w:szCs"):
+                for el in rpr.findall(qn(tag)):
+                    rpr.remove(el)
+                el = OxmlElement(tag)
+                el.set(qn("w:val"), str(int(round(float(on) * 2))))
+                _rpr_insert(rpr, el)
+        elif prop == "font":  # the Latin and complex-script font; an East Asian font stays
+            f = rpr.find(qn("w:rFonts"))
+            if on is False:
+                if f is not None:
+                    rpr.remove(f)
+                continue
+            if f is None:
+                f = OxmlElement("w:rFonts")
+                _rpr_insert(rpr, f)
+            for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:cstheme"):
+                f.attrib.pop(qn(attr), None)
+            for attr in ("w:ascii", "w:hAnsi", "w:cs"):
+                f.set(qn(attr), on)
+        elif prop == "align":
+            continue  # a paragraph property: `_align` sets it
         elif prop in _CLEARED:
             for tag in _CLEARED[prop]:
                 for el in rpr.findall(qn(tag)):
@@ -227,6 +249,10 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
 
     # Formatting first: it does not move any offsets.
     for c in formats:
+        if "align" in c.format:
+            _align(p_el, c.format["align"], tracked, ids, c.author, date)
+        if not set(c.format) - {"align"}:
+            continue
         for r, s, e in _spans(p_el):
             if s >= c.start and e <= c.end and e > s:
                 _format_run(r, c.format, tracked, ids, c.author, date)
@@ -273,6 +299,54 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
 
 
 _PPR = qn("w:pPr")
+# Child order inside <w:pPr> (CT_PPr), up to the alignment and what follows it.
+_PPR_ORDER = [qn(f"w:{t}") for t in (
+    "pStyle keepNext keepLines pageBreakBefore framePr widowControl numPr suppressLineNumbers pBdr shd tabs "
+    "suppressAutoHyphens kinsoku wordWrap overflowPunct topLinePunct autoSpaceDE autoSpaceDN bidi adjustRightInd "
+    "snapToGrid spacing ind contextualSpacing mirrorIndents suppressOverlap jc textDirection textAlignment "
+    "textboxTightWrap outlineLvl divId cnfStyle rPr sectPr pPrChange").split()]
+_JC_SAME = {"start": "left", "end": "right", "distribute": "both"}
+
+
+def _ppr_of(p_el):
+    ppr = p_el.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        p_el.insert(0, ppr)
+    return ppr
+
+
+def _ppr_insert(ppr, el) -> None:
+    rank = _PPR_ORDER.index(el.tag)
+    for child in ppr:
+        if child.tag in _PPR_ORDER and _PPR_ORDER.index(child.tag) > rank:
+            child.addprevious(el)
+            return
+    ppr.append(el)
+
+
+def _align(p_el, value: str, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """Set the paragraph's alignment (<w:jc>); tracked as a paragraph property change (<w:pPrChange>)."""
+    ppr = _ppr_of(p_el)
+    jc = ppr.find(qn("w:jc"))
+    have = jc.get(qn("w:val")) if jc is not None else None
+    if have is not None and _JC_SAME.get(have, have) == value:
+        return
+    before = OxmlElement("w:pPr")  # CT_PPrBase: the paragraph properties without rPr / sectPr / pPrChange
+    for child in ppr:
+        if child.tag not in _PPR_TAIL:
+            before.append(copy.deepcopy(child))
+    if jc is None:
+        jc = OxmlElement("w:jc")
+        _ppr_insert(ppr, jc)
+    jc.set(qn("w:val"), value)
+    if tracked and ppr.find(qn("w:pPrChange")) is None:
+        ch = OxmlElement("w:pPrChange")
+        ch.set(qn("w:id"), ids.next())
+        ch.set(qn("w:author"), author)
+        ch.set(qn("w:date"), date)
+        ch.append(before)
+        ppr.append(ch)
 # Child order inside <w:pPr> (CT_PPr); the paragraph mark's <w:rPr> goes before sectPr / pPrChange.
 _PPR_TAIL = (qn("w:rPr"), qn("w:sectPr"), qn("w:pPrChange"))
 

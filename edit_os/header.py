@@ -139,7 +139,10 @@ def lines(style: JournalStyle, info: dict, changes: ChangeSet, statuses, *, stag
 # --- rendering -------------------------------------------------------------------------------
 
 class _Marks:
-    def __init__(self, ms: Manuscript, author: str, date: str, tracked: bool):
+    def __init__(self, ms: Manuscript, author: str, date: str, tracked: bool, run_format: dict | None = None,
+                 align: str | None = None):
+        self.run_format = run_format  # the journal's font and size for the runs of new paragraphs (or None)
+        self.align = align  # and their alignment (None: the paragraph style's)
         taken = [int(v) for el in ms.document.element.body.iter() if (v := el.get(qn("w:id"))) and v.isdigit()]
         self.ids = count(max([20000] + taken) + 1)
         self.author, self.date, self.tracked = author, date, tracked
@@ -152,9 +155,35 @@ class _Marks:
         return m
 
 
+def styled(run, mk: _Marks, fmt: dict | None = None):
+    """Give a new run the journal's font and size (`mk.run_format`) and `fmt` (bold, ...)."""
+    from .tracked import apply_format
+
+    want = {**(getattr(mk, "run_format", None) or {}), **(fmt or {})}
+    if not want:
+        return run
+    rpr = run.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        run.insert(0, rpr)
+    apply_format(rpr, want)
+    if not len(rpr):
+        run.remove(rpr)
+    return run
+
+
+def aligned(ppr, mk: _Marks):
+    """Give a new paragraph's <w:pPr> the alignment `mk.align` (before its <w:rPr>)."""
+    if getattr(mk, "align", None):
+        jc = OxmlElement("w:jc")
+        jc.set(qn("w:val"), mk.align)
+        ppr.insert(0, jc)
+    return ppr
+
+
 def _para(text: str, mk: _Marks):
     p = OxmlElement("w:p")
-    ppr = OxmlElement("w:pPr")
+    ppr = aligned(OxmlElement("w:pPr"), mk)
     if mk.tracked:
         rpr = OxmlElement("w:rPr")
         rpr.append(mk.mark("w:ins"))
@@ -162,6 +191,7 @@ def _para(text: str, mk: _Marks):
     p.append(ppr)
     if text:
         r = OxmlElement("w:r")
+        styled(r, mk)
         t = OxmlElement("w:t")
         t.text = text
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
@@ -217,12 +247,13 @@ def _table(rows: list[list[str]], mk: _Marks):
 
 
 def render(ms: Manuscript, items: list[tuple[str, object]], *, tracked: bool, author: str, date: str,
-           after: str | None = None) -> int:
+           after: str | None = None, run_format: dict | None = None, align: str | None = None) -> int:
     """Insert the header lines at the top of the body (queries below the paragraph `after` when it is still
-    in the file). Returns how many elements were inserted."""
+    in the file), their runs in `run_format` (the journal's font and size), the paragraphs aligned `align`.
+    Returns how many elements were inserted."""
     if not items:
         return 0
-    mk = _Marks(ms, author, date, tracked)
+    mk = _Marks(ms, author, date, tracked, run_format, align)
     body = ms.document.element.body
     signoff, rest = [], []
     for kind, val in items:

@@ -10,12 +10,28 @@ import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
-# Run properties a change can set (True) or clear (False); see `Change.format`.
+# Run properties a change can set (True) or clear (False); see `Change.format`. Besides the toggles:
+# "size" sets the font size in points (12, 14) or clears the direct size (False); "font" sets the font
+# family ("Times New Roman") or clears it (False); "align" is the paragraph's alignment (left, center,
+# right, both), set on the whole paragraph by a formatting-only change.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
-                     "color", "size", "highlight")
+                     "color", "size", "highlight", "font", "align")
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
-# automatic colour over a coloured style), direct font size, highlighting / coloured shading.
-CLEAR_ONLY = {"color": (False, "auto"), "size": (False,), "highlight": (False,)}
+# automatic colour over a coloured style), highlighting / coloured shading.
+CLEAR_ONLY = {"color": (False, "auto"), "highlight": (False,)}
+ALIGNMENTS = ("left", "center", "right", "both")
+
+
+def _valid(k: str, v) -> bool:
+    if k in CLEAR_ONLY:
+        return v in CLEAR_ONLY[k]
+    if k == "size":
+        return v is False or (isinstance(v, (int, float)) and not isinstance(v, bool) and 1 <= v <= 400)
+    if k == "font":
+        return v is False or (isinstance(v, str) and bool(v.strip()))
+    if k == "align":
+        return v in ALIGNMENTS
+    return True  # the toggles: set (true) or clear (false)
 
 
 class Layer(str, Enum):
@@ -76,8 +92,8 @@ class Change:
             for k, v in (fmt or {}).items():
                 if k not in FORMAT_PROPERTIES:
                     raise ValueError(f"{self.id}: unknown format property {k!r}")
-                if k in CLEAR_ONLY and v not in CLEAR_ONLY[k]:
-                    raise ValueError(f"{self.id}: {k} can only be cleared, not set to {v!r}")
+                if not _valid(k, v):
+                    raise ValueError(f"{self.id}: {k} cannot be set to {v!r}")
 
     def segment(self, i: int) -> dict | None:
         """The formatting of paragraph segment `i` of the inserted text (pieces: the base format)."""

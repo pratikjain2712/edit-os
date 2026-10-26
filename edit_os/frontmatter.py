@@ -1939,9 +1939,11 @@ def _run_el(text: str, fmt: dict, template_rpr):
 
 
 def render_inserts(ms: Manuscript, inserts: list[NewParagraph], tracked: bool = True, statuses=None,
-                   author: str = "Edit OS") -> int:
+                   author: str = "Edit OS", run_format=None, align=None) -> int:
     """Insert accepted NewParagraphs into the document; tracked as inserted paragraphs. Call after
-    `tracked.render` (anchors are paragraph ids, which do not move). Returns how many were placed."""
+    `tracked.render` (anchors are paragraph ids, which do not move). `run_format(role)` / `align(role)`: the
+    journal's font and size for the runs and the paragraph's alignment (None: as the anchor's runs / the default).
+    Returns how many were placed."""
     statuses = statuses or (Status.ACCEPTED,)
     date = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     ids = count(8000)
@@ -1957,6 +1959,12 @@ def render_inserts(ms: Manuscript, inserts: list[NewParagraph], tracked: bool = 
         template = next((r.find(qn("w:rPr")) for r in anchor.iter(qn("w:r")) if r.find(qn("w:rPr")) is not None), None)
         p = OxmlElement("w:p")
         ppr = OxmlElement("w:pPr")
+        jc = align(np_.role) if align else None
+        if jc:
+            el = OxmlElement("w:jc")
+            el.set(qn("w:val"), jc)
+            ppr.append(el)
+        base = (run_format(np_.role) if run_format else None) or {}
         if tracked:
             prpr = OxmlElement("w:rPr")
             mark = OxmlElement("w:ins")
@@ -1968,7 +1976,7 @@ def render_inserts(ms: Manuscript, inserts: list[NewParagraph], tracked: bool = 
         for text, fmt in np_.runs:
             pieces = [x for x in re.split(r"(\t)", text) if x]
             for piece in pieces:
-                r = _run_el(piece, fmt, template)
+                r = _run_el(piece, {**base, **(fmt or {})}, template)
                 if tracked:
                     w = OxmlElement("w:ins")
                     for k, v in ((qn("w:id"), str(next(ids))), (qn("w:author"), author), (qn("w:date"), date)):

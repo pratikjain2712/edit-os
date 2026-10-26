@@ -120,7 +120,7 @@ def test_table_renumbering_in_captions_and_citations(tmp_path):
     plan = rules_figures.renumber_plan(ms, st)
     assert set(plan) == {"Table"} and plan["Table"].mapping == {1: 1, 2: 2, 4: 3, 3: 4}
     cs = rules.run_all(ms, st)
-    assert {c.reason for c in cs.changes if c.new in ("3", "4")} == {"fig_renumber"}
+    assert {c.reason for c in cs.changes if c.new in ("3", "4") and not c.format_only} == {"fig_renumber"}
     qs = queries.collect(docmodel.load(path), st)
     assert "figures.order" not in {q.check for q in qs.queries}  # renumbered: the header carries the query
 

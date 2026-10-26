@@ -318,25 +318,23 @@ def _label_span(text: str, labels: list[str]) -> tuple[int, int] | None:
     return None
 
 
-def _tagged_headings(ms: Manuscript, style: JournalStyle) -> set[str]:
-    """Paragraphs the heading rules tag <H1> / <H2> / <H3> as a whole: a short line of its own (not a run-in
-    label split off its text)."""
+def _tagged_headings(ms: Manuscript, style: JournalStyle) -> dict[str, int]:
+    """{para id: level} of the paragraphs the heading rules tag <H1> / <H2> / <H3> as a whole: a short line of its
+    own (not a run-in label split off its text)."""
     from . import rules, rules_sections
 
     found = rules.rule_heading_tags(ms, style) + rules_sections.rule_headings(ms, style) \
         + rules_sections.rule_subheadings(ms, style)
     by_id = {p.id: p for p in ms.paragraphs}
-    levels = {f"<H{n}>" for n in style.get("formatting.heading_bold_levels", [1, 2, 3]) or []}
-    out = set()
+    out: dict[str, int] = {}
     for c in found:
         p = by_id.get(c.para_id)
-        if p is None or c.format_only or not c.new.startswith("<H") or p.text[:c.start].strip():
+        m = re.match(r"<H(\d)>", c.new)
+        if p is None or c.format_only or not m or p.text[:c.start].strip():
             continue
-        if c.new[:4] not in levels:
-            continue  # IJO: "H3 | Sentence Case, Italics" is not bold
         text = p.text.strip()
         if len(text) <= 80 and not re.search(r":\s*\S", text):
-            out.add(p.id)
+            out[p.id] = int(m.group(1))
     return out
 
 
@@ -353,7 +351,13 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     heads = _header_rows(paras) if _on(style, "table_head_bold") or _on(style, "table_body_unbold") else {}
     labels = style.get("formatting.bold_labels", []) or []
     styles = _Styles(ms)
-    tagged = _tagged_headings(ms, style) if _on(style, "heading_bold_tagged") else set()
+    italic_levels = set(style.get("formatting.heading_italic_levels", []) or [])
+    roman_levels = set(style.get("formatting.heading_roman_levels", []) or [])
+    levels = _tagged_headings(ms, style) if _on(style, "heading_bold_tagged") or italic_levels or roman_levels \
+        else {}
+    bold_levels = set(style.get("formatting.heading_bold_levels", [1, 2, 3]) or [])
+    # IJO: "H3 | Sentence Case, Italics" is not bold
+    tagged = {pid for pid, n in levels.items() if n in bold_levels} if _on(style, "heading_bold_tagged") else set()
     out: list[Change] = []
 
     def emit(p, spans, fmt, rule, layer=Layer.HOUSE_STYLE):
@@ -410,6 +414,11 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
             # A bold label with a roman colon looks the same: leave lone punctuation alone.
             emit(p, [(a, b) for a, b in spans if any(ch.isalnum() for ch in text[a:b])], {"bold": True}, "fmt_label")
 
+        if p.id in levels and not front and not label and levels[p.id] in italic_levels | roman_levels:
+            italic = levels[p.id] in italic_levels
+            emit(p, _regions(text, lambda i: not text[i].isspace() and bool(f[i].get("italic")) != italic,
+                             lambda i: bool(f[i].get("italic")) == italic),
+                 {"italic": italic}, "fmt_heading_italic", Layer.STRUCTURE)
         if p.id in tagged and not front and not label:
             emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
                  {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
@@ -436,4 +445,299 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     continue  # bold punctuation shows nothing
                 keep.append((s, e))
             emit(p, keep, {"bold": False}, "fmt_body_bold")
+    return out
+
+
+# --- font family, font size and alignment ----------------------------------------------------
+#
+# Pre-editing guide: paragraphs, author group, affiliations, correspondence, abstract text, the running head,
+# tables and the figure / graph labels "12 points font size" (G16, G41, G65, G86, G111, G142, G193, G260, G272);
+# the manuscript type, the title, the abstract heading, first-level headings and the Acknowledgement heading
+# "14 points" (G32, G37, G110, G133, G146); "left aligned" (G32-G142), the running head "center aligned" (G16).
+# The guide names no font family: `formatting.fonts.family` is the journal's (what its editors set).
+# Settings: `formatting.fonts` (base.yaml). Runs in a symbol font (Symbol, Wingdings, ...) keep their font.
+
+_SYMBOL_FONT = re.compile(r"symbol|wingdings|webdings|dingbat|mt extra|math", re.I)
+_ABSTRACT_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*abstract\s*[:.]?\s*$", re.I)
+_ACK_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*acknowledge?ments?\s*[:.]?\s*$", re.I)
+_H1_TAG = re.compile(r"^\s*<H1>")
+_EQUATION = ("{http://schemas.openxmlformats.org/officeDocument/2006/math}oMath", qn("w:object"))
+
+
+def fonts_settings(style: JournalStyle) -> dict | None:
+    """`formatting.fonts` when switched on (and formatting is), else None."""
+    cfg = style.get("formatting.fonts") or {}
+    if not style.get("formatting.enabled", True) or not cfg.get("enabled"):
+        return None
+    return cfg
+
+
+def insert_format(style: JournalStyle, role: str | None = None) -> dict | None:
+    """Run format for a paragraph the tool inserts (front-matter blocks, header lines, legends heading): the
+    journal's font and size, the heading size for the article type and title. None: fonts are off."""
+    cfg = fonts_settings(style)
+    if cfg is None:
+        return None
+    big = role in ("article_type", "title", "h1")
+    fmt = {"size": cfg.get("heading_size", 14) if big else cfg.get("size", 12)}
+    if cfg.get("family"):
+        fmt["font"] = cfg["family"]
+    return fmt
+
+
+def insert_align(style: JournalStyle, role: str | None = None) -> str | None:
+    """Alignment of an inserted paragraph: the running head centred (G16), the rest as `fonts.align`."""
+    cfg = fonts_settings(style)
+    if cfg is None or not cfg.get("align"):
+        return None
+    return cfg.get("running_head_align", "center") if role == "running_head" else cfg["align"]
+
+
+class _FontStyles(_Styles):
+    """Font size (points) and font family of paragraph and character styles, with the document defaults
+    and the theme fonts; a paragraph without a style takes the default paragraph style."""
+
+    def __init__(self, ms: Manuscript):
+        super().__init__(ms)
+        self.theme: dict[str, str] = {}
+        self.defaults: dict = {}
+        self.default_para = None
+        try:
+            root = ms.document.styles.element
+        except Exception:  # noqa: BLE001
+            root = None
+        try:
+            for part in ms.document.part.package.iter_parts():
+                if part.content_type.endswith("theme+xml"):
+                    from lxml import etree
+                    t = etree.fromstring(part.blob)
+                    a = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+                    for kind in ("major", "minor"):
+                        el = t.find(f".//{a}{kind}Font/{a}latin")
+                        if el is not None and el.get("typeface"):
+                            self.theme[kind] = el.get("typeface")
+                    break
+        except Exception:  # noqa: BLE001 - no theme: theme fonts stay unresolved
+            pass
+        if root is not None:
+            d = root.find(f"{qn('w:docDefaults')}/{qn('w:rPrDefault')}/{qn('w:rPr')}")
+            self.defaults = self.font_direct(d)
+            for s in root.iter(qn("w:style")):
+                if s.get(qn("w:type")) == "paragraph" and s.get(qn("w:default")) in ("1", "true", "on"):
+                    self.default_para = s.get(qn("w:styleId"))
+        self.fcache: dict = {}
+
+    def font_direct(self, rpr) -> dict:
+        out = {}
+        if rpr is None:
+            return out
+        sz = rpr.find(qn("w:sz"))
+        if sz is not None and (sz.get(qn("w:val")) or "").isdigit():
+            out["size"] = int(sz.get(qn("w:val"))) / 2
+        f = rpr.find(qn("w:rFonts"))
+        if f is not None:
+            name = f.get(qn("w:ascii")) or f.get(qn("w:hAnsi"))
+            theme = f.get(qn("w:asciiTheme")) or f.get(qn("w:hAnsiTheme"))
+            if theme:  # a theme font wins over the named one
+                name = self.theme.get("major" if theme.startswith("major") else "minor", name)
+            if name:
+                out["font"] = name
+        return out
+
+    def font_props(self, style_id: str | None, depth: int = 0) -> dict:
+        if not style_id or style_id not in self.by_id or depth > 10:
+            return {}
+        if style_id in self.fcache:
+            return self.fcache[style_id]
+        s = self.by_id[style_id]
+        based = s.find(qn("w:basedOn"))
+        out = dict(self.font_props(based.get(qn("w:val")), depth + 1)) if based is not None else {}
+        out.update(self.font_direct(s.find(RPR)))
+        self.fcache[style_id] = out
+        return out
+
+
+def font_chars(p: Paragraph, styles: _FontStyles) -> list[dict]:
+    """Effective font size (points) and family of each character of `p.text`."""
+    ppr_style = p.element.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+    sid = ppr_style.get(qn("w:val")) if ppr_style is not None else styles.default_para
+    base = {"size": 10.0, "font": "Times New Roman"}  # Word's own defaults when nothing sets them
+    base.update(styles.defaults)
+    base.update(styles.font_props(sid))
+    out = []
+    for r in text_runs(p.element):
+        rpr = r.find(RPR)
+        f = dict(base)
+        if rpr is not None:
+            rs = rpr.find(qn("w:rStyle"))
+            if rs is not None:
+                f.update(styles.font_props(rs.get(qn("w:val"))))
+            f.update(styles.font_direct(rpr))
+        out += [f] * len(run_text(r))
+    return out
+
+
+def paragraph_alignment(p: Paragraph, styles: _FontStyles) -> str:
+    """Effective alignment of a paragraph: its own <w:jc>, else its style's (basedOn), else left."""
+    _JC = {"start": "left", "end": "right", "distribute": "both"}
+    jc = p.element.find(f"{qn('w:pPr')}/{qn('w:jc')}")
+    if jc is not None:
+        v = jc.get(qn("w:val"))
+        return _JC.get(v, v)
+    ps = p.element.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+    sid = ps.get(qn("w:val")) if ps is not None else styles.default_para
+    for _ in range(10):
+        if not sid or sid not in styles.by_id:
+            break
+        s = styles.by_id[sid]
+        jc = s.find(f"{qn('w:pPr')}/{qn('w:jc')}")
+        if jc is not None:
+            v = jc.get(qn("w:val"))
+            return _JC.get(v, v)
+        b = s.find(qn("w:basedOn"))
+        sid = b.get(qn("w:val")) if b is not None else None
+    return "left"
+
+
+def heading_levels(ms: Manuscript, style: JournalStyle) -> dict[str, int]:
+    """{para id: level} of the paragraphs that are section headings of their own: tagged <H1> / <H2> / <H3> by
+    the heading rules (or already tagged), else the first-level headings docview finds."""
+    from . import docview
+
+    out = dict(_tagged_headings(ms, style))
+    for d in docview.classify(ms):
+        if d["id"] in out or d["kind"] != "heading" or d["front"] or d["cell"]:
+            continue
+        text = d["text"].strip()
+        m = re.match(r"<H(\d)>", text)
+        if m:
+            out[d["id"]] = int(m.group(1))
+        elif d["level"] == 1 and len(text) <= 80 and not re.search(r":\s*\S", text):
+            out[d["id"]] = 1
+    return out
+
+
+def _front_roles(ms: Manuscript, style: JournalStyle) -> dict[str, str]:
+    from . import frontmatter
+
+    try:
+        pl = frontmatter.plan(ms, style)
+    except Exception:  # noqa: BLE001 - no front-matter plan: no front-matter roles
+        return {}
+    return dict(pl.fields.roles) if pl.fields is not None else {}
+
+
+def heading_size_text(text: str) -> bool:
+    """A heading line that takes the 14-point heading size: <H1>, "Abstract", "Acknowledgement(s)"."""
+    return bool(_H1_TAG.match(text) or _ABSTRACT_HEAD.match(text) or _ACK_HEAD.match(text))
+
+
+def rule_fonts(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """The journal's font family and the guide's font sizes on every run, and its alignment on every paragraph
+    (settings `formatting.fonts`). One change per contiguous span that needs it."""
+    from . import docview
+
+    cfg = fonts_settings(style)
+    if cfg is None:
+        return []
+    family = cfg.get("family") or None
+    size, big = cfg.get("size", 12), cfg.get("heading_size", 14)
+    align = cfg.get("align") or None
+    styles = _FontStyles(ms)
+    levels = heading_levels(ms, style)
+    roles = _front_roles(ms, style)
+    by_id = {p.id: p for p in ms.paragraphs}
+    out: list[Change] = []
+    for d in docview.classify(ms):
+        p = by_id[d["id"]]
+        text = p.text
+        if not text.strip():
+            continue
+        role = roles.get(p.id)
+        rh = role == "running_title" or text.lstrip().startswith("<RH>")
+        heading = levels.get(p.id) == 1 or role in ("article_type", "title") or \
+            (not d["cell"] and (_ABSTRACT_HEAD.match(text) or _ACK_HEAD.match(text)))
+        want = big if heading and not rh else size
+        f = font_chars(p, styles)
+        if len(f) != len(text):
+            continue
+        keep = [bool(_SYMBOL_FONT.search(x.get("font") or "")) for x in f]
+
+        def need(i):
+            if keep[i]:
+                return False
+            return abs((f[i].get("size") or 0) - want) > 0.01 or bool(family and f[i].get("font") != family)
+
+        # One change from the first character that needs it to the last, broken only at symbol-font runs (runs
+        # already right in between take the same format, which changes nothing they show).
+        spans: list[tuple[int, int]] = []
+        open_at = last = None
+        for i in range(len(text) + 1):
+            if i == len(text) or keep[i]:
+                if open_at is not None:
+                    spans.append((open_at, last + 1))
+                open_at = None
+            elif need(i):
+                open_at = i if open_at is None else open_at
+                last = i
+        fmt = {"size": want, **({"font": family} if family else {})}
+        para_align = None
+        if align and not d["cell"] and not d["image"] and not any(True for _ in p.element.iter(*_EQUATION)):
+            target = cfg.get("running_head_align", "center") if rh else align
+            if paragraph_alignment(p, styles) != target:
+                para_align = target
+        lead, tail = len(text) - len(text.lstrip()), len(text.rstrip())
+        if para_align and len(spans) == 1 and spans[0][0] <= lead and spans[0][1] >= tail:
+            out.append(_fmt(p, spans[0][0], spans[0][1], text[spans[0][0]:spans[0][1]],
+                            {**fmt, "align": para_align}, Layer.HOUSE_STYLE, "fmt_font"))
+            continue
+        for s, e in spans:
+            out.append(_fmt(p, s, e, text[s:e], fmt, Layer.HOUSE_STYLE, "fmt_font"))
+        if para_align:
+            out.append(_fmt(p, 0, len(text), text, {"align": para_align}, Layer.HOUSE_STYLE, "fmt_align"))
+    return out
+
+
+def finish_fonts(ms: Manuscript, style: JournalStyle, kept: list[Change], replaced: list[Change]) -> list[Change]:
+    """After the overlap check (rules.run_all): text that a kept change replaces takes the font and size of the
+    formatting change it makes moot, and the alignment stays (the paragraph does); new paragraphs a change
+    opens get the journal's font and size (the heading size for <H1>, "Abstract", "Acknowledgements")."""
+    from .tracked import PARAGRAPH_BREAK
+
+    cfg = fonts_settings(style)
+    if cfg is None:
+        return kept
+    out = []
+    for c in kept:
+        cover = next((t for t in replaced if c.format_only and t is not c and t.para_id == c.para_id
+                      and t.start <= c.start and c.end <= t.end), None)
+        if cover is None or c.reason not in ("fmt_font", "fmt_align"):
+            out.append(c)
+            continue
+        carry = {k: v for k, v in c.format.items() if k in ("size", "font")}
+        if carry:
+            cover.format = {**carry, **(cover.format or {})}
+        if "align" in c.format and cover.new.strip(PARAGRAPH_BREAK + " "):
+            c.format = {"align": c.format["align"]}
+            c.reason = "fmt_align"
+            out.append(c)
+    texts = {p.id: p.text for p in ms.paragraphs}
+    for c in out:
+        if c.format_only or PARAGRAPH_BREAK not in c.new:
+            continue
+        segs = c.new.split(PARAGRAPH_BREAK)
+        sf = list(c.segment_format or [None])
+        sf += [None] * (len(segs) - len(sf))
+        # The first segment ends the paragraph the change is in: a heading split off its text ("ABSTRACT: We ..."
+        # -> "Abstract" + a new paragraph) takes the heading size when nothing stands before it.
+        first = 0 if heading_size_text(segs[0]) and not texts.get(c.para_id, "")[:c.start].strip() else 1
+        for i in range(first, len(segs)):
+            base = insert_format(style, "h1" if heading_size_text(segs[i]) else None) or {}
+            if isinstance(sf[i], list):  # [length, format] pieces: the text past them takes `format`, so a last piece
+                pieces = [[n, {**base, **(fm or {})}] for n, fm in sf[i]]
+                rest = len(segs[i]) - sum(n for n, _ in pieces)
+                sf[i] = pieces + ([[rest, dict(base)]] if rest > 0 else [])
+            else:
+                sf[i] = {**base, **(sf[i] or {})}
+        c.segment_format = sf
     return out

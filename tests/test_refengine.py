@@ -76,7 +76,7 @@ def test_lookup_rule_writes_word_level_changes(fake_pubmed, tmp_path):
     path = tmp_path / "m.docx"
     doc.save(path)
     cs = rules.run_all(docmodel.load(str(path)), style.load("ijo"))
-    entry = [c for c in cs.changes if c.para_id == "p0002"]
+    entry = [c for c in cs.changes if c.para_id == "p0002" and c.reason != "fmt_font"]  # (the font: whole entry)
     assert entry and all(c.reason == "ref_lookup" for c in entry)  # small reference rules step aside
     assert all(len(c.old) < 20 for c in entry)  # small edits, not one whole-entry replacement
     for c in cs.changes:

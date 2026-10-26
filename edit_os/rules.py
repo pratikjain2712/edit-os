@@ -1112,6 +1112,7 @@ RULES = {
     "formatting": rules_format.rule_formatting,  # before guide_replace: its "et al" -> "et al." is also italic
     "guide_replace": rules_guide.rule_guide,
     "format_cleanup": rules_format.rule_cleanup,  # author's colours, stray bold, labels and heads bold
+    "format_fonts": rules_format.rule_fonts,  # font family, sizes (12 pt, headings 14 pt) and alignment
 }
 
 # Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
@@ -1179,7 +1180,9 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     # Formatting on text that a kept change replaces is moot (the replacement carries its own
     # format), and showing it would split one edit into two suggestions.
     replaced = [k for k in kept if not k.format_only and k.end > k.start]
-    kept = [c for c in kept if not (c.format_only and any(
+    # (The font and size such formatting sets go onto the replacement; the paragraph's alignment stays.)
+    kept = rules_format.finish_fonts(ms, style, kept, replaced)
+    kept = [c for c in kept if c.reason == "fmt_align" or not (c.format_only and any(
         t.para_id == c.para_id and t.start <= c.start and c.end <= t.end for t in replaced))]
     if not only or "references" in only or "ref_lookup" in only:
         _reference_provenance(ms, style, kept)

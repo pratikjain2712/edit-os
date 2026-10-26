@@ -478,7 +478,8 @@ def _mark(el, ids, author: str, date: str):
 
 
 def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuses=None,
-           author: str = "Edit OS", align: str = "center") -> int:
+           author: str = "Edit OS", align: str = "center", run_format: dict | None = None,
+           legend_align: str | None = None) -> int:
     """Place figure inserts whose status is in `statuses` (default accepted) next to their anchors,
     as tracked insertions when `tracked`. Call after `tracked.render`. Returns how many were placed;
     an insert whose anchor or picture file is gone is skipped."""
@@ -528,7 +529,7 @@ def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuse
             p.append(_wrap(r, tracked, ids, author, date))
         block = [p]
         if n.legend:
-            block.append(_legend_paragraph(n.legend, tracked, ids, author, date))
+            block.append(_legend_paragraph(n.legend, tracked, ids, author, date, run_format, legend_align))
         if n.where == "after" and n.legend:  # a figure with no legend in the text, at the end of the document:
             body = ms.document.element.body     # after the First author block and the legends heading
             last = body[-1] if len(body) and body[-1].tag == qn("w:sectPr") else None
@@ -547,21 +548,30 @@ def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuse
     return placed
 
 
-def _legend_paragraph(text: str, tracked: bool, ids, author: str, date: str):
-    """"Figure N: ???" under a picture whose legend the manuscript lacks; the label bold (G260)."""
+def _legend_paragraph(text: str, tracked: bool, ids, author: str, date: str, run_format: dict | None = None,
+                      align: str | None = None):
+    """"Figure N: ???" under a picture whose legend the manuscript lacks; the label bold (G260). `run_format`,
+    `align`: the journal's font, size and alignment."""
     p = OxmlElement("w:p")
-    if tracked:
+    if tracked or align:
         ppr = OxmlElement("w:pPr")
-        prpr = OxmlElement("w:rPr")
-        prpr.append(_mark(OxmlElement("w:ins"), ids, author, date))
-        ppr.append(prpr)
+        if align:
+            jc = OxmlElement("w:jc")
+            jc.set(qn("w:val"), align)
+            ppr.append(jc)
+        if tracked:
+            prpr = OxmlElement("w:rPr")
+            prpr.append(_mark(OxmlElement("w:ins"), ids, author, date))
+            ppr.append(prpr)
         p.append(ppr)
     label, _, rest = text.partition(":")
     for part, bold in ((label + ":", True), (rest, False)):
         r = OxmlElement("w:r")
-        if bold:
+        fmt = {**(run_format or {}), **({"bold": True} if bold else {})}
+        if fmt:
+            from .tracked import apply_format
             rpr = OxmlElement("w:rPr")
-            rpr.append(OxmlElement("w:b"))
+            apply_format(rpr, fmt)
             r.append(rpr)
         t = OxmlElement("w:t")
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")

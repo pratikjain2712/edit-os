@@ -305,12 +305,14 @@ def _caption_table(p_el, side: str):
 
 # --- rendering -------------------------------------------------------------------------------
 
-def render(ms: Manuscript, inserts, statuses, *, tracked: bool, author: str, date: str) -> list[str]:
-    """Carry out the moves whose status is in `statuses` (call after tracked.render and the inserts). Returns notes."""
+def render(ms: Manuscript, inserts, statuses, *, tracked: bool, author: str, date: str,
+           run_format: dict | None = None, align: str | None = None) -> list[str]:
+    """Carry out the moves whose status is in `statuses` (call after tracked.render and the inserts); a heading it
+    adds has its runs in `run_format` (the journal's font and size) and is aligned `align`. Returns notes."""
     from .header import _Marks
 
     notes: list[str] = []
-    mk = _Marks(ms, author, date, tracked)
+    mk = _Marks(ms, author, date, tracked, run_format, align)
     for n in inserts:
         if not is_move(n) or n.status not in statuses:
             continue
@@ -422,17 +424,22 @@ def _move_legends(ms: Manuscript, n: BlockMove, mk) -> list[str]:
 
 
 def _heading(text: str, mk):
+    from .header import aligned
+
     p = OxmlElement("w:p")
-    ppr = OxmlElement("w:pPr")
+    ppr = aligned(OxmlElement("w:pPr"), mk)
     if mk.tracked:
         rpr = OxmlElement("w:rPr")
         rpr.append(mk.mark("w:ins"))
         ppr.append(rpr)
     p.append(ppr)
+    from .header import styled
+
     r = OxmlElement("w:r")
     rpr = OxmlElement("w:rPr")
     rpr.append(OxmlElement("w:b"))
     r.append(rpr)
+    styled(r, mk)
     t = OxmlElement("w:t")
     t.text = text
     r.append(t)

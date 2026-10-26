@@ -24,7 +24,7 @@ import json
 import os
 import sys
 
-from . import docmodel, frontmatter, journals, pipeline, qc, queries, references, rules, style, tracked
+from . import docmodel, frontmatter, journals, pipeline, qc, queries, references, rules, rules_format, style, tracked
 from .changes import ChangeSet, Status
 
 _manuscript_from_zip = pipeline.manuscript_from_zip
@@ -150,7 +150,9 @@ def main(argv: list[str]) -> int:
             if is_tracked:  # anchors from the original text
                 queries.write_comments(ms, front.add_queries(queries.collect(ms, st), ms))
             tracked.render(ms, changes, tracked=is_tracked)
-            frontmatter.render_inserts(ms, front.inserts, tracked=is_tracked)
+            frontmatter.render_inserts(ms, front.inserts, tracked=is_tracked,
+                                       run_format=lambda role: rules_format.insert_format(st, role),
+                                       align=lambda role: rules_format.insert_align(st, role))
             ms.save(out)
         queries.write_sheet(docmodel.load(path), qs, os.path.join(argv[3], f"{stem}_queries.xlsx"), stem)
         report = qc.check(docmodel.load(out), st)

@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, style as style_mod, submission, tracked
+from . import docmodel, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, rules_format, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -351,23 +351,31 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
     def conflict(kind):
         return lambda para_id, err: conflicts.append({"output": kind, "para_id": para_id, "error": str(err)})
 
+    # The journal's font and size (and alignment) for the paragraphs inserted at render time (formatting.fonts).
+    run_fmt, run_align = rules_format.insert_format(st), rules_format.insert_align(st)
+
     def render(kind: str, is_tracked: bool, statuses, comments: bool) -> docmodel.Manuscript:
         ms = docmodel.load(src)
         if comments:
             queries.write_comments(ms, qs)
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
         frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)
-                                        and not legends.is_move(n)], tracked=is_tracked, statuses=statuses)
+                                        and not legends.is_move(n)], tracked=is_tracked, statuses=statuses,
+                                   run_format=lambda role: rules_format.insert_format(st, role),
+                                   align=lambda role: rules_format.insert_align(st, role))
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
-                              align=st.get("figures.insert.align", "center"))
+                              align=st.get("figures.insert.align", "center"), run_format=run_fmt,
+                              legend_align=run_align)
         author = editor or header.AUTHOR
         # legends to the end and table captions into their tables first: renumbered tables then move with their caption
-        notes = legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date)
+        notes = legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date,
+                               run_format=run_fmt, align=run_align)
         notes += header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
         if kind == "clean":
             head_notes.extend(notes)
         header.render(ms, header.lines(st, head_info, changes, statuses, stages=man["stages"], editor=editor, when=when),
-                      tracked=is_tracked, author=author, date=rev_date, after=head_info.get("after"))
+                      tracked=is_tracked, author=author, date=rev_date, after=head_info.get("after"),
+                      run_format=run_fmt, align=run_align)
         if kind == "clean":
             tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
         return ms

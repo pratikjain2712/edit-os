@@ -159,6 +159,22 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   heading_bold_levels: [1, 2, 3]  # ... at these levels
   heading_no_underline: true   # no underline in headings
   body_unbold: true            # stray bold inside running text (labels and run-in headings stay)
+  heading_italic_levels: []    # tagged headings at these levels in italics (IJO S: "H3 | Sentence Case, Italics")
+  heading_roman_levels: []     # tagged headings at these levels not italic (S: "H1 | ... Bold, Roman")
+  # Font family, size and alignment of every run and paragraph (rules_format.rule_fonts), and of the paragraphs
+  # the tool inserts (front matter, header lines, legends heading, "Figure N: ???"). The guide is common to all
+  # journals: paragraphs, author group, affiliations, correspondence, abstract text, tables, figure labels 12 pt
+  # (G16-G142, G193, G260); article type, title, abstract heading, H1, Acknowledgement heading 14 pt bold (G32, G37,
+  # G110, G133, G146); "left aligned" throughout, the running head "center aligned" (G16). Off here until the owner
+  # confirms it for every journal (the editors of IJO, JEHP and MJDRDYPU set the whole file in Times New Roman
+  # 12 pt and never 14 pt: owner's list); on per journal.
+  fonts:
+    enabled: false
+    family: null               # the guide names no font: the journal's editors' (IJO, JEHP: Times New Roman)
+    size: 12
+    heading_size: 14
+    align: null                # left: paragraphs left aligned (not table cells, pictures or equations)
+    running_head_align: center
 
 figures:                        # figure and table citations and captions (rules_figures.py)
   citations: true

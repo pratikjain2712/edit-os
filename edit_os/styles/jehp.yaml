@@ -81,6 +81,16 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   heading_bold_tagged: true  # S: "H1 | Title case, Bold", "H2 | Sentence Case, Bold", "H3 | ... Bold, italics": every
                              # tagged heading in bold (editors bold the plain ones, tools/eval_format.py bold+)
   remove_font_color: false  # editors removed the author's colours in 2 of 17 articles (tool precision 31%)
+  heading_italic_levels: [3]   # S: "H3 | Sentence Case, Bold, italics"
+  heading_roman_levels: [1, 2]  # S: "H1 | Title case, Bold, Roman", "H2 | Sentence Case, Bold, Roman"
+  # Guide: 12 pt throughout, 14 pt for the article type, title, abstract heading, H1 and Acknowledgement heading,
+  # left aligned, the running head centred; the sheet adds only "fourth level ... 12 points font size,
+  # underlined". The JEHP editors set the whole file in Times New Roman 12 pt (te.docx: 33 of 33 articles, test and
+  # train), never 14 pt (0 of 33) and leave justified text justified (80% of the final paragraphs): owner's list.
+  fonts:
+    enabled: true
+    family: Times New Roman    # the guide and the sheet name no font: the editors' (32 of 33 articles)
+    align: left
 
 # copyedit.abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by
 # abbreviation in parentheses (only abbreviation should be used thereafter)": full form after the definition ->

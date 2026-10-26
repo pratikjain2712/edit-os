@@ -199,9 +199,26 @@ def tool_spans(changes) -> dict[str, list[dict]]:
         if not (c.format_only or (c.format and c.old.strip() and c.new.startswith(c.old))):
             continue
         for k, v in c.format.items():
-            lab = k + ("+" if v is True else "-")
+            if k == "align":  # a paragraph property: the editor's "para:jc" change
+                lab = "para:jc~"
+            elif isinstance(v, bool) or k in ("color", "highlight"):  # colour "auto": the author's colour out
+                lab = k + ("+" if v is True else "-")
+            else:  # a value (size 12, font "Times New Roman", colour "auto")
+                lab = k + "~"
             out[c.para_id].append(dict(start=c.start, end=c.end, label=lab, text=c.old, rule=c.reason))
     return out
+
+
+_VALUED = ("size", "font", "para:jc")
+
+
+def same_change(a: str, b: str) -> bool:
+    """Two labels make the same change; a size, font or alignment set, changed or cleared counts as one
+    (the editor's "size+" where the run had no size of its own, the tool's "size~" to 12 pt)."""
+    if a == b:
+        return True
+    fa, fb = a.rstrip("+-~"), b.rstrip("+-~")
+    return fa == fb and fa in _VALUED
 
 
 def context(d: dict) -> str:
@@ -238,10 +255,10 @@ def score(orig_path: str, editor_bytes: bytes, journal: str, front_sources=None,
             gone = [(a + shift, b + shift) for a, b in rec["deleted"]]
         tl = ours.get(p.id, [])
         for s in ed:
-            hit = any(t["label"] == s["label"] and t["start"] < s["end"] and s["start"] < t["end"] for t in tl)
+            hit = any(same_change(t["label"], s["label"]) and t["start"] < s["end"] and s["start"] < t["end"] for t in tl)
             rows.append(dict(label=s["label"], ctx=ctx, side="editor", hit=hit, text=s["text"], para=p.text))
         for t in tl:
-            hit = any(t["label"] == s["label"] and t["start"] < s["end"] and s["start"] < t["end"] for s in ed)
+            hit = any(same_change(t["label"], s["label"]) and t["start"] < s["end"] and s["start"] < t["end"] for s in ed)
             # Text the editor deleted (often to retype it) says nothing about its formatting.
             moot = not hit and any(a <= t["start"] and t["end"] <= b for a, b in gone)
             rows.append(dict(label=t["label"], ctx=ctx, side="moot" if moot or not paired else "tool", hit=hit, text=t["text"], para=p.text,
