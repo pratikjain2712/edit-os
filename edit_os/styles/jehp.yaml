@@ -69,7 +69,9 @@ guide_replace:
   # 23 closer / 1 further, unary_comparison 15 / 0, unary_minus (G300) 25 / 15 (1153 keeps the hyphen; 4 more
   # used an en dash), ampersand 2 / 2 (G293 asks for it), p_value_capital "p" heads 1646 ×3, ">=" 1787 ×2.
   table_rules: [range_dash, unary_minus, unary_comparison, p_value_capital, comparison_symbol, smart_quotes,
-                ampersand]  # unary signs closed up in cells too (G300 / G301; owner, 2026-10-26)
+                ampersand, operator_spacing]  # unary signs closed up in cells too (G300 / G301; owner, 2026-10-26);
+                                              # G7 "5.20± 1.30" -> "5.20 ± 1.30" in cells as in the text
+
 
 # S: "The caption should end with a period": table and figure captions alike (owner, 2026-10-26: keep the sheet over
 # G261, which deletes a legend's final period; editors 9 add, 8 leave none on table captions).
@@ -85,6 +87,13 @@ figures:
   # to square brackets'. A bracket that opens with "see" / "shown in" before the label is a citation too; the editors
   # drop the words ("(see Figure 1)" -> "[Figure 1]", "(shown in figure 5)" -> "[Figure 5]": 1401 ×13, 0 kept).
   bracket_lead_words: drop
+  # A bracket that holds other content too, "(P = 0.21; Table 2)": S260 speaks of citations in brackets, not of a
+  # bracket's other content; the one such bracket in the 33 test and training articles, 1874 "(25; 14.8%; Table 1)",
+  # the style and copy editors left as typed. Left as typed (true: "(P = 0.21) [Table 2]"; owner to confirm).
+  split_mixed_brackets: false
+  # " (Table 3)." alone on a line under a paragraph: the editors keep the line ("[Table 2].", 1646; the sheet is
+  # silent on where it goes), so it is asked about, not joined to the paragraph above
+  stray_citations: query
   # "analyses. (Table 3)" -> "analyses [Table 3].": the editors 3 of 3 (1044 ×2, 1039); the sheet is silent.
   before_full_stop: true
   table_caption_case: sentence  # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold
@@ -99,6 +108,9 @@ figures:
   # interval" too: owner, 2026-10-26).
   table_footnote_abbreviation: " = "
   table_footnote_delimiter: ","
+  # ... and asked of the author where the foot is short of it: abbreviations used in the table with no
+  # "term = definition" (S "Abbreviations should be first and footnotes next"), a symbol given two meanings or none
+  table_footnote_queries: true
   # "Table 1. Baseline characteristics (N=100). IQR, interquartile range; SD, standard deviation." -> caption +
   # footnote under the table (the editors in 1787; S: notes are table footnotes).
   table_caption_notes: split
@@ -118,6 +130,8 @@ figures:
   # The sheet is silent on where a table caption sits; the JEHP editors put it in a merged first row of the table in
   # every article whose captions were outside it (21 of 21 test and training articles with tables).
   table_caption_row: true
+  query_uncaptioned_images: true  # G244: a picture in the body with no caption beside it (more pictures than legends)
+  query_equation_images: true  # S292: "equations ... in image ... format, please raise a query"
   query_no_captions: true  # G244: figures cited, no legend in the file (1486: "Please confirm caption for all figures")
 
 sections:
@@ -138,6 +152,7 @@ sections:
     heading_case: true  # S: 'The word "Abstract" should be added as heading': "ABSTRACT" -> "Abstract" (editors 2 of 2)
   back_matter:
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+    heading_bold: true  # S: "H2 | Sentence Case, Bold": the statement headings added, renamed or split off are bold
     # The sheet and guide say nothing on nil statements: the editors' habit.
     delete_nil_statements: false  # the author's "The authors declare no conflict of interest." stays (10 of 13
                                   # articles keep the wording; deleting it hurt 13 paragraphs)
@@ -223,6 +238,9 @@ copyedit:
   abbreviations:
     defined_in_article: true
     allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD]
+    # S302 "Look for undefined acronyms and raise query": the questionnaire-validation and model-fit indices the common
+    # list lets pass are not general terms ("content validity was CVI 0.9, CVR 0.8")
+    query: [CVI, CVR, CFI, TLI, GFI, AGFI, NFI, NNFI, IFI, RMSEA, SRMR, AVE, HTMT]
 
 text:
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
@@ -244,6 +262,10 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
   # The sheet deletes phone, fax, URL in the correspondence and is silent on street and office lines: the editors
   # drop them when the address names the institution (1646, 1787, 1874: 3 of 3).
   correspondence_drop_street: true
+
+queries:
+  unmatched_brackets: true  # "(−1.20,3.40))", a stray bracket: only the author knows what was meant (the sheet asks
+                            # queries for what cannot be fixed)
 
 # Measured against the final copy-edited files (tools/eval_final.py; 17 training articles): rule precision = the
 # accepted changes the final text has, against those where it kept the author's wording.

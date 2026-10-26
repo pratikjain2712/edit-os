@@ -18,6 +18,7 @@ from .docmodel import Manuscript
 from .style import JournalStyle
 
 AUTHOR = "Edit OS"
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 # Standard wording, from the pre-editing style guide where it gives one.
 TEXT = {
@@ -45,7 +46,32 @@ TEXT = {
     "keywords.too_few": "Kindly provide minimum three key words.",
     "sections.conclusion": "Kindly provide the conclusion.",
     "figures.legend_missing": "Kindly provide the legend for Figure {n}.",
+    "text.brackets": "The brackets here do not match. Kindly check.",
 }
+
+
+def unmatched_brackets(text: str) -> tuple[int, int] | None:
+    """The span of a stray bracket: "(−1.20,3.40))", "((" / "))" doubled or a closing one with nothing open, in a
+    paragraph whose round or square brackets do not pair up. List markers ("a) ...", "1) ...", "i)") are not
+    strays."""
+    for o, c in ("()", "[]"):
+        if text.count(o) == text.count(c):
+            continue
+        depth = 0
+        for i, ch in enumerate(text):
+            if ch == o:
+                depth += 1
+            elif ch == c:
+                if depth == 0:
+                    if re.match(r"(?:^|.*[\s;,:])(?:[a-zA-Z]|\d{1,2}|[ivxIVX]{1,4})$", text[:i]) and not \
+                            text[i + 1:i + 2] == c:
+                        continue  # "a) first item", "2) ..."
+                    return i, i + 1
+                depth -= 1
+        m = re.search(re.escape(o) * 2 + "|" + re.escape(c) * 2, text)
+        if m:
+            return m.start(), m.end()
+    return None
 
 
 @dataclass
@@ -170,6 +196,14 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
                                                                 p.text, re.I)), None)
         if target is not None:
             qs.add(target.id, "sections.conclusion")
+    if style.get("queries.unmatched_brackets", False):
+        ref_ids = {r.para_id for r in refs}
+        for p in ms.paragraphs:
+            if p.id in ref_ids or not p.text.strip():
+                continue
+            span = unmatched_brackets(p.text)
+            if span:
+                qs.add(p.id, "text.brackets", *span)
     from . import renumber, rules_figures
     renumber.add_queries(ms, style, qs)
     rules_figures.add_queries(ms, style, qs)
@@ -194,6 +228,9 @@ def write_comments(ms: Manuscript, qs: QuerySet, author: str = AUTHOR) -> int:
             runs = [r for r, s, e in _spans(p.element) if s >= q.start and e <= q.end and e > s]
         else:
             runs = [r for r, s, e in _spans(p.element) if e > s]
+        if not runs:  # a paragraph holding only a picture (an equation or figure given as an image): its run
+            runs = [r for r in p.element.iter(_W + "r") if r.find(_W + "drawing") is not None
+                    or r.find(_W + "pict") is not None or r.find(_W + "object") is not None]
         if not runs:
             continue
         para = DocxParagraph(p.element, body)
@@ -217,7 +254,7 @@ def write_sheet(ms: Manuscript, qs: QuerySet, path: str, article: str = "") -> N
         c.font = Font(bold=True)
     for q in qs.queries:
         text = ms.by_id(q.para_id).text
-        where = text[q.start:q.end] if q.end > q.start else text
+        where = (text[q.start:q.end] if q.end > q.start else text) or "[image]"
         ws.append([q.id, where[:120], q.text, ""])
     for col, width in zip("ABCD", (8, 60, 70, 40)):
         ws.column_dimensions[col].width = width

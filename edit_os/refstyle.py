@@ -556,7 +556,8 @@ def restyle_other(text: str, style: JournalStyle, ai_title: str = "") -> str | N
     author's own words; None when the entry has neither shape or anything would be added."""
     if not style.get("references.style_unverified", True):
         return None
-    out = _restyle_apa_other(text, style, ai_title) or _restyle_endnote_other(text, style)
+    out = _restyle_apa_other(text, style, ai_title) or _restyle_endnote_other(text, style) \
+        or _restyle_dotted_other(text, style)
     if not out or invented(out, text, " ".join(TEMPLATE_WORDS)):
         return None
     return out
@@ -663,3 +664,30 @@ def _restyle_endnote_other(text: str, style: JournalStyle) -> str | None:
     if m.group("pages"):
         out += f". p. {refengine.format_pages(m.group('pages'), style)}"
     return out + "."
+
+
+_DOTTED_NAME = re.compile(r"\s*(?P<sur>[^\W\d_][\w'’\-]*(?:\s+[^\W\d_][\w'’\-]*){0,2}?),\s*(?P<ini>(?:[A-Z]\.\s*-?\s*){1,4})"
+                          r"(?:,?\s*(?:and|&)\s+)?")
+
+
+def _restyle_dotted_other(text: str, style: JournalStyle) -> str | None:
+    """A book whose authors are each "Surname, I." with no year after them: "Smith, J. Rao, K. lee, M. Family
+    counselling skills, London: Example Press; 2015." -> "Smith J, Rao K, Lee M. Family counselling skills.
+    London: Example Press; 2015." (the guide's book order, the author's own words)."""
+    t = text.strip()
+    names, pos = [], 0
+    while True:
+        m = _DOTTED_NAME.match(t, pos)
+        if not m or _bad_surname(refengine.capital_surname(m.group("sur").strip())):
+            break
+        names.append(f"{refengine.capital_surname(m.group('sur').strip())} {_initials(m.group('ini'))}")
+        pos = m.end()
+    if len(names) < 2:
+        return None
+    rest = t[pos:].strip()
+    p = re.match(rf"(?P<title>[^:;]{{3,250}}?)[,.]\s+(?P<city>[A-Z][A-Za-z .'-]{{1,35}}?)\s*:\s*(?P<pub>[^:;]{{2,90}}?)"
+                 rf"\s*[;,]\s*(?P<year>{_YEAR})\.?\s*$", rest)
+    if not p or len(p.group("title").split()) < 2:
+        return None
+    title = p.group("title").strip().rstrip(".")
+    return f"{_join_names(names, False, style)}. {title}. {p.group('city').strip()}: {p.group('pub').strip()}; {p.group('year')}."

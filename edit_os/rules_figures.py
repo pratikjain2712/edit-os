@@ -35,7 +35,159 @@ QUERY_TEXT = {
     "figures.uncited": "{kind} {n} has not been cited in the text part. Kindly cite.",
     "figures.part_case": "Figure part labels have been changed to lower case. Kindly check.",
     "figures.no_captions": "Kindly provide the captions for {figs}.",
+    # G244 / S: a figure with no caption (and here no citation either)
+    "figures.image_no_caption": "Kindly provide the caption for this figure and cite it in the text.",
+    # S292: 'In case of equations especially display equations in image or text format, please raise a query'
+    "figures.equation_image": "Please provide the equation in plain text or MathType Object format.",
+    # S: table foot "Abbreviations should be as per format term = definition ... Abbreviations should be first"
+    "figures.stray_citation": "This citation stands alone in its own paragraph. Kindly check where it belongs.",
+    "figures.footnote_abbreviations": "Kindly provide the expansion of {abbrs} in the table footnote.",
+    "figures.footnote_symbol_twice": "The symbol “{sym}” is used for more than one footnote. Kindly check.",
+    "figures.footnote_symbol_missing": "The symbol “{sym}” used in the table is not explained in the footnote. "
+                                       "Kindly check.",
 }
+
+_MARKER = re.compile(r"(?:^|(?<=[\s,;.(]))([*†‡§¶#]+)\s*(?=[A-Za-z(])")
+_CELL_MARKER = re.compile(r"([*†‡§¶#]+)(?=\s*[-−–]?\d)|(?<=\d)([*†‡§¶#]+)")
+
+
+def _table_of(p: Paragraph) -> str | None:
+    """The path of the (outermost) table holding the paragraph: a key that stays the same across calls."""
+    el, found = p.element, None
+    while el is not None:
+        if el.tag == f"{_W}tbl":
+            found = el
+        el = el.getparent()
+    return found.getroottree().getpath(found) if found is not None else None
+
+
+def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, int, int, str, dict]]:
+    """Queries on a table's footnote: abbreviations used in the table that the footnote does not expand ("Mean",
+    "SD", "95% CI" with no "SD = standard deviation, CI = confidence interval"); a symbol given two meanings
+    ("**Fisher's exact test, ... **Mann-Whitney U test"); a symbol used in the cells and not explained."""
+    if not style.get("figures.table_footnote_queries", False):
+        return []
+    from .copyedit import abbrev
+
+    out = []
+    paras = ms.paragraphs
+    index = {p.id: i for i, p in enumerate(paras)}
+    blocks = {}
+    for block in table_footnotes(ms):
+        i = index[block[0].id] - 1
+        while i >= 0 and not paras[i].in_table:
+            i -= 1
+        if i >= 0:
+            blocks[_table_of(paras[i])] = block
+    tables: dict[str, list[Paragraph]] = {}
+    for p in paras:
+        if p.in_table:
+            tables.setdefault(_table_of(p), []).append(p)
+    cap_ids = {c.para_id for c in captions(ms) if c.kind == TABLE}
+    for key_t, cells in tables.items():
+        if len(cells) < 4:
+            continue  # a one-cell box, not a data table
+        block = blocks.get(key_t, [])
+        foot = " ".join(q.text for q in block)
+        k = index[cells[0].id] - 1
+        while k >= 0 and not paras[k].text.strip():
+            k -= 1
+        cap = paras[k] if k >= 0 and paras[k].id in cap_ids else next((p for p in cells if p.id in cap_ids), None)
+        if cap is None:
+            continue  # not a numbered table (an appendix grid, a layout table)
+        anchor = cap
+        # abbreviations
+        defined = {d.short for p in cells for d in abbrev.definitions(p)}
+        allow = set(style.get("copyedit.abbreviations.allow") or [])
+        missing = []
+        for p in cells:
+            if p.id in cap_ids:
+                continue
+            # (a short cell, "SD" or "95% CI", is all capitals or "numeric" to the text checker: read it here)
+            found = [k for m in abbrev._USE.finditer(p.text) if (k := abbrev._abbr_key(m.group(1)))
+                     and k not in abbrev._NOT_ABBR] if len(p.text) <= 40 else [k for k, _, _ in abbrev.uses(p, True)]
+            for key in found:
+                if key in defined or key in allow or key in missing or re.search(r"\b" + re.escape(key) + r"\b", foot):
+                    continue
+                missing.append(key)
+        if missing:
+            abbrs = ", ".join(missing[:-1]) + " and " + missing[-1] if len(missing) > 1 else missing[0]
+            out.append((anchor, 0, 0, "figures.footnote_abbreviations", {"abbrs": abbrs}))
+        # symbols
+        marks = [(q, m) for q in block for m in _MARKER.finditer(q.text)]
+        seen: dict[str, int] = {}
+        for q, m in marks:
+            seen[m.group(1)] = seen.get(m.group(1), 0) + 1
+            if seen[m.group(1)] == 2:
+                out.append((q, m.start(1), m.end(1), "figures.footnote_symbol_twice", {"sym": m.group(1)}))
+        if marks:
+            used = []
+            for p in cells:
+                for m in _CELL_MARKER.finditer(p.text):
+                    sym = m.group(1) or m.group(2)
+                    if sym not in seen and sym not in [u for u, _ in used]:
+                        used.append((sym, p))
+            for sym, p in used:
+                k = p.text.find(sym)
+                out.append((p, k, k + len(sym), "figures.footnote_symbol_missing", {"sym": sym}))
+    return out
+
+_EMU_INCH = 914400
+
+
+def _image_size(p: Paragraph) -> tuple[int, int] | None:
+    """(width, height) in EMU of the first inline / anchored picture in the paragraph."""
+    for el in p.element.iter("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}extent"):
+        try:
+            return int(el.get("cx")), int(el.get("cy"))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _equation_like(p: Paragraph, size: tuple[int, int] | None) -> bool:
+    """A picture of a display equation: a short, wide image on a line of its own (no text), e.g. a sample-size
+    formula pasted as a picture (235 x 73 px)."""
+    if size is None or p.text.strip():
+        return False
+    w, h = size
+    return 0 < h <= 0.9 * _EMU_INCH and w >= 2.2 * h and w <= 6.5 * _EMU_INCH
+
+
+def image_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, str]]:
+    """(paragraph, check) for pictures in the body: an equation given as an image (S292) and a figure with no caption
+    next to it when the file has fewer figure captions than pictures (G244)."""
+    from . import references
+    from .docmodel import has_picture
+    from .rules import front_matter_ids
+
+    eq_on = style.get("figures.query_equation_images", False)
+    cap_on = style.get("figures.query_uncaptioned_images", False)
+    if not (eq_on or cap_on):
+        return []
+    front = front_matter_ids(ms)
+    ref_i = references.find_heading(ms)
+    paras = ms.paragraphs[:ref_i] if ref_i is not None else ms.paragraphs
+    pics = [p for p in paras if not p.in_table and p.id not in front and has_picture(p.element)]
+    caps = [c for c in captions(ms) if c.kind == FIG]
+    legend_ids = {q.id for leg in legends(ms) for q in leg.paragraphs} | {c.para_id for c in caps}
+    order = {p.id: k for k, p in enumerate(ms.paragraphs)}
+    out = []
+    figures = []
+    for p in pics:
+        size = _image_size(p)
+        if _equation_like(p, size):
+            if eq_on:
+                out.append((p, "figures.equation_image"))
+            continue
+        figures.append(p)
+    if cap_on and len(figures) > len(caps):
+        for p in figures:
+            k = order[p.id]
+            near = [q for q in ms.paragraphs[max(0, k - 3):k + 4] if q is not p and q.text.strip()]
+            if not any(q.id in legend_ids for q in near) and caption_match(p) is None:
+                out.append((p, "figures.image_no_caption"))
+    return out
 
 
 # --- parsing -------------------------------------------------------------------------
@@ -420,7 +572,11 @@ def caption_match(p: Paragraph) -> re.Match | None:
         if re.match(r"\w+\s+" + _VERB, rest) or re.match(r"\([^)]{0,30}\)\s+" + _VERB, rest):
             return None  # "Figure 4 (above) shows ...": a sentence
     elif has_punct and m.group("sep").strip().startswith(".") and rest[0].islower() and not parted:
-        return None
+        # "Table 3. summarizes the scores ..." on its own line right above or below a table is that table's
+        # caption all the same; elsewhere "Table 3. was ..." is a broken sentence.
+        if not (m.group("word").lower().startswith("tab") and not p.in_table and len(rest) < 400
+                and _beside_table(p.element)):
+            return None
     if m.group("num").isdigit():
         n = int(m.group("num"))
     else:
@@ -1247,6 +1403,11 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(cap.number) + r"[A-Za-z]?\s*[.:\-–]\s*", rest, re.I)
         if dup and not m.group("part"):
             rest_start += dup.end()
+        # "Table 3. summarizes the mean scores ..." -> "Table 3: Mean scores ...": a sentence's verb
+        # typed after the label is not part of the caption.
+        verb = re.match(_VERB + r"\s+(?:the\s+|an?\s+)?(?=[a-z])", p.text[rest_start:]) if cap.kind == TABLE else None
+        if verb:
+            rest_start += verb.end()
         sep = style.get("figures.caption_separator", ": ")
         new_label = f"{label} {cap.number}{suffix}{sep}{new_rest_prefix}"
         old_label = p.text[m.end("lead"):rest_start]
@@ -1459,6 +1620,40 @@ def _supplementary_citations(p: Paragraph, style: JournalStyle, lead_words: str 
     return out
 
 
+def _stray_citation(ms: Manuscript, prev: Paragraph | None, p: Paragraph, style: JournalStyle, sole,
+                    order: dict) -> list[Change] | None:
+    """A paragraph holding only a bracketed figure / table citation (" (Table 3)."), right after a body paragraph
+    that ends a sentence: the citation goes before that paragraph's final stop ("... the groups [Table 3].") and the
+    stray line goes (S260: square brackets; a citation is part of its sentence)."""
+    from .rules import _change
+
+    m = re.fullmatch(r"\s*[(\[{]\s*(.+?)\s*[)\]}]\s*\.?\s*", p.text)
+    if not m or prev is None or not prev.text.rstrip().endswith(".") or order[prev.id] + 1 > order[p.id]:
+        return None
+    if any(q.text.strip() or q.in_table for q in ms.paragraphs[order[prev.id] + 1:order[p.id]]):
+        return None
+    groups = [g for g in parse_groups(m.group(1), anycase=True) if _with_number(g, sole)]
+    if len(groups) != 1 or groups[0].start != 0 or groups[0].end != len(m.group(1)):
+        return None
+    stop = len(prev.text.rstrip()) - 1
+    if re.search(r"\[[^\]]*\]\s*\.$", prev.text.rstrip()) and prev.text.rstrip()[:-1].rstrip().endswith(
+            "[" + render_group(groups[0], style) + "]"):
+        cite = None  # the same citation already closes the sentence
+    else:
+        cite = f" [{render_group(groups[0], style)}]"
+    out = [_change(p, 0, len(p.text), "", Layer.TABLES_FIGURES, "fig_citations")]
+    if cite:
+        out.append(_change(prev, stop, stop, cite, Layer.TABLES_FIGURES, "fig_citations"))
+    group = f"stray-{p.id}"
+    for c in out:
+        c._group = group
+    return out
+
+
+# The other content of a round bracket that ends with a figure / table citation: "(P = 0.21; Table 2)".
+_MIXED_OPEN = re.compile(r"\((?=[^()\[\]]*\w)[^()\[\]]{1,80}?(?P<sep>\s*[;,]\s*)$")
+
+
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.citations", True):
         return []
@@ -1470,8 +1665,15 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     lead_words = style.get("figures.bracket_lead_words")  # None: left as typed; "drop" / "keep"
     sole = sole_figure(ms)
     out = []
-    for p in _citation_paragraphs(ms):
+    paras = _citation_paragraphs(ms)
+    order = {q.id: k for k, q in enumerate(ms.paragraphs)}
+    for k, p in enumerate(paras):
         t = p.text
+        joined = _stray_citation(ms, paras[k - 1] if k else None, p, style, sole, order) \
+            if square and style.get("figures.stray_citations") == "join" else None
+        if joined:  # " (Table 3)." alone on a line: the end of the paragraph above it ("... the groups [Table 3].")
+            out += joined
+            continue
         if square:
             out += _supplementary_citations(p, style, lead_words)
         fmts = char_formats(p) if unbold else []
@@ -1502,6 +1704,15 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 o, bracketed = lw.start(), True
                 if lead_words == "keep":
                     opener = "[" + re.sub(r"\s+", " ", lw.group("w")).rstrip() + " "
+            mixed = None if bracketed or not square or not style.get("figures.split_mixed_brackets") \
+                or c >= len(t) or t[c] != ")" or suffix else _MIXED_OPEN.search(t, 0, s)
+            if mixed and t.count("(", mixed.start(), s) == 1 and ")" not in t[mixed.start():s]:
+                # S260 "citations ... within round brackets ... changed to square brackets", the bracket holding
+                # other content too: "(P = 0.21; Table 2)" -> "(P = 0.21) [Table 2]"
+                from .rules import _change
+                out.append(_change(p, mixed.start("sep"), s, ") [", Layer.TABLES_FIGURES, "fig_citations"))
+                out += _diff(p, s, t[s:c + 1], f"{new}]", "fig_citations")
+                continue
             if bracketed and square:
                 lead = ""
                 if o > 0 and (t[o - 1].isalnum() or t[o - 1] == "]"):
@@ -1580,6 +1791,16 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         return
     queries = _q()
     queries.TEXT.update({k: v for k, v in QUERY_TEXT.items() if k not in queries.TEXT})
+    for p, check in image_queries(ms, style):
+        qs.add(p.id, check, 0, len(p.text))
+    for p, s0, e0, check, fmt in footnote_queries(ms, style):
+        qs.add(p.id, check, s0, e0, **fmt)
+    if style.get("figures.stray_citations") == "query":
+        paras = _citation_paragraphs(ms)
+        order = {q.id: k for k, q in enumerate(ms.paragraphs)}
+        for k, p in enumerate(paras):
+            if k and _stray_citation(ms, paras[k - 1], p, style, sole_figure(ms), order):
+                qs.add(p.id, "figures.stray_citation", 0, len(p.text))
     cits = citations(ms)
     caps = [c for c in captions(ms)]
     lines = _line_captions(ms)  # "... text.\nTable 2: Means ..." just above its table (1764): provided, not a caption

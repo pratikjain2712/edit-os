@@ -753,9 +753,31 @@ def malformed_authors(r: biblio.Record) -> bool:
     return any(_bad_name(s, i) for s, i in r.authors)
 
 
+# Lower-case particles a surname may open with (G63: "van", "von", "der", "de" ... are part of the surname).
+_PARTICLES = frozenset("van von der den de del della di da das dos du la le ter ten bin binti al el ibn zu af av".split())
+
+
+def capital_surname(surname: str) -> str:
+    """A surname a record gives in lower case ("kumari"): capitalised, its particles aside ("van den Berg")."""
+    words = surname.split(" ")
+    if not any(w[:1].islower() and w.lower() not in _PARTICLES for w in words):
+        return surname
+    if all(w[:1].islower() for w in words) and words[-1].lower() in _PARTICLES:
+        return surname
+    out = []
+    for k, w in enumerate(words):
+        if w[:1].islower() and (w.lower() not in _PARTICLES or k == len(words) - 1):
+            w = "-".join(x[:1].upper() + x[1:] for x in w.split("-"))
+        out.append(w)
+    return " ".join(out)
+
+
 def _surname_case(surname: str, initials: str, p: Parsed | None) -> str:
     """A surname CrossRef gives in capitals ("BLOOM", "VanLEHN"): as the entry writes it when it is the same
-    name, else capitalised (all capitals only). Group names and short ones ("WHO") stay."""
+    name, else capitalised (all capitals only). Group names and short ones ("WHO") stay. A person's surname
+    is never left in lower case ("kumari M" -> "Kumari M")."""
+    if initials and re.match(r"[a-z]", surname):
+        surname = capital_surname(surname)
     odd = bool(re.search(r"[a-z][A-Z]{3,}", surname))  # "VanLEHN"
     if not initials or not (surname.isupper() or odd) or len(surname) < 3:
         return surname
@@ -846,7 +868,33 @@ Kong Britain England Scotland Wales Ireland Russia Ukraine Chile Peru Argentina 
 Kolkata Bangalore Bengaluru Hyderabad Pune Kerala Karnataka Gujarat Punjab Rajasthan Maharashtra Tamil Nadu
 Andhra Pradesh Telangana Odisha Bengal Bihar Haryana Assam London Paris Boston Baltimore Beijing Shanghai Tokyo
 Linn Linnaeus
+Tehran Ahvaz Kerman Yazd Shiraz Isfahan Esfahan Mashhad Tabriz Qom Karaj Rasht Zahedan Kermanshah Hamadan Urmia
+Ardabil Sanandaj Bandar Abbas Bushehr Zanjan Qazvin Semnan Gorgan Sari Babol Arak Khorramabad Ilam Yasuj Birjand
+Bojnurd Shahrekord Kashan Rafsanjan Sabzevar Neyshabur Khuzestan Fars Khorasan Sistan Baluchestan Mazandaran Gilan
+Golestan Lorestan Kurdistan Hormozgan Markazi Persian Arab Arabic Afghanistan Kabul Dhaka Karachi Lahore Islamabad
+Kathmandu Colombo Riyadh Jeddah Dubai Doha Kuwait Oman Qatar Bahrain Jordan Lebanon Syria Yemen Cairo Istanbul Ankara
+Tanzania Uganda Rwanda Zambia Zimbabwe Malawi Mozambique Cameroon Sudan Morocco Tunisia Algeria Libya Senegal Africa
+Lagos Nairobi Addis Ababa Johannesburg Toronto Montreal Vancouver Sydney Melbourne Auckland Zealand Seoul Busan
+Hong Taipei Bangkok Jakarta Manila Hanoi Kuala Lumpur Myanmar Cambodia Laos Mongolia Kazakhstan Uzbekistan Azerbaijan
+Armenia Georgia Belgium Hungary Romania Bulgaria Serbia Croatia Czech Slovakia Slovenia Estonia Latvia Lithuania
+Iceland Scandinavia Scandinavian Latin Caribbean Cuba Jamaica Ecuador Bolivia Paraguay Uruguay Guatemala Honduras
+Panama Rica Nicaragua Salvador Haiti Dominican Puerto Rico Iranian Iraqi Turkish Pakistani Afghan Saudi Emirati
+Nepalese Nepali Bangladeshi Japanese Korean Swedish Norwegian Danish Finnish Dutch German French Italian Spanish
+Portuguese British English Scottish Irish Welsh Russian Polish Greek Brazilian Mexican Canadian Australian Nigerian
+Ethiopian Kenyan Ghanaian Egyptian Israeli Malaysian Thai Vietnamese Indonesian Filipino Taiwanese Chinese
+Islamic Muslim Muslims Christian Christians Hindu Hindus Buddhist Ramadan Quran Koran Gottman Olson Bandura Ajzen
+Fishbein Rogers Rosenberg Beck Erikson Maslow Freud Piaget Vygotsky Kolb Kirkpatrick Glasser Satir Bowen
+Minuchin Lazarus Folkman Pender Orem Roy Neuman Watson Peplau Nightingale Henderson Leininger Becker Prochaska
+DiClemente Kübler Ross Bronfenbrenner Seligman Csikszentmihalyi Goleman Sternberg Gardner
 """.split())
+
+# A word after a place's name that is part of the name: "Yazd City", "Fars Province", "Shiraz University".
+_NAME_TAIL = frozenset("City Province County District State Region Island Islands University Hospital".split())
+# Possessive nouns that are not names ("Women's", "Patients’"): lower-cased like other words.
+_COMMON_POSSESSIVES = frozenset("""women men children child people patients patient parents parent mothers mother
+    fathers father physicians physician nurses nurse doctors doctor students student teachers teacher users user
+    consumers consumer today world year years girls boys adolescents caregivers family families infants infant
+    society community country nation individuals individual others couples couple wives husbands spouses""".split())
 
 _MINOR_WORDS = {"a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by", "in", "of",
                 "on", "to", "up", "via", "with", "from", "into", "over", "per", "vs", "versus"}
@@ -931,7 +979,10 @@ def dictionary_proper_nouns(title: str) -> set[str]:
     keep = set()
     for m in re.finditer(r"[A-Z][a-z'’]+", title):
         w = m.group(0)
-        if w in caps:
+        base = re.sub(r"[’']s?$", "", w)
+        if base != w and (base in caps or base in PROPER_NOUNS):  # "Olson’s", "Johnson’s": a name's possessive
+            keep.update({w, base})
+        elif w in caps:
             keep.add(w)
         elif lower and w.lower() not in lower and _EPONYM_NEXT.match(title, m.end()):
             keep.add(w)
@@ -976,8 +1027,21 @@ def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
     (ASCO, GLOBOCAN, U.S.), words with inner capitals or digits (mRNA, COVID-19) and proper nouns:
     those in `keep` (see `proper_nouns`) and in PROPER_NOUNS."""
     keep = set(keep) | PROPER_NOUNS
+    lower_words = _dictionary_words()[0]
+
+    def kept(core: str) -> bool:
+        if core in keep:
+            return True
+        base = re.fullmatch(r"([A-Z][a-z]+)[’']s?", core)  # "Bowen’s Family Systems Theory": a name's possessive
+        if base:
+            b = base.group(1)
+            return b in keep or (b.lower() not in _COMMON_POSSESSIVES and b.lower() not in lower_words
+                                 and not b.lower().endswith(("ers", "ents", "ians", "ists")))
+        return False
+
     words = re.split(r"(\s+|[–—])", title)
     out, first = [], True
+    prev_kept = False
     for w in words:
         if w.isspace() or not w:
             out.append(w)
@@ -1002,9 +1066,12 @@ def sentence_case(title: str, keep: set[str] | frozenset = frozenset()) -> str:
         elif _dash_compound(core):
             left, right = core.split("-")
             out.append(w.replace(core, (left if left in keep else left.lower()) + "-" + right, 1))
+        elif kept(core) or (prev_kept and core in _NAME_TAIL):  # "Yazd City"
+            out.append(w)
         else:
             parts = [p if p in keep else p.lower() for p in core.split("-")]
             out.append(w.replace(core, "-".join(parts), 1))
+        prev_kept = bool(core) and core[:1].isupper() and kept(core) and w == core
         first = w.endswith((":", "?", "!")) or (w.endswith(".") and len(core) > 3)
     return "".join(out)
 
@@ -1114,6 +1181,11 @@ def cut_initials(name: str, max_initials: int) -> str:
     return f"{m.group('sur')} {m.group('ini')[:letters[max_initials - 1] + 1]}{m.group('suffix') or ''}"
 
 
+_CONCEPT = re.compile(r"\b(?:(?:Extended\s+)?Theory of Planned Behaviou?r|Theory of Reasoned Action|Health Belief Model|"
+                      r"Social Cognitive Theory|Transtheoretical Model|Protection Motivation Theory|"
+                      r"Self-Determination Theory|Social Learning Theory)\b")
+
+
 def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None, keep: frozenset | set = frozenset()) -> str:
     """The entry in journal style from a record (or, for an entry not verified, the author's own fields: refstyle).
     `keep`: title words that keep their capital besides the known names."""
@@ -1135,11 +1207,16 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
         author_text += n
     title = re.sub(r"\s+", " ", _usable_title(r, p)).strip()
     title = _author_wording(title, p.title if p else "")
+    title = re.sub(r"\bcovid[\s‐‑-]*19\b", "COVID-19", title, flags=re.I)  # "covid 19" -> "COVID-19"
     if title.endswith("."):
         title = title[:-1]
     if style.get("references.title_sentence_case"):
         title = sentence_case(title, proper_nouns(r.title, p.title if p else "") | dictionary_proper_nouns(title)
                               | latin_names(title) | latin_names(r.title) | set(keep))
+        # A theory's or model's name is no proper noun: "with the Theory of Planned Behaviour" -> "theory of planned
+        # behaviour" (sentence case, as the JEHP list writes "extended theory of planned behavior"), not opening it.
+        title = _CONCEPT.sub(lambda m: m.group(0) if not title[:m.start()].strip() or
+                             title[:m.start()].rstrip().endswith((":", "?", "!")) else m.group(0).lower(), title)
     title = _quotes(title, style, p)
     if style.get("references.capitalize_after_colon"):
         title = re.sub(r":\s([a-z])", lambda m: ": " + m.group(1).upper(), title)
