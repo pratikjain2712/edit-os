@@ -139,14 +139,17 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
                 qs.add(ref.para_id, check, **fmt, **span)
 
     # Key words.
-    kw = next((p for p in ms.paragraphs if re.match(r"^\s*(?:<H\d>)?\s*key\s*-?words?\b", p.text, re.I)), None)
-    if kw is not None:
-        words = [w for w in re.split(r"[;,]", re.sub(r"^\s*(?:<H\d>)?\s*key\s*-?words?\s*[:.\-–]?", "", kw.text, flags=re.I))
-                 if w.strip()]
-        if not words:
-            from .rules_sections import listed_keywords
+    from .rules_sections import layout, listed_keywords
 
-            words = listed_keywords(ms)  # "Key words" on its own line, the list below it
+    kw = layout(ms).keywords  # also a "Keywords:" line ending an abstract paragraph
+    if kw is None:
+        kw = next((p for p in ms.paragraphs if re.match(r"^\s*(?:<H\d>)?\s*key\s*-?words?\b", p.text, re.I)), None)
+    if kw is not None:
+        # the list as the key-words rule reads it ("Diabetes Mellitus, Type 2; ..." is one key word with its comma);
+        # "Key words" on its own line, the list below it
+        words = listed_keywords(ms) if kw is layout(ms).keywords else [
+            w for w in re.split(r"[;,]", re.sub(r"^\s*(?:<H\d>)?\s*key\s*-?words?\s*[:.\-–]?", "", kw.text, flags=re.I))
+            if w.strip()]
         if not words and not (style.get("sections.keywords.from_xml") and rules_sections_xml(ms)):
             qs.add(kw.id, "keywords.missing")
         elif len(words) < style.get("keywords.min", 3):
@@ -158,7 +161,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     rules_sections.add_queries(ms, style, qs)
 
     # Expected sections.
-    heads = {re.sub(r"^<H\d>|:$", "", p.text.strip()).strip().lower() for p in ms.paragraphs if len(p.text) < 80}
+    # each line: a heading after a manual line break in a longer paragraph ("... [18].\nConclusion") is one too
+    heads = {re.sub(r"^<H\d>|:$", "", line.strip()).strip().lower() for p in ms.paragraphs
+             for line in p.text.split("\n") if len(line) < 80}
     if "conclusion" in style.get("expected_h1", []) and not heads & {"conclusion", "conclusions"}:
         # the Discussion heading as written: "Discussion", "<H1>Discussion", "Discussion:", "4. Discussion"
         target = next((p for p in ms.paragraphs if re.fullmatch(r"\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?discussion\s*[:.]?\s*",

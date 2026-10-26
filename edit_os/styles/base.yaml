@@ -35,6 +35,10 @@ headings:
   subheading_plain_min_next: 200  # a plain (not bold / italic) head needs running text this long after it
   back_matter_subheadings: false  # after the Conclusion: a short bold (or Word heading style) line over a statement
                                   # ("Data availability", "Consent for publication") -> <H2>
+  sentence_case_brackets: false  # sentence case also in brackets whose words the text writes in lower case:
+                                 # "(In Vitro)" -> "(in vitro)" ("(Index Case)" kept: IJO editors)
+  nested_subheadings: false  # a head over another head is its parent (<H2> over <H3>), heads over a caption, bold run-in
+                             # methods labels split off, Word heading styles giving the level (per journal: JEHP)
   sentence_case_hyphen_parts: false  # sentence case also after a hyphen: "Long-Term Follow-Up" -> "Long-term follow-up"
   subheading_case: sentence  # keep | sentence: <H2> / <H3> heads "Statistical Analysis" -> "Statistical analysis"
                              # (S: "H2 | Sentence Case, Bold" / "H3 | Sentence Case", all 41 sheets)
@@ -311,10 +315,15 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     reword_nil: true             # under the standard heading, "The authors declare no conflict of interest." ->
                                  # the required section's default wording ("None" -> "Nil." regardless)
     add_missing: true            # required_sections not stated -> heading + default before references
+    split_run_in: false          # "Acknowledgement: The authors ...", several statements run on in one paragraph -> a
+                                 # heading and its statement each (per journal: JEHP)
+    data_heading: null           # with split_run_in: the heading a "Data availability:" label takes (null: as written)
     delete_declarations_heading: true  # a bare "Declarations" / "Statements and declarations" heading over the
                                        # statements goes (editors: 13 of 14)
     delete_nil_ethics: true      # "Ethics: Not required ...", "Consent for publication: Not applicable" go (7 of 7
                                  # inline ones; a heading with "Not applicable" under it is kept: ABR)
+    nil_ethics_bare_only: false  # with delete_nil_ethics: only a bare "Not applicable." goes, inline or on the line under
+                                 # its heading (with the heading); one giving a reason stays (per journal: JEHP)
     acknowledgement_heading: singular  # S (41 sheets): 'If heading "Acknowledgements" is present, then please delete
                                        # "s"' (singular: drop the final s; a string: that heading; null: as typed).
                                        # Editors changed 0 of 17: owner's list
