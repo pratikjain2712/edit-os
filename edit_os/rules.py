@@ -43,7 +43,7 @@ _SQUARE = re.compile(r"(\s*)\[(" + _NUMS + r")\]([.,;:]?)")
 _SQUARE_DOT = re.compile(r"(\s*)\[([1-9]\d{0,2})\.([1-9]\d{0,2})\]([.,;:]?)")
 # A year right before a round-bracket number: "previously reported in 2008 (7), presented" cites (a count after a
 # number, "45 (12)", does not).
-_YEAR_BEFORE_ROUND = re.compile(r"(?:\b(?:in|since|from|until|by|during)|\bet\.?\s+al\.?,?)\s+(?:19|20)\d{2}$", re.I)
+_YEAR_BEFORE_ROUND = re.compile(r"(?:\b(?:in|since|from|until|by|during)|\bet\.?\s+al\.?,?)\s+(?:1[89]|20|21)\d{2}$", re.I)
 
 
 class _DotCitation:
@@ -355,6 +355,45 @@ def _other_citations(p: Paragraph) -> list[tuple[int, list[int]]]:
     return sorted((s, n) for s, n in out if n)
 
 
+_SCALE_CONTEXT = re.compile(r"\b(?:likert|scale|scored?|scoring|rated|rating|responses?|options?|answers?)\b", re.I)
+
+
+def _scale_options(text: str, matches: list[re.Match]) -> list[re.Match]:
+    """Round-bracket numbers in a list of answer options: "never (0), sometimes (1), often (2)",
+    "very good (4), good (3), poor (2)": a run of two or more small values a few words apart, read as
+    options when an option is a scale word, or the paragraph speaks of a scale and the run is made of
+    option words, or the values run down ("(5) ... (4) ... (3)") or start at zero."""
+    out: list[re.Match] = []
+    run: list[re.Match] = []
+
+    def close():
+        if len(run) < 2:
+            return
+        vals = [int(m.group(2)) if m.group(2).isdigit() else None for m in run]
+        if None in vals or any(v > 10 for v in vals):
+            return
+        words = []
+        for m in run:
+            w = re.search(r"([A-Za-z]+)\s*$", text[:m.start()])
+            words.append(w.group(1).lower() if w else "")
+        strong = any(w in SCALE_WORDS for w in words)
+        weak = all(w in SCALE_WORDS or w in SCALE_WEAK_WORDS for w in words) and _SCALE_CONTEXT.search(text)
+        down = all(b == a - 1 for a, b in zip(vals, vals[1:]))
+        zero = vals[0] == 0 and all(b == a + 1 for a, b in zip(vals, vals[1:]))
+        if strong or weak or down or zero:
+            out.extend(run)
+
+    for m in matches:
+        if run:
+            gap = text[run[-1].end():m.start()]
+            if len(gap) > 40 or re.search(r"[.;:\[\]()]", gap) or len(gap.split()) > 4:
+                close()
+                run = []
+        run.append(m)
+    close()
+    return out
+
+
 def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]) -> set[tuple[str, int]]:
     """Round-bracket numbers that are list markers or counts, not citations: "(1) a history of
     ... (2) recent ..."; and, in a manuscript that cites in square brackets or superscript,
@@ -372,6 +411,7 @@ def _round_not_citations(ms: Manuscript, found: list[tuple[Paragraph, re.Match]]
         paras[p.id] = p
     for pid, matches in by_para.items():
         p = paras[pid]
+        out.update((pid, m.start()) for m in _scale_options(p.text, matches))
         # A list marker stands before its item, with no punctuation after the bracket: "(2) assessing",
         # not "engagement (5). Similarly".
         markers = [m for m in matches if len(m.group(2)) == 1 and m.group(2) != "0" and not m.group(3)]
@@ -418,17 +458,44 @@ _LABEL_BEFORE = re.compile(r"\b(?:table|tables|fig|figure|figures|ref|reference|
 _STAT_BEFORE_BRACKET = re.compile(r"(?:(?<![\w.])(?:[tFrHUWZQ]|χ²|χ2|Χ²|X²|X2)|\bdf)$")
 # A number spelt out and repeated in figures: "six (6) weeks" (round brackets only).
 _NUMBER_WORDS = {w: i for i, w in enumerate("one two three four five six seven eight nine ten eleven twelve".split(), 1)}
+_NUMBER_WORDS["zero"] = 0
+
+
+# A scale's answer options or score values: "strongly agree (5) to strongly disagree (1)", "never (0)", "a score (3)",
+# "level (2)": the number is the option's value, not a reference (round brackets, small values only).
+SCALE_WORDS = frozenset("""neutral undecided score scores scored scale scales point points level levels grade grades
+    likert option options rating""".split())
+# Words that are a scale's options only next to other options or a scale ("poor (1), fair (2), good (3)", "never (0),
+# rarely (1)"; "agree (5)" after "strongly"): alone, "studies agree (3)" and "occurs rarely (4)" cite.
+SCALE_WEAK_WORDS = frozenset("""agree disagree never always rarely sometimes often usually seldom frequently
+    occasionally very mild moderate severe low high poor fair good excellent satisfied dissatisfied unsatisfied
+    important unimportant likely unlikely none all most some little much yes""".split())
+_STRONGLY = re.compile(r"\b(?:strongly|somewhat|completely|totally|partially|mostly|slightly)\s+(?:dis)?agree$", re.I)
+
+
+def _small_values(inner: str, limit: int = 10) -> bool:
+    nums = re.findall(r"\d+", inner)
+    return bool(nums) and all(int(n) <= limit for n in nums)
 
 
 def not_citation_before(prev: str, is_round: bool, inner: str = "") -> bool:
-    """Is a bracketed number after `prev` (the text before it, right-stripped) a label, a statistic or a
-    count rather than a citation? One answer for the citation rule, renumbering and QC."""
+    """Is a bracketed number after `prev` (the text before it, right-stripped) a label, a statistic,
+    a count or a scale value rather than a citation? One answer for the citation rule, renumbering and QC."""
     if not prev:
         return is_round  # "(1) ..." starting a paragraph is list numbering; "[23, 39]" alone in a table cell cites
     if _LABEL_BEFORE.search(prev) or _STAT_BEFORE_BRACKET.search(prev):
         return True
+    if not is_round:
+        return False
+    if prev[-1] in "=<>≤≥:":  # "agree = (5)", "score: (3)"
+        return True
     word = re.search(r"([A-Za-z]+)$", prev)
-    return is_round and bool(word) and inner.strip().isdigit() and _NUMBER_WORDS.get(word.group(1).lower()) == int(inner)
+    if not word:
+        return False
+    w = word.group(1).lower()
+    if w in _NUMBER_WORDS:  # "six (6) weeks", "one (2)": a number written twice, not a reference
+        return inner.strip().isdigit() and (_NUMBER_WORDS.get(w, 0) == int(inner) or int(inner) <= 12)
+    return (w in SCALE_WORDS or bool(_STRONGLY.search(prev))) and _small_values(inner)
 
 
 def _citation_candidates(ms: Manuscript, style: JournalStyle) -> tuple[int, list[Paragraph], list[tuple]]:
@@ -1088,6 +1155,17 @@ def _reference_edits(text: str, style: JournalStyle) -> list[tuple[int, int, str
                         " ".join("-".join(x.capitalize() for x in w.split("-")) for w in name.split()),
                         "ref_author_case", None))
 
+    if authors_end:  # "kumari M" -> "Kumari M": a person's surname is never in lower case ("van den Berg" stays)
+        for m in re.finditer(r"(?:^|(?<=,\s)|(?<=,))([a-z][\w'’\-]+(?:\s+[a-z][\w'’\-]+)*)(?=\s+[A-Z]{1,4}\b)",
+                             text[:authors_end]):
+            new = refengine.capital_surname(m.group(1))
+            if new != m.group(1):
+                out.append((m.start(1), m.end(1), new, "ref_author_case", None))
+
+    for m in re.finditer(r"\bcovid[\s‐‑-]*19\b", text, re.I):  # "covid 19" -> "COVID-19"
+        if m.group(0) != "COVID-19":
+            out.append((m.start(), m.end(), "COVID-19", "ref_title_case", None))
+
     max_authors = style.get("references.max_authors")
     if authors_end and max_authors and "et al" not in text[:authors_end + 8]:
         names = [n for n in text[:authors_end].split(",") if n.strip()]
@@ -1167,9 +1245,9 @@ def _label_changes(p: Paragraph, ref: references.Reference, style: JournalStyle)
         return []
     if style.get("references.label_auto_number"):
         # The typed label goes and the entry becomes an item of Word's automatic numbering ("1.<tab>Angus DC"
-        # -> "Angus DC" numbered 1.); the author's spaces before the label stay. A paragraph Word numbers already
-        # only loses the typed label.
-        c = _change(p, m.start(2), m.end(5), "", Layer.REFERENCES, "ref_label",
+        # -> "Angus DC" numbered 1.), with any spaces typed before it (" 2.<tab>Lee M" with a no-break space:
+        # G143, no space opens a paragraph). A paragraph Word numbers already only loses the typed label.
+        c = _change(p, m.start(1), m.end(5), "", Layer.REFERENCES, "ref_label",
                     None if p.numbered else {"list_number": True})
         return [c]
     if not style.get("references.label_period"):

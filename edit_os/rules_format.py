@@ -335,7 +335,24 @@ def _tagged_headings(ms: Manuscript, style: JournalStyle) -> dict[str, int]:
         text = p.text.strip()
         if len(text) <= 80 and not re.search(r":\s*\S", text):
             out[p.id] = int(m.group(1))
+        elif _split_at(found, p) is not None:
+            out[p.id] = int(m.group(1))  # a run-in label split off its text: the label is the heading
+    ms._heading_ends = {pid: _split_at(found, by_id[pid]) for pid in out}
     return out
+
+
+def _split_at(found: list[Change], p: Paragraph) -> int | None:
+    """Where the heading rules break a run-in heading off its text ("Demographic Questionnaire: This ..." ->
+    heading + paragraph): the end of the heading's words, or None when the paragraph is not split."""
+    from .tracked import PARAGRAPH_BREAK
+
+    brk = [c.start for c in found if c.para_id == p.id and c.new == PARAGRAPH_BREAK and c.reason == "subheadings"]
+    if not brk:
+        return None
+    end = min(brk)
+    while end > 0 and (p.text[end - 1].isspace() or p.text[end - 1] in ":.–—-"):
+        end -= 1
+    return end if 0 < end <= 120 else None
 
 
 def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
@@ -425,7 +442,8 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
                  {"bold": False}, "fmt_heading_unbold", Layer.STRUCTURE)
         if p.id in tagged and not front and not label:
             if levels[p.id] not in unbold_levels:
-                emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
+                end = (getattr(ms, "_heading_ends", {}) or {}).get(p.id) or len(text)
+                emit(p, _regions(text[:end], lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
                      {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
         elif kind == "heading" and not front:
             # A section heading is short and stands alone ("Keywords: a; b" is a labelled paragraph).
@@ -637,6 +655,18 @@ def heading_size_text(text: str) -> bool:
     return bool(_H1_TAG.match(text) or _ABSTRACT_HEAD.match(text) or _ACK_HEAD.match(text))
 
 
+_PLAIN_CHAR = re.compile(r"[\sA-Za-z0-9!-/:-@\[-`{-~\u2010-\u2015\u2018-\u201f\u00a0]")
+
+
+def _keeps_font(font: str, ch: str) -> bool:
+    """A character in a symbol font keeps it: in "Symbol" / "Wingdings" an "a" is a Greek alpha or a dingbat. A
+    Unicode math font ("Cambria Math") shows plain letters, digits, hyphens and quotes as themselves: those take the
+    journal's font like the text around them (a "‐" pasted in Cambria Math into a reference title)."""
+    if not _SYMBOL_FONT.search(font):
+        return False
+    return not (re.search(r"math", font, re.I) and _PLAIN_CHAR.match(ch))
+
+
 def rule_fonts(ms: Manuscript, style: JournalStyle) -> list[Change]:
     """The journal's font family and the guide's font sizes on every run, and its alignment on every paragraph
     (settings `formatting.fonts`). One change per contiguous span that needs it."""
@@ -666,7 +696,7 @@ def rule_fonts(ms: Manuscript, style: JournalStyle) -> list[Change]:
         f = font_chars(p, styles)
         if len(f) != len(text):
             continue
-        keep = [bool(_SYMBOL_FONT.search(x.get("font") or "")) for x in f]
+        keep = [_keeps_font(x.get("font") or "", ch) for x, ch in zip(f, text)]
 
         def need(i):
             if keep[i]:

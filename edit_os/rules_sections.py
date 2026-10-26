@@ -455,6 +455,12 @@ _METHODS_LABEL = re.compile(r"\b(?:design|setting|participants?|sampl\w*|data\s+
                             r"|procedures?|interventions?|ethic\w*|statistic\w*|instruments?|tools?|measures?|outcomes?"
                             r"|inclusion|exclusion|recruitment|population|search\s+strategy|eligibility|quality\s+assessment"
                             r"|study\s+selection|questionnaires?|validity|reliability)\b", re.I)
+# The methods sub-sections every study has, as a plain "Statistical Analysis:" line over their text (not an instrument's
+# name, "Attitudes toward Addiction Questionnaire:", which the editors leave as typed: 1764).
+_METHODS_SECTION = re.compile(r"(?:statistical|data)\s+analys[ie]s|study\s+(?:design|setting|population|area)(?:\s+and\s+"
+                              r"setting)?|sample\s+size(?:\s+calculation)?|sampling(?:\s+(?:method|technique))?|"
+                              r"data\s+collection(?:\s+(?:tools?|procedure|methods?))?|ethical\s+considerations?|"
+                              r"inclusion\s+(?:and\s+exclusion\s+)?criteria|exclusion\s+criteria|study\s+procedure")
 _SUB_NUMBER1 = re.compile(r"^(\d+)\.\s+(?=[A-Z])")  # "1. Demographic Characteristics" (nested: bold / styled only)
 _CASE_HEAD = re.compile(r"[Cc]ase\s*\d+\b|[Cc]ase\s+(?:[IVX]+|[A-Z])\b")  # "Case 1", "Case II": one of a series' cases
 _RUN_IN_HEAD = re.compile(r"^(\s*)([A-Z][^:.;?!]{1,60}?)(\s*:\s+)(?=[A-Z(\d])")
@@ -531,11 +537,15 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     section_key: dict[int, str] = {}  # section -> its main heading's key ("methods")
     run_in: dict[int, int] = {}  # section -> paragraphs opening with a run-in label ("Histopathology: The ...")
     run_in_bold: dict[int, list] = {}  # nested: section -> bold run-in labels (split off when alone)
+    first_keys = {n.lower() for n in style.get("headings.h1", [])} | {"materials and methods", "methods"}
+    last_first = ""
     for i, p in enumerate(paras):
         text = p.text.strip()
         if not text or p.in_table or p.id in skip or in_textbox(p):
             continue
         key = _key(p.text)
+        if key in main and key in first_keys:
+            last_first = key  # the first-level section a statement head ("Ethical considerations") sits in
         if key in main:
             section_key[section + 1] = key
             # The statement heads after the Conclusion ("Conflicts of interest") do not open a body section.
@@ -599,7 +609,12 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if not (nested and emph and nxt is not None and not nxt.in_table and len(nxt.text.strip()) >= 40
                         and nxt.text.rstrip().endswith(".") and not _emph(nxt, "bold")):
                     continue
-            if not (bold or italic or styled is not None) and (text.endswith(":") or len(nxt.text) < min_next):
+            # "Statistical Analysis:" on its own line over the methods' running text is a heading however it is set
+            # (a plain "Results:" over a list is not): a methods sub-section's name of two to five words
+            methods_head = text.endswith(":") and _METHODS_SECTION.fullmatch(_key(text)) is not None \
+                and len(nxt.text) >= 100 and "method" in last_first
+            if not (bold or italic or styled is not None or methods_head) \
+                    and (text.endswith(":") or len(nxt.text) < min_next):
                 continue
             found.append(_Sub(p, bold, italic, num, section, end, None, parent, styled))
         else:
@@ -729,15 +744,18 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 
             # "Kaplan-Meier", "Mann-Whitney": a name (never lower case in the text) keeps its capitals;
             # "Activity Inventory-7 (CAHAI-7)": an expansion before its abbreviation keeps its capitals.
             name = head0 is not None and re.fullmatch(r"[A-Z][a-z]+", head0.group(0)) is not None and \
-                _counts(head0.group(0), body)[0] == 0  # never written in lower case: a name
+                _counts(head0.group(0), body)[0] == 0 and not _ordinary_word(head0.group(0))  # never in lower case: a name
             if name or re.match(r"\([A-Z]", after):
                 first = w.endswith(":")
                 continue
+            prefixed = head0 is not None and _ordinary_word(head0.group(0))  # "Inter-Group", not "Anti-Candida"
             for k, part in enumerate(parts):
                 text_part = part.group(0)
                 if not re.fullmatch(r"\(?[A-Z][a-z]+\W*", text_part) or (k == 0 and first):
                     continue
                 head = re.search(r"[A-Za-z]+", text_part).group(0)
+                if prefixed and k and _dictionary_lower() and head.lower() not in _dictionary_lower():
+                    continue  # the name after a prefix keeps its capital ("Anti-Candida", "Pre-Columbian")
                 if k == 0:
                     lower, caps = _counts(head, body)
                 else:
@@ -763,7 +781,8 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 
         head = re.match(r"[A-Za-z]+", w).group(0)
         lower, caps = _counts(head, body)
         inside = p.text[:m.start()].count("(") > p.text[:m.start()].count(")")  # "(Heine, Germany)": maker, place
-        if caps <= lower and (not inside or any(a <= m.start() < b for a, b in low_brackets)):
+        named = head in _proper_nouns() or (head == "United" and re.match(r"\s+(?:States|Kingdom|Arab|Nations)\b", p.text[m.end():]))
+        if caps <= lower and not (proper_word(head) and caps) and not named and (not inside or any(a <= m.start() < b for a, b in low_brackets)):
             # never capitalised inside a sentence of the text, or more often lower case; in brackets only when all
             # its words are ("(In Vitro)" -> "(in vitro)", not the maker's "(Heine, Germany)")
             out.append(_change(p, m.start(), m.start() + 1, w[0].lower(), Layer.STRUCTURE, rule))
@@ -843,7 +862,9 @@ def rule_abstract(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 new = label = cased  # done: the colon check below goes on; no bold change over the case fix
         new = _cased(new, sub_case) if sub_case != "keep" else new
         if new != label:
-            out.append(_change(p, m.start(2), m.end(2), new, Layer.STRUCTURE, reason))
+            # the new sub-heading is bold as the others ("Materials and Methods" -> a bold "Methods")
+            out.append(_change(p, m.start(2), m.end(2), new, Layer.STRUCTURE, reason,
+                               {"bold": True} if _on(style, "abstract.subheading_bold") else None))
         sep = m.group(3)
         alone = m.re is _SUB_ALONE
         if _on(style, "abstract.subheading_colon"):
@@ -916,7 +937,8 @@ def _counts(word: str, body: str) -> tuple[int, int]:
     caps = 0
     for m in re.finditer(r"(\S*)( )" + re.escape(cap) + r"\b(?![\s\-‑]+[A-Z])", body):
         prev = m.group(1)
-        if prev and not prev[0].isupper() and prev[-1] not in ".!?:":
+        # "Shiraz, Iran": after a comma the capital is the word's own, not a capitalised phrase's
+        if prev and (not prev[0].isupper() or prev[-1] == ",") and prev[-1] not in ".!?:":
             caps += 1
     # An eponym written with a hyphen inside a sentence ("... of Miller-Fisher syndrome", "Turner-Kieser syndrome"):
     # a proper noun for each of its names, however the key word joins them ("Miller Fisher syndrome").
@@ -925,6 +947,37 @@ def _counts(word: str, body: str) -> tuple[int, int]:
         if cap in re.split(r"[-‐‑]", m.group(2)) and prev and not prev[0].isupper() and prev[-1] not in ".!?:":
             caps += 1
     return lower, caps
+
+
+# Prefixes written with a hyphen ("Inter-Group", "Post-Intervention"): never a name.
+_HYPHEN_PREFIXES = frozenset("""inter intra extra post pre non cross multi self co sub semi pseudo meta para peri
+    trans ultra over under well follow long short high low mid mini micro macro neo re de un""".split())
+
+
+def _proper_nouns() -> frozenset[str]:
+    from .refengine import PROPER_NOUNS
+
+    return PROPER_NOUNS
+
+
+def _dictionary_lower() -> set[str]:
+    from .refengine import _dictionary_words
+
+    return _dictionary_words()[0]
+
+
+def _ordinary_word(word: str) -> bool:
+    """A word that is not a name: a hyphen prefix ("Inter-", "Intra-")."""
+    return word.lower() in _HYPHEN_PREFIXES
+
+
+def proper_word(word: str) -> bool:
+    """A word that is a name wherever it stands: a place or person the reference rules know (refengine.PROPER_NOUNS:
+    "Iran", "Yazd") or one the dictionary lists only capitalised ("Doppler", "Bowen")."""
+    from .refengine import PROPER_NOUNS, _dictionary_words
+
+    base = re.sub(r"[’']s?$", "", word)
+    return base in PROPER_NOUNS or base in _dictionary_words()[1]
 
 
 def _keyword_case(kw: str, body: str) -> str:
@@ -939,9 +992,10 @@ def _keyword_case(kw: str, body: str) -> str:
             head = re.split(r"[’']", parts[i])[0].rstrip(",:;")  # "Mellitus," in "Diabetes Mellitus, Type 2"
             if len(head) > 1 and head.isalpha() and head[1:].islower():
                 lower, caps = _counts(head, body)
-                if head[0].isupper() and caps <= lower:
+                if head[0].isupper() and caps <= lower and not proper_word(head):
                     parts[i] = parts[i][0].lower() + parts[i][1:]
-                elif head[0].islower() and caps >= 2 and not lower and i == 0:
+                elif head[0].islower() and i == 0 and (caps >= 2 and not lower or proper_word(head.capitalize())
+                                                       and not lower):
                     parts[i] = parts[i][0].upper() + parts[i][1:]
         out.append("".join(parts))
     return " ".join(out)
@@ -2218,7 +2272,33 @@ TEXT = {
     "sections.consent_added": "Please ensure that patient consent form has been obtained.",
     "sections.contributions_missing": "Please provide authors’ contributions.",
     "sections.data_availability_missing": "Please provide the missing Data availability statement, if available.",
+    "headings.duplicate": "The heading “{head}” is repeated. Kindly check and delete the duplicate.",
 }
+
+
+def duplicate_headings(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, int, int, str]]:
+    """(paragraph, start, end, heading) for a heading the text gives twice in a row: a heading line, then the same
+    heading again on its own line or as the run-in label of the next paragraph ("Sleep Habits
+    Questionnaire:" over "Sleep Habits Questionnaire: A three-item ...")."""
+    from .rules_format import _tagged_headings
+
+    levels = _tagged_headings(ms, style)
+    ends = getattr(ms, "_heading_ends", {}) or {}
+    paras = [p for p in ms.paragraphs if p.text.strip() and not p.in_table]
+    out = []
+    for p, q in zip(paras, paras[1:]):
+        if p.id not in levels or ends.get(p.id):
+            continue
+        head = _key(p.text)
+        if not head or len(head) < 4:
+            continue
+        cut = ends.get(q.id) if q.id in levels else None
+        lead = re.match(r"\s*(?:\d+(?:\.\d+)*\.?\s+)?([^:]{3,120}?)\s*:", q.text)
+        label = q.text[:cut] if cut else q.text if q.id in levels else lead.group(1) if lead else ""
+        if label and _key(label) == head:
+            s = len(q.text) - len(q.text.lstrip())
+            out.append((q, s, s + len(label.strip()), p.text.strip().rstrip(":").strip()))
+    return out
 
 
 def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
@@ -2228,6 +2308,9 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     if not _cfg(style, "enabled", True):
         return
     lay = layout(ms)
+    if style.get("headings.duplicate_query", True):
+        for q, s, e, head in duplicate_headings(ms, style):
+            qs.add(q.id, "headings.duplicate", s, e, head=re.sub(r"<H\d>", "", head))
     if lay.abstract:
         if _on(style, "abstract.citation_query"):
             for p in lay.abstract:

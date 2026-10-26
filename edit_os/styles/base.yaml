@@ -39,6 +39,7 @@ headings:
                                   # ("Data availability", "Consent for publication") -> <H2>
   sentence_case_brackets: false  # sentence case also in brackets whose words the text writes in lower case:
                                  # "(In Vitro)" -> "(in vitro)" ("(Index Case)" kept: IJO editors)
+  duplicate_query: true  # a heading given twice in a row (own line, or as the next paragraph's run-in label) -> query
   nested_subheadings: false  # a head over another head is its parent (<H2> over <H3>), heads over a caption, bold run-in
                              # methods labels split off, Word heading styles giving the level (per journal: JEHP)
   case_report_methods_sections: false  # in a case report, the first own-line head under "Methods" that is not a case
@@ -200,6 +201,9 @@ figures:                        # figure and table citations and captions (rules
   brackets: square              # (Figure 1) -> [Figure 1]
   before_full_stop: false       # "immunized. (Table 1)" -> "immunized [Table 1]." (square brackets only)
   bracket_lead_words: null      # "(see Figure 1)": drop -> "[Figure 1]", keep -> "[see Figure 1]", null: left as typed
+  split_mixed_brackets: false   # true: "(P = 0.21; Table 2)" -> "(P = 0.21) [Table 2]" (per journal: JEHP S260)
+  stray_citations: null         # " (Table 3)." alone on a line under a paragraph: join (-> "... the groups [Table 3].") |
+                                # query | null (only its brackets fixed)
   unbold_citations: false       # true: bold figure / table citations in running text -> roman
   figure_label: Figure          # "Fig. 1" -> "Figure 1" (G240; IJO's sheet says "Fig. 1")
   lowercase_labels: false       # true: body citations written "table 2" / "figure 1" -> "Table 2" / "Figure 1"
@@ -239,6 +243,10 @@ figures:                        # figure and table citations and captions (rules
                                 # "at end of document after figure captions"), under `tables_heading` (legends.py)
   tables_heading: null          # the heading over the tables at the end ("Tables"); null: none added
   query_no_captions: false      # true: figures cited but no legend in the file at all -> one query (G244)
+  query_uncaptioned_images: false  # true: a picture in the body with no caption beside it -> query (G244; JEHP)
+  query_equation_images: false  # true: a display equation given as a picture -> the sheet's query (JEHP S292)
+  table_footnote_queries: false  # true: table abbreviations the footnote does not expand, a footnote symbol given two
+                                 # meanings or none -> queries (JEHP: "Abbreviations should be first ...")
   legend_run_on: false          # true: a legend's parts typed as separate paragraphs ("Fig.1 A ...", "Fig.1 B ...",
                                 # "(C) ...", "b. ...") run on into one legend (G264); false: each part keeps its line,
                                 # the repeated label replaced by "(b) "
@@ -266,6 +274,9 @@ figures:                        # figure and table citations and captions (rules
     parts_per_row: 2            # "1a.jpg" + "1b.jpg": one paragraph, side by side
     max_pixels: 2400            # longer side above this is downscaled (keeps the .docx small); 0 = never
     align: center
+
+queries:  # author queries on the text (edit_os/queries.py)
+  unmatched_brackets: false  # true: a stray bracket ("(−1.20,3.40))") -> query (JEHP)
 
 header:  # top of the tracked and clean copies (edit_os/header.py); measured on the 236 style editors' files
   enabled: true
@@ -547,6 +558,7 @@ copyedit:
     full_form_after_definition: change  # full form again after the definition: change (-> "ABBR") | query | off;
                                # only in the main text, when the author uses ABBR more often than the full form
     allow: []                  # extra abbreviations that need no expansion
+    query: []                  # abbreviations of the common list still asked for in this journal (JEHP: CVI, CVR)
     defined_in_article: false  # true: no "Kindly expand" for an abbreviation the article expands elsewhere (the
                                # abstract, an abbreviation list or table note, "(SCOFF)" after its description)
   languagetool:

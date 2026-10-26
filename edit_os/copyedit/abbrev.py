@@ -253,8 +253,9 @@ def _abbr_key(tok: str) -> str | None:
     letters = sum(c.isalpha() for c in base)
     if upper < 2 or upper < letters / 2:
         return None  # ordinary words, "McDonald"
-    if re.fullmatch(r"[IVXLC]+", base) or re.fullmatch(r"[A-Z]{1,2}\d{1,2}(?:[-/][A-Z]{0,2}\d{1,2})*", base):
-        return None  # Roman numerals; spinal levels, figure parts, criteria codes
+    if re.fullmatch(r"X{0,3}(?:IX|IV|V?I{0,3})", base) or re.fullmatch(r"[A-Z]{1,2}\d{1,2}(?:[-/][A-Z]{0,2}\d{1,2})*", base):
+        return None  # Roman numerals as text uses them (up to XXXIX: "Class III", "XIV"); not "CVI", "LV", "CVR"
+        # (content validity index, left ventricle); spinal levels, figure parts, criteria codes
     return base
 
 
@@ -469,7 +470,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
     cfg = style.get("copyedit.abbreviations", {}) or {}
     if not cfg.get("enabled", True):
         return [], []
-    allow = set(common_abbreviations()) | set(cfg.get("allow") or [])
+    # `query`: listed as common, still asked for in this journal (JEHP S302 "Look for undefined acronyms": CVI, CVR)
+    allow = (set(common_abbreviations()) | set(cfg.get("allow") or [])) - set(cfg.get("query") or [])
     allow_upper = {a.upper() for a in allow}
     changes: list[Change] = []
     queries: list[Query] = []
