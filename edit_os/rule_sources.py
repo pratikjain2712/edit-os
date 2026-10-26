@@ -100,6 +100,8 @@ RULES: dict[str, Locator] = {
     # citations and references
     "author_citations": L("Citation placement", "A citation moved next to the study it names",
                           (r"citation",), (r"citation",), "citation author name after"),
+    "author_year": L("Surname, year citation", "An author-year citation as its reference number",
+                     (r"surname", r"year"), (r"citation",), "surname year format numbers reference"),
     "citations": L("Citation style", "Citations in the journal's brackets, position and delimiters",
                    (r"citation",), (r"citation",), "citation square bracket superscript punctuation comma range"),
     "renumber": L("Reference renumbering", "References numbered in order of first citation",
@@ -191,6 +193,9 @@ RULES: dict[str, Locator] = {
                     (r"non-?\s*breakable|non-?\s*breaking",), "replace non breakable space keyboard space", "guide"),
     "guide.unary_minus": L("Minus sign", "Hyphen as minus for a negative value", (r"minus",), (r"minus",),
                            "hyphen minus unary operator", "guide"),
+    "guide.comparison_symbol": L("≤ and ≥", "<= and >= as the ≤ and ≥ symbols", (r"greater|less",),
+                                 (r"less\s+than\s+and\s+equal|greater\s+than\s+or\s+equal",),
+                                 "less than equal greater than or equal symbol", "guide"),
     "guide.unary_comparison": L("Comparison sign", "No space after > or < before a value", (r"unary|greater|lesser",),
                                 (r"unary", r"greater|lesser|delete"), "delete space unary operator greater lesser",
                                 "guide"),

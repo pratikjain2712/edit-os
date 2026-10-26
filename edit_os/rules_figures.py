@@ -1080,6 +1080,18 @@ _OPEN, _CLOSE = "([{", ")]}"
 _STOP_BEFORE = re.compile(r"(?:(?<![\w.])(?!(?:al|etc|vs|approx|fig|figs|no)\b)[A-Za-z]{2,}|\d|%|\))(\.)\s*$")
 
 
+# Words before the citation inside its brackets (S260, G241, G250: citations in round brackets -> square brackets):
+# "(see Figure 1)", "(shown in figure 5)", "(as presented in Table 2)".
+_LEAD_WORDS = re.compile(r"[({]\s*(?P<w>(?:see(?:\s+also)?|cf\.?|(?:as\s+)?(?:shown|presented|detailed|given|listed|"
+                         r"summari[sz]ed|illustrated|depicted|displayed|reported|described)\s+in|refer\s+to)\s*)$",
+                         re.I)
+# A supplementary table / figure numbered "S1" (the label parser reads plain numbers only): "(Supplementary Table S2)",
+# "(Supplimentary Table 8)" (the author's spelling corrected with the brackets).
+_SUPP_CITATION = re.compile(r"[({]\s*(?P<lead>(?:see(?:\s+also)?|(?:as\s+)?shown\s+in)\s+)?"
+                            r"(?P<supp>Supplementary|Supplemental|Suppl\.|Supplimentary|Supplemetary)"
+                            r"(?P<rest>\s+(?:Tables?|Fig(?:ure)?s?\.?|Files?|Appendix|Materials?)\s*"
+                            r"(?:S\d{1,2}[A-Za-z]?|\d{1,2}[A-Za-z]?)(?:\s*(?:,|and|&|-|–)\s*S?\d{1,2}[A-Za-z]?)*)\s*[)}]")
+
 # A word or two after the citation inside its brackets: "(Figure 1, top)", "(Figure 2, left panel)".
 _SUFFIX = re.compile(r"\s*,\s*([a-z]+(?:\s+[a-z]+){0,2})\s*(?=[)\]}])")
 
@@ -1124,6 +1136,38 @@ def _unbold(p: Paragraph, fmts: list[dict], lo: int, hi: int) -> list[Change]:
     return out
 
 
+def _supplementary_citations(p: Paragraph, style: JournalStyle, lead_words: str | None) -> list[Change]:
+    """"(Supplementary Table S2)" -> "[Supplementary Table S2]" (S260), "(Supplimentary Table 8)" -> "[Supplementary
+    Table 8]"; with figures.before_full_stop, "groups. (Supplementary Table S2)" -> "groups [Supplementary Table S2]."."""
+    from .rules import _change
+
+    t = p.text
+    out = []
+    for m in _SUPP_CITATION.finditer(t):
+        if re.fullmatch(r"\s+(?:Tables?|Fig(?:ure)?s?\.?)\s*\d.*", m.group("rest"), re.S) \
+                and m.group("supp") in ("Supplementary", "Supplemental", "Suppl."):
+            continue  # numbered plainly: the label parser has it (rule_citations)
+        if m.group("lead") and lead_words is None:
+            continue
+        lead = "" if not m.group("lead") or lead_words == "drop" else re.sub(r"\s+", " ", m.group("lead"))
+        supp = "Supplementary" if m.group("supp") in ("Supplimentary", "Supplemetary") else m.group("supp")
+        new = f"[{lead}{supp}{m.group('rest')}]"
+        if t[m.start():m.end()] == new:
+            continue
+        stop = _STOP_BEFORE.search(t, 0, m.start()) if style.get("figures.before_full_stop", False) else None
+        if stop and re.match(r"\s*(?:$|[A-Z])", t[m.end():]):
+            out.append(_change(p, stop.start(1), m.end(), " " + new + ".", Layer.TABLES_FIGURES, "fig_citations"))
+            continue
+        lead_space = " " if m.start() and (t[m.start() - 1].isalnum() or t[m.start() - 1] == "]") else ""
+        if lead_space or t[m.start():m.start("supp")] != "[" + lead:
+            out.append(_change(p, m.start(), m.start("supp"), lead_space + "[" + lead, Layer.TABLES_FIGURES,
+                               "fig_citations"))
+        if supp != m.group("supp"):
+            out.append(_change(p, m.start("supp"), m.end("supp"), supp, Layer.TABLES_FIGURES, "fig_citations"))
+        out.append(_change(p, m.end("rest"), m.end(), "]", Layer.TABLES_FIGURES, "fig_citations"))
+    return out
+
+
 def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.citations", True):
         return []
@@ -1132,10 +1176,13 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
     square = style.get("figures.brackets", "square") == "square"
     before_stop = style.get("figures.before_full_stop", False)
     unbold = style.get("figures.unbold_citations", False)
+    lead_words = style.get("figures.bracket_lead_words")  # None: left as typed; "drop" / "keep"
     sole = sole_figure(ms)
     out = []
     for p in _citation_paragraphs(ms):
         t = p.text
+        if square:
+            out += _supplementary_citations(p, style, lead_words)
         fmts = char_formats(p) if unbold else []
         # "table 2" -> "Table 2" (S: "Table citation | Tables 1–6; Table 1"), when figures.lowercase_labels is on
         for g in parse_groups(t, anycase=bool(style.get("figures.lowercase_labels", False))):
@@ -1157,12 +1204,19 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 rs += 1 + len(t[e + rs + 1:]) - len(t[e + rs + 1:].lstrip(" "))  # "(Table 1.)": a stray period
             o, c = s - ls - 1, e + rs
             bracketed = o >= 0 and c < len(t) and t[o] in _OPEN and t[c] in _CLOSE
+            opener = "["
+            lw = _LEAD_WORDS.search(t, 0, s) if lead_words and not bracketed and c < len(t) and t[c] in _CLOSE \
+                else None
+            if lw:  # "(see Figure 1)" -> "[Figure 1]" (drop) or "[see Figure 1]" (keep)
+                o, bracketed = lw.start(), True
+                if lead_words == "keep":
+                    opener = "[" + re.sub(r"\s+", " ", lw.group("w")).rstrip() + " "
             if bracketed and square:
                 lead = ""
                 if o > 0 and (t[o - 1].isalnum() or t[o - 1] == "]"):
                     lead = " "  # "71](Figure 1)" -> "71] [Figure 1]"
                 old = t[o:c + 1]
-                repl = f"{lead}[{new}{suffix}]"
+                repl = f"{lead}{opener}{new}{suffix}]"
                 stop = _STOP_BEFORE.search(t, 0, o) if before_stop else None
                 # "fully immunized. (Table 1) The" -> "fully immunized [Table 1]. The"; with a second stop after it,
                 # "presentation. [Fig 1a, 1b, 1c]. On" -> "presentation [Fig. 1A-C]. On"
@@ -1170,14 +1224,14 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     c + 2 if stop and re.match(r"\.(?:\s|$)", t[c + 1:]) else None
                 if end is not None:
                     from .rules import _change
-                    mine.append(_change(p, stop.start(1), s, " [", Layer.TABLES_FIGURES, "fig_citations"))
+                    mine.append(_change(p, stop.start(1), s, " " + opener, Layer.TABLES_FIGURES, "fig_citations"))
                     mine += _diff(p, s, t[s:end], f"{new}{suffix}].", "fig_citations")
                 elif repl != old:
                     from .rules import _change
                     if lead:
                         mine.append(_change(p, o, o, " ", Layer.TABLES_FIGURES, "fig_citations"))
-                    if t[o:s] != "[":  # the opening bracket with any space inside it: "( Figure 1" -> "[Fig. 1"
-                        mine.append(_change(p, o, s, "[", Layer.TABLES_FIGURES, "fig_citations"))
+                    if t[o:s] != opener:  # the opening bracket with any space inside it: "( Figure 1" -> "[Fig. 1"
+                        mine.append(_change(p, o, s, opener, Layer.TABLES_FIGURES, "fig_citations"))
                     mine += _diff(p, s, t[s:c + 1], f"{new}{suffix}]", "fig_citations")
                 lo, hi = o, c + 1
             else:

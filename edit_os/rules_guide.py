@@ -86,14 +86,21 @@ def find_et_al(text: str, cfg: dict) -> list:
     return [(m.end() - 2, m.end(), "al.") for m in re.finditer(r"\bet\s+al\b(?![.])", text)]
 
 
+# What follows the second of two authors' surnames: a year or a citation number ("Chaturvedi & Tripathi [8]",
+# "Sun & Kao (2024)", "(Pham & Taylor, 1999)", "Goss & Creutzfeldt¹²").
+_AUTHOR_PAIR_AFTER = re.compile(r"[\w’'\-]*(?:\s+[A-Z]{1,3}\b\.?)?\s*(?:\(\s*(?:19|20)\d{2}|,\s*(?:19|20)\d{2}\b|\[\s*\d|[⁰¹²³⁴⁵⁶⁷⁸⁹]"
+                                r"|\(\s*\d{1,3}\s*(?:[,\-–]\s*\d{1,3}\s*)*\))")
+
+
 def find_ampersand(text: str, cfg: dict) -> list:
     """4. "&" -> "and" outside references. Joined forms (H&E, R&D) and "&" between two
-    capitalised words (names, places, titles: "Jammu & Kashmir") are kept."""
+    capitalised words (names, places, titles: "Jammu & Kashmir") are kept, unless they are two authors' surnames
+    followed by the year or the citation ("Chaturvedi & Tripathi [8]" -> "Chaturvedi and Tripathi [8]")."""
     out = []
     for m in re.finditer(r"(?<=\w)(" + _SP + r"+)&(" + _SP + r"+)(?=\w)", text):
         left = re.search(r"(\w+)$", text[:m.start()]).group(1)
         right = re.match(r"\w+", text[m.end():]).group(0)
-        if left[:1].isupper() and right[:1].isupper():
+        if left[:1].isupper() and right[:1].isupper() and not _AUTHOR_PAIR_AFTER.match(text, m.end()):
             continue  # names and titles: "H & E", "Jammu & Kashmir", "Johnson & Johnson"
         if f"{left} & {right}".lower() == "review & editing":
             continue  # CRediT role, written with "&"
@@ -224,9 +231,19 @@ def find_technetium(text: str, cfg: dict) -> list:
 
 
 def find_p_value(text: str, cfg: dict) -> list:
-    """5. probability "p" -> "P" ("p = 0.03", "p<0.05", "p = NS", "p value", "p-value")."""
+    """5. probability "p" -> "P" ("p = 0.03", "p<0.05", "p = NS", "p value", "p-value"; a table head that is the
+    letter alone, "p" or "p*")."""
+    lone = re.fullmatch(r"\s*(p)\s*[*†‡a-c]?\s*", text)
+    if lone:
+        return [(lone.start(1), lone.end(1), "P")]
     return [(m.start(), m.end(), "P")
             for m in re.finditer(r"(?<![\w.\-])p(?=" + _SP + r"*[=<>≤≥]" + _SP + r"*(?:[0.]|NS\b)|[\- ]values?\b)", text)]
+
+
+def find_comparison_symbol(text: str, cfg: dict) -> list:
+    """28. ">=" -> "≥", "<=" -> "≤" (G319: "less than and equal to/greater than or equal to" as the symbols)."""
+    return [(m.start(), m.end(), "≥" if m.group(0)[0] == ">" else "≤")
+            for m in re.finditer(r"(?<![<>=])[<>]" + _SP + r"?=(?![=>])", text)]
 
 
 _NUM_RANGE = re.compile(r"(?<![\w\-/.\[,:])(\d+(?:\.\d+)?)( ?)-( ?)(\d+(?:\.\d+)?)(?![\w\-/\]]|\.\d)")
@@ -323,6 +340,7 @@ FINDERS = {
     "multiplication": find_multiplication,
     "technetium": find_technetium,
     "p_value_capital": find_p_value,
+    "comparison_symbol": find_comparison_symbol,
     "range_dash": find_range_dash,
     "trailing_space": find_trailing_space,
     "leading_space": find_leading_space,
