@@ -73,7 +73,10 @@ def gram_distance(a: collections.Counter, b: collections.Counter) -> int:
 def split_refs(paras: list[str]) -> dict[str, list[str]]:
     """{'text': everything but the reference list, 'references': the list (to the first caption)}."""
     low = [HEAD.sub("", p).strip().lower() for p in paras]
-    r = next((i for i, t in enumerate(low) if re.match(r"references?\b", t)), len(paras))
+    # the last heading that is just "References" (the header block's renumber table opens with "References" too)
+    hits = [i for i, t in enumerate(low) if re.fullmatch(r"references?\s*:?", t)] \
+        or [i for i, t in enumerate(low) if re.match(r"references?\b", t)]
+    r = hits[-1] if hits else len(paras)
     end = next((i for i in range(r + 1, len(paras)) if re.match(r"(table|figure|fig\.?)\s*\d", low[i])), len(paras))
     return {"text": paras[:r] + paras[end:], "references": paras[r:end]}
 
