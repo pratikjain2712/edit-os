@@ -194,6 +194,15 @@ def sources_from_zip(path: str) -> Sources:
     if xml:
         src.meta = parse_xml(z.read(xml[0]))
         src.xml_name = os.path.basename(xml[0])
+    meta_json = [n for n in names if os.path.basename(n).lower() == "article_metadata.json"]
+    if meta_json and not src.meta.authors:  # no XML (or none with authors): the portal export's metadata file
+        got = parse_metadata_json(z.read(meta_json[0]))
+        if got.authors:
+            got.article_type = src.meta.article_type or got.article_type
+            got.title = src.meta.title or got.title
+            got.dates = src.meta.dates or got.dates
+            src.meta = got
+            src.xml_name = os.path.basename(meta_json[0])
     for n in sorted(names):
         if n.lower().endswith(".docx") and re.search(r"contribut", os.path.basename(n), re.I) \
                 and not _FIRST_PAGE.search(os.path.basename(n)):
@@ -275,7 +284,9 @@ def parse_xml(data: bytes) -> Meta:
     m.article_type = _txt(root, "articletype")
     m.title = _txt(root, "title")
     m.keywords = _txt(root, "keywords")
+    orders = []
     for a in root.iter("author"):
+        orders.append(_txt(a, "author_order"))
         m.authors.append(dict(
             # The portal often repeats the first name as the middle name ("Khadija" / "Khadija"): once.
             given=_given(_txt(a, "fname"), _txt(a, "mname")),
@@ -284,10 +295,64 @@ def parse_xml(data: bytes) -> Meta:
             zip=_txt(a, "corresponding_zip") or _txt(a, "zip"),
             aff={k: _txt(a, t) for k, t in (("department", "department"), ("institution", "institute"),
                                             ("city", "city"), ("state", "state"), ("country", "country"))}))
+    m.authors = _by_author_order(m.authors, orders)
     for key, tag in (("received", "submission_date"), ("revised", "revision_date"), ("accepted", "Accepted")):
         d = _date(_txt(root, tag))
         if d:
             m.dates[key] = d
+    return m
+
+
+def _by_author_order(authors: list[dict], orders: list[str]) -> list[dict]:
+    """The portal's authors in author-list order. <author_order> numbers the co-authors ("0", "1", ... or "1", "2",
+    ...) and marks the submitting author "Primary"; the submitting author takes the place the numbers leave free
+    (orders 0, 1 and Primary: third; orders 1, 2 and Primary: first; orders 0, 2, 3 and Primary: second), which is
+    where the editors put them. Without numbers the XML's own order stands."""
+    nums = [int(o) if o.strip().isdigit() else None for o in orders]
+    if len(orders) != len(authors) or not any(n is not None for n in nums):
+        return authors
+    used, free = {n for n in nums if n is not None}, count(0)
+    keys = []
+    for k, n in enumerate(nums):
+        if n is None and orders[k].strip().lower() in ("primary", "first", "main"):
+            n = next(x for x in free if x not in used)
+            used.add(n)
+        keys.append((n if n is not None else 10 ** 6, k))
+    return [authors[k] for _, k in sorted(keys)]
+
+
+_PREFIX = re.compile(r"(?i)^(dr|prof|mr|mrs|ms|miss)\.?\s+")
+
+
+def parse_metadata_json(data: bytes) -> Meta:
+    """The portal export's article_metadata.json, for a submission without its XML: the authors (name with its
+    prefix, e-mail, corresponding flag) in author_order."""
+    m = Meta()
+    try:
+        d = json.loads(data.decode("utf-8-sig"))
+    except (ValueError, UnicodeDecodeError):
+        return m
+    if not isinstance(d, dict):
+        return m
+    for k in ("article_type", "title", "running_title"):
+        if isinstance(d.get(k), str):
+            setattr(m, k, d[k].strip())
+    authors, orders = [], []
+    for a in d.get("authors") or []:
+        if not isinstance(a, dict):
+            continue
+        name = re.sub(r"\s+", " ", str(a.get("name") or "")).strip()
+        pm = _PREFIX.match(name)
+        prefix = pm.group(1).capitalize() if pm else ""
+        name = name[pm.end():] if pm else name
+        if not name:
+            continue
+        given, _, surname = name.rpartition(" ")
+        corr = a.get("corresponding_author", a.get("corresponding"))
+        authors.append(dict(given=given, surname=surname, prefix=prefix, email=str(a.get("email") or "").strip(),
+                            corresponding=corr is True or str(corr).lower() in ("y", "yes", "true", "1"), aff={}))
+        orders.append(str(a.get("author_order") or ""))
+    m.authors = _by_author_order(authors, orders)
     return m
 
 
@@ -479,7 +544,7 @@ def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
     corr = {k: ok(c.get(k, ""), f"correspondence {k}") for k in
             ("given_names", "surname", "city", "state", "postal_code", "country", "email")}
     corr["prefix"] = ok(c.get("prefix", "").strip(" ."), "prefix") \
-        if re.fullmatch(r"(?i)dr|prof", c.get("prefix", "").strip(" .")) else ""
+        if re.fullmatch(r"(?i)dr|prof|mrs|mr|ms", c.get("prefix", "").strip(" .")) else ""
     corr["address_parts"] = [x for x in (ok(p, "address part") for p in c.get("address_parts", [])) if x]
     corr["address_parts"] = [p for p in corr["address_parts"] if not _CONTACT.search(p)]
     if any(v for v in corr.values()):
@@ -514,6 +579,55 @@ def _complete_affiliations(affs: dict[int, dict], order: list[int], notes: list[
 _CONTACT = re.compile(r"@|https?://|www\.|\b(?:phone|ph|tel|telephone|mobile|mob|fax|cell)\b|\+\d|\d{5,}\s*\d{3,}", re.I)
 
 
+_COUNTRY_NAMES = {c.casefold() for c in (
+    "India", "Iran", "Iraq", "Indonesia", "Malaysia", "Thailand", "Vietnam", "Philippines", "Singapore", "China",
+    "Taiwan", "Japan", "Korea", "South Korea", "Nepal", "Pakistan", "Bangladesh", "Sri Lanka", "Bhutan", "Afghanistan",
+    "Saudi Arabia", "UAE", "United Arab Emirates", "Oman", "Qatar", "Kuwait", "Bahrain", "Jordan", "Lebanon", "Syria",
+    "Turkey", "Türkiye", "Egypt", "Morocco", "Algeria", "Tunisia", "Libya", "Nigeria", "Ghana", "Kenya", "Ethiopia",
+    "Uganda", "Tanzania", "South Africa", "Cameroon", "Sudan", "USA", "United States", "Canada", "Mexico", "Brazil",
+    "Chile", "Peru", "Colombia", "Argentina", "UK", "United Kingdom", "England", "Scotland", "Ireland", "Germany",
+    "France", "Italy", "Spain", "Portugal", "Netherlands", "Belgium", "Sweden", "Norway", "Denmark", "Finland",
+    "Switzerland", "Austria", "Poland", "Greece", "Israel", "Russia", "Ukraine", "Australia", "New Zealand",
+    "Timor-Leste", "Myanmar", "Cambodia", "Laos", "Mongolia", "Kazakhstan", "Uzbekistan", "Yemen")}
+
+
+def _xml_affiliation(aff: dict) -> dict:
+    """A portal affiliation whose institution field carries the place ("Ilam University of Medical sciences, Ilam,
+    Iran" with <city>ilam</city> <state>ilam</state>): the country and the city come out of the institution (as
+    written there), and a state that only repeats the city goes."""
+    if not aff:
+        return aff
+    aff = {k: v for k, v in aff.items() if re.search(r"[A-Za-z]", v or "")}  # "أبو ظبي", "گرگان": not in the file's script
+    dept, inst = _norm(aff.get("department", "")), _norm(aff.get("institution", ""))
+    if dept and inst and inst in dept:
+        # the whole affiliation in both fields: the department field holds it
+        aff.pop("institution")
+        whole = [x.strip() for x in aff["department"].strip(" .,").split(",") if x.strip()]
+        if len(whole) > 1 and whole[-1].casefold() in _COUNTRY_NAMES and not aff.get("country"):
+            aff["country"] = whole.pop()
+            aff["department"] = ", ".join(whole)
+        for k in ("city", "state"):
+            if aff.get(k) and _norm(aff[k]) in _norm(aff["department"]):
+                aff.pop(k)
+        return aff
+    parts = [x.strip() for x in (aff.get("institution") or "").strip(" .,").split(",") if x.strip()]
+    if len(parts) > 1 and parts[-1].casefold().strip(" .") in _COUNTRY_NAMES:
+        country = parts.pop().strip(" .")
+        if not aff.get("country") or aff["country"].casefold() == country.casefold():
+            aff["country"] = country
+        else:
+            parts.append(country)
+    if len(parts) > 1 and aff.get("city") and parts[-1].casefold() == aff["city"].strip().casefold():
+        aff["city"] = parts.pop()
+    if parts:
+        aff["institution"] = ", ".join(parts)
+    if aff.get("state") and aff["state"].strip().casefold() == (aff.get("city") or "").strip().casefold():
+        del aff["state"]
+    if aff.get("city") and aff["city"].islower():
+        aff["city"] = aff["city"].title()
+    return {k: v for k, v in aff.items() if v}
+
+
 def fields_from_meta(m: Meta) -> Fields:
     """Fallback without Claude: the XML's own fields."""
     f = Fields(article_type=m.article_type, title=m.title, running_title=m.running_title)
@@ -521,15 +635,20 @@ def fields_from_meta(m: Meta) -> Fields:
     for a in m.authors:
         if not a.get("surname"):
             continue
-        aff = {k: v for k, v in (a.get("aff") or {}).items() if v}
+        aff = _xml_affiliation({k: v for k, v in (a.get("aff") or {}).items() if v})
         code = aff.get("state", "")
         if re.fullmatch(r"[A-Z]{2}", code) and code in _STATE_CODES_IN and aff.get("country", "India").casefold() in (
-                "india", "in") and _CITY_STATE_IN.get(_city_key(aff.get("city", "")), _STATE_CODES_IN[code]) \
-                == _STATE_CODES_IN[code]:
-            aff["state"], aff["country"] = _STATE_CODES_IN[code], "India"  # the portal's <state>MH</state>
+                "india", "in"):
+            # the portal's <state>MH</state>; a code that does not fit a known city ("Lucknow" / "UK") gives way to
+            # the city's state
+            aff["state"] = _CITY_STATE_IN.get(_city_key(aff.get("city", "")), _STATE_CODES_IN[code])
+            aff["country"] = "India"
         ids = []
         if aff:
-            k = tuple(sorted(aff.items()))
+            # one affiliation however the portal's fields split it ("School of Nursing and Midwifery Tabriz" /
+            # "University of Medical Sciences, Tabriz, Iran." and "..., School of Nursing and Midwifery" / "Tabriz
+            # University of Medical Sciences, Tabriz, Iran."): the first spelling stands
+            k = _norm(" ".join(aff.get(x, "") for x in ("department", "institution", "city", "state", "country")))
             if k not in keys:
                 keys[k] = len(keys) + 1
                 f.affiliations[keys[k]] = {x: aff.get(x, "") for x in ("department", "institution", "city", "state", "country")}
@@ -563,6 +682,92 @@ def _keep_map(keep: list[str]) -> dict[str, str]:
         for w in re.findall(r"[\w'’\-]+", phrase):
             if any(c.isupper() for c in w):
                 out[w.casefold()] = w
+                for part in re.split(r"[-\u2010\u2011]", w):  # "Timor-Leste": each part keeps its capital
+                    if part[:1].isupper():
+                        out.setdefault(part.casefold(), part)
+    return out
+
+
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+           "November", "December")
+
+
+def case_body(ms: Manuscript) -> str:
+    """The manuscript's running text before the references, for capitalisation evidence: sentences of 12 words
+    or more, not written in Title Case (so the title and headings, wherever they stand, say nothing)."""
+    from .references import find_heading
+
+    if ms is None:
+        return ""
+    ref = find_heading(ms)
+    out = []
+    for p in ms.paragraphs[:ref] if ref is not None else ms.paragraphs:
+        words = re.findall(r"[A-Za-z][\w'’-]*", p.text)
+        if len(words) < 12:
+            continue
+        major = [w for w in words if w.lower() not in _MINOR]
+        if major and sum(w[:1].isupper() for w in major) / len(major) >= 0.5:
+            continue
+        out.append(p.text)
+    return "\n".join(out)
+
+
+def _case_counts(word: str, body: str) -> tuple[int, int]:
+    """(lower-case uses, capitalised uses inside a sentence) of `word` in `body`; a hyphenated name counts for
+    each of its parts ("... in Timor-Leste")."""
+    low, cap = word[0].lower() + word[1:], word[0].upper() + word[1:]
+    lower = len(re.findall(r"(?<!\w)" + re.escape(low) + r"\b", body))
+    caps = 0
+    for m in re.finditer(r"(\S*)\s(?:[A-Z][\w'’]*[-‐‑])*" + re.escape(cap) + r"\b(?![-‐‑][a-z]|[\s\-‐‑]+[A-Z])", body):
+        prev = m.group(1)
+        if not prev or prev[0].isupper() or prev[-1] in ".!?:":
+            continue
+        before = re.search(r"(\S+)\s+$", body[:m.start()])
+        if prev.lower() in _MINOR and before and before.group(1)[:1].isupper():
+            continue  # "Materials and Methods": inside a capitalised phrase
+        caps += 1
+    return lower, caps
+
+
+def proper_keep(texts: list[str], keep: list[str], body: str, notes: list[str] | None = None) -> list[str]:
+    """The words that keep their capital in sentence case: the split's proper nouns, checked, and a deterministic
+    backstop for the ones it misses (S: running head and title in sentence case "except proper nouns/abbreviations").
+    A capitalised word of the title stays capitalised when the manuscript's running text writes it so inside its
+    sentences more often than in lower case ("in Timor-Leste", "in Indonesia"), when the text says nothing and the
+    dictionary lists it only capitalised (countries, nationalities, eponyms), or when it is a month next to a number
+    ("2004-January 2026"). A proper noun of the split that the text writes in lower case and the dictionary does
+    not list as a name ("Oral" in "Oral Disorders") is dropped, unless a model name or abbreviation follows it
+    ("Femto LDV Z8")."""
+    from .refengine import PROPER_NOUNS, _dictionary_words
+
+    _, dict_caps = _dictionary_words()
+
+    def named(w: str) -> bool:
+        return w in PROPER_NOUNS or w in dict_caps
+
+    out = []
+    for k in keep:
+        w = k.strip()
+        brand = any(re.search(r"\b" + re.escape(w) + r"\s+(?:[A-Z]{2,}\s+)?[A-Z]*\d", t or "") for t in texts)
+        if re.fullmatch(r"[A-Z][a-z'’]+", w) and not named(w) and not brand:  # "Femto LDV Z8": a product name
+            lower, caps = _case_counts(w, body)
+            if lower > caps:
+                if notes is not None:
+                    notes.append(f"{w!r} is not kept capitalised: the text writes it in lower case")
+                continue
+        out.append(k)
+    for t in texts:
+        for m in re.finditer(r"(?<![\w'’])[A-Z][a-z'’]+\b", t or ""):
+            w = m.group(0)
+            if w in _MONTHS:
+                if re.search(r"\d[\s-]*$", t[:m.start()]) or re.match(r"[\s,-]*\d", t[m.end():]):
+                    out.append(w)
+                continue
+            if re.search(r"(?:idae|aceae|inae|ales|oidea)$", w):
+                continue  # a taxon above the genus ("Viperidae"): the editors write it in lower case in a title
+            lower, caps = _case_counts(w, body)
+            if caps > lower or (not lower and not caps and named(w)):
+                out.append(w)
     return out
 
 
@@ -582,11 +787,13 @@ def recase(text: str, mode: str, keep: list[str], colon_capital: bool = True) ->
         m = re.match(r"^([^\w]*)(.*?)([^\w]*)$", tok)
         lead, core, trail = m.groups()
         if core:
-            pieces = re.split(r"([-\u2010\u2011])", core)
+            pieces = re.split(r"([-\u2010\u2011\u2013\u2014])", core)
             parts, seps = pieces[::2], pieces[1::2]
             new = []
             for i, part in enumerate(parts):
                 low = part.casefold()
+                if i and seps[i - 1] in "\u2013\u2014":  # "Interventions—A Systematic Review": a new phrase
+                    start = True
                 if low in known:
                     w = known[low]
                 elif not caps and (any(c.isupper() for c in part[1:]) or any(c.isdigit() for c in part)):
@@ -595,8 +802,10 @@ def recase(text: str, mode: str, keep: list[str], colon_capital: bool = True) ->
                     w = part[:1].upper() + part[1:].lower() if caps or part[:1].islower() else part
                 else:
                     w = part.lower()
-                if start and i == 0 and (first or colon_capital):
+                if start and (i == 0 or seps[i - 1] in "\u2013\u2014") and (first or colon_capital):
                     w = w[:1].upper() + w[1:]
+                if i == 0 or seps[i - 1] in "\u2013\u2014":
+                    start = False
                 new.append(w)
             core = "".join(w + (seps[i] if i < len(seps) else "") for i, w in enumerate(new))
             start = first = False
@@ -846,6 +1055,8 @@ def _state(parts: dict) -> str:
 # institution is put in front of it.
 _RESIDENCE = re.compile(r"(?i)\b(?:flat|apartments?|apts?|society|residency|residence|quarters|house|tower|floor|villa|"
                         r"bungalow|plot|enclave|heights|[A-Z]\s?-?\d{2,4})\b")
+_STREET = re.compile(r"(?i)^\s*(?:no\.?\s*)?\d[\w/-]*\b|\b(?:office|room|building|bldg|floor|campus|street|road|"
+                     r"avenue|lane|p\.?\s*o\.?\s*box)\b")
 _UNIT_WORDS = re.compile(r"(?i)\b(department|departments|division|unit|units|service|services|centre|center|institute|"
                          r"school|college|laborator(?:y|ies)|lab|clinic|section|faculty|program(?:me)?|hospital|"
                          r"university|foundation|cell|wing|ward|station)\b")
@@ -896,7 +1107,7 @@ _DESIGNATIONS = ("professor and head", "professor & head", "head of the departme
                  "medical officer", "senior registrar", "registrar", "research fellow", "clinical fellow", "fellow",
                  "postgraduate student", "postgraduate resident", "postgraduate", "pg student", "pg resident",
                  "intern", "research scholar", "scientist-[a-g]", "scientist")
-_DESIGNATION = re.compile(r"^(?:(?:%s)\b\.?(?:\s*[,;/]\s*|\s+(?=(?:of\s+(?:the\s+)?)?department\b)|\s+of\s+(?=(?:the\s+)?department\b)))+"
+_DESIGNATION = re.compile(r"^(?:(?:(?:retired|former|ex-?|emeritus)\s+)?(?:%s)\b\.?(?:\s*[,;/]\s*|\s+(?=(?:of\s+(?:the\s+)?)?department\b)|\s+of\s+(?=(?:the\s+)?department\b)))+"
                           % "|".join(_DESIGNATIONS), re.I)
 # A title directly before a speciality without a comma: "Consultant cornea and general ophthalmology".
 _TITLE_WORD = re.compile(r"^(?:senior\s+|junior\s+)?(?:consultant|resident|lecturer)\s+(?!of\b)(?=\w)", re.I)
@@ -1008,7 +1219,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
 
     # Title.
     raw_title = clean_title(f.title or meta.title)
-    keep = f.proper_nouns
+    keep = proper_keep([raw_title, f.running_title or meta.running_title], f.proper_nouns, case_body(ms), f.notes)
     colon = cfg.get("capital_after_colon", True)
     title = recase(raw_title, cfg.get("title_case", "sentence"), keep, colon) if raw_title else ""
 
@@ -1163,15 +1374,32 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             if initials_first(a):
                 given, surname = a.given, a.surname
         name = format_name(Author(given, surname), cfg, abbreviate=False)[0] if surname else MISSING
+        allowed = [x.strip(" .").lower() for x in cfg.get("correspondence_prefixes", ["Dr", "Prof"])]
         prefix = c.get("prefix") or (corr_author.prefix if corr_author else "")
+        if prefix.strip(" .").lower() not in allowed:
+            prefix = ""
         if not prefix and surname:
-            xm = next((a for a in meta.authors if _norm(a.get("surname", "")) == _norm(surname)), None)
-            if xm and re.fullmatch(r"(?i)dr|prof", xm.get("prefix", "").strip(" .")):
+            # G91-92: "prefix like "Dr." ... can be present. Please retain/add period": the portal's <title>, for the
+            # submission's author with this name (in either order: "Nguyen Duc Khanh" / given "Duc Khanh") or e-mail
+            names = _norm(f"{given}{surname}")
+            email = (c.get("email") or "").strip().casefold()
+            def same(a: dict) -> bool:
+                whole = (_norm(a.get("given", "") + a.get("surname", "")), _norm(a.get("surname", "") + a.get("given", "")))
+                return bool(names) and names in whole or bool(email) and a.get("email", "").strip().casefold() == email
+
+            xm = next((a for a in meta.authors if same(a)), None) or \
+                next((a for a in meta.authors if _norm(a.get("surname", "")) == _norm(surname)), None)
+            if xm and xm.get("prefix", "").strip(" .").lower() in allowed:
                 prefix = xm["prefix"]
-        prefix = {"dr": "Dr. ", "prof": "Prof. "}.get(prefix.strip(" .").lower(), "")
+        prefix = {"dr": "Dr. ", "prof": "Prof. ", "mrs": "Mrs. ", "mr": "Mr. ", "ms": "Ms. "}.get(
+            prefix.strip(" .").lower(), "") if prefix.strip(" .").lower() in allowed else ""
         blocks.append(Block("correspondence", [(cfg.get("correspondence_label", "Address for correspondence:"), B),
                                                (f" {prefix}{name},", plain)]))
         parts = [_clean_part(p) for p in c.get("address_parts", [])]
+        if cfg.get("correspondence_drop_street") and any(_UNIT_WORDS.search(p) for p in parts):
+            # the institution's street, building and office ("Office 2110", "Building 2 (Bu Hasa)", "SAN Campus",
+            # "215 Hong Bang Street", "4-16-11, Shimoochiai Shinjuku") go when the address names the institution
+            parts = [p for p in parts if _UNIT_WORDS.search(p) or not _STREET.search(p)]
         city, pin = _place_case(_clean_part(c.get("city", ""))), re.sub(r"\s+", "", c.get("postal_code", ""))
         xm = next((a for a in meta.authors if surname and _norm(a.get("surname", "")) == _norm(surname)), None)
         if not pin and xm and re.fullmatch(r"\d{6}", re.sub(r"\s+", "", xm.get("zip", ""))):
@@ -1507,12 +1735,46 @@ def block_provenance(role: str, f: Fields, src: Sources, lead: list[Paragraph], 
     return None
 
 
+def _consistent_name_order(f: Fields) -> None:
+    """"Nguyen Thi Diep, Tran Hoa, Nguyen Duc Khanh" split as given "Nguyen Thi" / surname "Diep" but "Tran Hoa" as one
+    surname with no given name: the same order for every author (the last word is the surname), so the cite line
+    reads "Diep NT, Hoa T, Khanh ND", not "Tran Hoa"."""
+    others = [a for a in f.authors if a.given.strip()]
+    if not others:
+        return
+    for a in f.authors:
+        if not a.given.strip() and len(a.surname.split()) == 2 and not any(
+                w.casefold() in _PARTICLES | {"al", "el", "bin", "ben", "abu", "abd", "ibn", "mac", "mc", "st"}
+                for w in a.surname.split()) and not a.surname[:1].islower():
+            given, surname = a.surname.split()
+            f.notes.append(f"{a.surname!r}: given name {given!r}, surname {surname!r}, as the co-authors' names are split")
+            a.given, a.surname = given, surname
+
+
+_RUNNING_LINE = re.compile(r"^\s*(?:running\s*(?:title|head)|short\s*(?:title|head))\s*[:\-–]\s*(\S.*?)\s*$", re.I)
+_INTRO_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?introduction\b", re.I)
+
+
+def late_running_title(ms: Manuscript, lead: list[Paragraph]) -> Paragraph | None:
+    """A "Running Title: ..." line below the abstract and key words, before the Introduction heading: front matter
+    left in the body. Its text is the running title, and the line goes (the running head carries it)."""
+    seen = {p.id for p in lead}
+    for p in ms.paragraphs[:80]:
+        if _INTRO_HEAD.match(p.text) and len(p.text) < 40:
+            break
+        if p.id not in seen and not p.in_table and _RUNNING_LINE.match(p.text) and len(p.text) < 200:
+            return p
+    return None
+
+
 def _xml_has_more(f: Fields, meta: Meta) -> bool:
-    """The split names a strict subset of the XML's authors and links none of them to an affiliation (so its
-    affiliations, if any, belong to nobody in particular)."""
+    """The split names a strict subset of the XML's authors: the text is a cover letter signed by the corresponding
+    author, or a title page that leaves authors out. The submission's author list is the complete one (S: the
+    author group, running head and cite line name every author), even when the names the text gives are linked to
+    an affiliation."""
     xml = [_norm(a.get("surname", "")) for a in meta.authors if a.get("surname")]
     got = [_norm(a.surname) for a in f.authors]
-    return bool(got) and len(xml) > len(got) and set(got) < set(xml) and not any(a.affs for a in f.authors)
+    return bool(got) and len(xml) > len(got) and set(got) < set(xml)
 
 
 def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Plan:
@@ -1564,8 +1826,14 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
             f.authors, f.affiliations = m.authors, m.affiliations
     else:
         f = fields_from_meta(src.meta)
+    _consistent_name_order(f)
+    late_rt = late_running_title(ms, lead)
+    if late_rt is not None and not f.running_title:
+        f.running_title = _RUNNING_LINE.match(late_rt.text).group(1)
+        f.notes.append(f"running title from the line after the key words: {f.running_title!r}")
     _fix_roles(f, lead)
     _link_affiliations(f, src, lead)
+    _inline_numbered_affiliations(f, src, lead)
     _equal_contribution(f, src, lead)
     _xml_places(f, src.meta)
     _xml_corresponding(f, src.meta)
@@ -1581,7 +1849,8 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     pl.blocks = blocks
     pl.fields, pl.sources = f, src
     for b in blocks:
-        b.provenance = block_provenance(b.role, f, src, lead, cfg, ms, b.text)
+        b.provenance = block_provenance(b.role, f, src, lead + ([late_rt] if late_rt is not None else []), cfg, ms,
+                                        b.text)
 
     # Map existing manuscript paragraphs onto blocks; insert the rest in reading order.
     have: dict[str, list[Paragraph]] = {}
@@ -1597,6 +1866,13 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
                                      new="", layer=Layer.STRUCTURE, source=Source.RULE, reason="front_matter",
                                      provenance=provenance.make("manuscript", "Manuscript label", p.text, para_id=p.id,
                                                                 role=role)))
+    if late_rt is not None:
+        pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=late_rt.id, start=0, end=len(late_rt.text),
+                                 old=late_rt.text, new="", layer=Layer.STRUCTURE, source=Source.RULE,
+                                 reason="front_matter",
+                                 provenance=provenance.make("manuscript", "Manuscript", "the running title below the "
+                                                            "key words: it goes into the running head", para_id=late_rt.id,
+                                                            role="running_title")))
     by_role: dict[str, list[Block]] = {}
     for b in blocks:
         by_role.setdefault(b.role, []).append(b)
@@ -1863,6 +2139,52 @@ def _link_affiliations(f: Fields, src: Sources, lead: list[Paragraph]) -> None:
     for k, a in enumerate(f.authors):
         a.affs = found[k]
     f.notes.append("authors linked to the unnumbered affiliation list by the marks after their names")
+
+
+_INLINE_AFFS = re.compile(r"^\s*(?:institutional\s+)?affiliations?\s*[:\-–]?\s*(?=1\s*[.)]?\s*[A-Za-z])", re.I)
+
+
+def _affiliation_parts(text: str) -> dict:
+    """"Radiography Department, University of Suffolk, Ipswich, United Kingdom" -> its parts."""
+    parts = [x.strip() for x in text.strip(" .;,").split(",") if x.strip()]
+    out = dict(department="", institution="", city="", state="", country="")
+    if len(parts) > 1 and parts[-1].casefold() in _COUNTRY_NAMES:
+        out["country"] = parts.pop()
+    if len(parts) > 2 or (len(parts) == 2 and not _UNIT_WORDS.search(parts[-1])):
+        out["city"] = parts.pop()
+    if len(parts) > 1 and re.search(r"(?i)\b(?:department|dept|unit|division|section|service|program(?:me)?)\b",
+                                    parts[0]):
+        out["department"] = parts.pop(0)
+    out["institution"] = ", ".join(parts)
+    return out
+
+
+def _inline_numbered_affiliations(f: Fields, src: Sources, lead: list[Paragraph]) -> None:
+    """"Authors: A; B; C" over "Affiliations: 1 General Education Unit, ...; 2 General Education Department, ...;
+    3 ..." (one paragraph, numbered inline, as many affiliations as authors, no marks after the names): the numbers
+    follow the author order, so author k has affiliation k. The paragraph is split at its numbers when the split took
+    it as one affiliation."""
+    lines = [t for text in list(src.first_page) + [p.text for p in lead] for t in text.split("\n") if t.strip()]
+    line = next((t for t in lines if _INLINE_AFFS.match(t)), None)
+    if line is None or len(f.authors) < 2:
+        return
+    body = line[_INLINE_AFFS.match(line).end():]
+    items = re.split(r"(?:^|\s*;\s*)(\d{1,2})\s*[.)]?\s+(?=[A-Za-z])", body)
+    numbered = [(int(items[k]), items[k + 1].strip(" ;.")) for k in range(1, len(items) - 1, 2)]
+    if len(numbered) != len(f.authors) or [n for n, _ in numbered] != list(range(1, len(numbered) + 1)):
+        return
+    for a in f.authors:  # marks after a name: the text links them itself
+        if any(re.search(re.escape(a.surname) + r"\s*[,*]?\s*\d", t) for t in lines if t is not line):
+            return
+    if len(f.affiliations) != len(numbered):
+        f.affiliations = {k: _affiliation_parts(t) for k, (k, t) in enumerate(numbered, 1)}
+        f.notes.append(f"the inline numbered affiliations split into {len(numbered)}")
+    ids = sorted(f.affiliations)
+    if any(a.affs and a.affs != [ids[k]] for k, a in enumerate(f.authors)):
+        return
+    for k, a in enumerate(f.authors):
+        a.affs = [ids[k]]
+    f.notes.append("authors linked to the inline numbered affiliations in author order")
 
 
 def _xml_places(f: Fields, meta: Meta) -> None:

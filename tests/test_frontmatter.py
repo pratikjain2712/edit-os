@@ -244,8 +244,9 @@ def test_jehp_complete_affiliations_and_run_on_correspondence(tmp_path, monkeypa
     assert text["affiliations"] == ("Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
                                     "1Department of Physiology, City Eye Hospital, Chennai, Tamil Nadu, India")
     corr = [b.text for b in pl.blocks if b.role == "correspondence"]
+    # JEHP editors drop the street when the address names the institution ("12 Main Road" goes)
     assert corr[0] == ("Address for correspondence: Dr. Asha Kumar, Department of Ophthalmology, City Eye Hospital, "
-                       "12 Main Road, Chennai - 600 006, Tamil Nadu, India.")
+                       "Chennai - 600 006, Tamil Nadu, India.")
     assert corr[1] == "E-mail: asha@example.org"
 
 
@@ -390,3 +391,122 @@ def test_contribution_lines_in_the_title_block_are_kept(tmp_path, monkeypatch, i
     assert any(b.role == "authors" for b in pl.blocks)  # the author group is still built (and inserted)
     assert any(n.role == "authors" for n in pl.inserts)
     assert any("contribution" in n for n in pl.notes)
+
+
+ORDER_XML = b"""<?xml version="1.0" encoding="UTF-8"?><manuscript><title>T</title><authors>
+<author><title>Mrs</title><fname>Asha</fname><lname>Rao</lname><email>a@x.org</email><institute>Ilam University of Medical
+sciences, Ilam, Iran</institute><city>ilam</city><state>ilam</state><is_corresponding>Y</is_corresponding>
+<author_order>Primary</author_order></author>
+<author><title>Dr</title><fname>Ben</fname><lname>Lee</lname><author_order>0</author_order></author>
+<author><title>Dr</title><fname>Cy</fname><lname>Kim</lname><author_order>1</author_order></author>
+</authors></manuscript>"""
+
+
+def test_portal_author_order_and_metadata_json():
+    # The submitting author ("Primary") takes the slot the numbers leave free: 0, 1 -> third; 1, 2 -> first.
+    assert [a["surname"] for a in fm.parse_xml(ORDER_XML).authors] == ["Lee", "Kim", "Rao"]
+    one_based = ORDER_XML.replace(b"<author_order>0<", b"<author_order>2<")
+    assert [a["surname"] for a in fm.parse_xml(one_based).authors] == ["Rao", "Kim", "Lee"]
+    gap = ORDER_XML.replace(b"<author_order>1<", b"<author_order>2<")  # orders 0, 2: Primary second
+    assert [a["surname"] for a in fm.parse_xml(gap).authors] == ["Lee", "Rao", "Kim"]
+    import json
+    m = fm.parse_metadata_json(json.dumps({"authors": [
+        {"name": "Dr Reza Valizadeh", "email": "r@x.org", "author_order": "0", "corresponding_author": False},
+        {"name": "Dr sajad sohrabnejad", "email": "s@x.org", "author_order": "Primary", "corresponding_author": True},
+        {"name": "Mrs Kia Kazemi", "author_order": "1"}]}).encode())
+    assert [(a["prefix"], a["given"], a["surname"]) for a in m.authors] == [
+        ("Dr", "Reza", "Valizadeh"), ("Mrs", "Kia", "Kazemi"), ("Dr", "sajad", "sohrabnejad")]
+    assert m.authors[2]["corresponding"]
+
+
+def test_xml_affiliation_place_in_the_institution():
+    f = fm.fields_from_meta(fm.parse_xml(ORDER_XML))
+    rao = next(a for a in f.authors if a.surname == "Rao")
+    assert f.affiliations[rao.affs[0]] == {"department": "", "institution": "Ilam University of Medical sciences",
+                                           "city": "Ilam", "state": "", "country": "Iran"}
+
+
+def test_cover_letter_signature_gives_way_to_the_xml_authors(tmp_path, monkeypatch, ijo):
+    # JEHP 1764: the title page is a cover letter signed by the corresponding author, linked to an affiliation;
+    # the submission has three authors.
+    raw = claude_fields(para_ids=("M1",))
+    raw["authors"] = [{"given_names": "Asha", "surname": "Rao", "prefix": "", "affiliations": [1],
+                       "corresponding": True}]
+    raw["paragraphs"] = [{"id": "M1", "role": "title"}]
+    monkeypatch.setattr(fm, "split", lambda text: raw)
+    path = make(tmp_path, ["Effect of Valsalva Maneuver on Intraocular Pressure in OCT Study.", "Abstract", "x"])
+    ms = docmodel.load(path)
+    src = fm.Sources(first_page=["Dear Editor,", "Asha Rao", "Department of Ophthalmology, City Eye Hospital"],
+                     meta=fm.parse_xml(ORDER_XML))
+    pl = fm.plan(ms, ijo, src)
+    text = {b.role: b.text for b in pl.blocks}
+    assert text["running_head"].startswith("<RH>Lee, et al.:")
+    assert text["authors"].replace("1", "") == "Ben Lee, Cy Kim, Asha Rao"
+    assert any("submission XML" in n for n in pl.notes)
+
+
+def test_inline_numbered_affiliations_link_in_author_order():
+    f = fm.Fields(authors=[fm.Author("Andrew", "Milewski", [1]), fm.Author("M.", "Hlayel"), fm.Author("W.", "Alomaim")],
+                  affiliations={1: {"department": "General Education Unit", "institution": "Khalifa University, Abu "
+                                    "Dhabi; 2 Radiography Department, Doha University", "city": "", "state": "",
+                                    "country": ""}})
+    line = ("Affiliations: 1 General Education Unit, Khalifa University, Abu Dhabi, United Arab Emirates; "
+            "2 Radiography Department, University of Suffolk, Ipswich, United Kingdom; "
+            "3 Department of Allied Health, University of Cumbria, Carlisle, United Kingdom")
+    src = fm.Sources(first_page=["Authors: Andrew Milewski; M. Hlayel; W. Alomaim", line])
+    fm._inline_numbered_affiliations(f, src, [])
+    assert [a.affs for a in f.authors] == [[1], [2], [3]]
+    assert f.affiliations[2] == {"department": "Radiography Department", "institution": "University of Suffolk",
+                                 "city": "Ipswich", "state": "", "country": "United Kingdom"}
+
+
+def test_running_title_line_after_the_key_words(tmp_path, monkeypatch, ijo):
+    raw = claude_fields(para_ids=("M1",))
+    raw["running_title"] = ""
+    raw["paragraphs"] = [{"id": "M1", "role": "title"}]
+    monkeypatch.setattr(fm, "split", lambda text: raw)
+    path = make(tmp_path, ["Effect of Valsalva Maneuver on Intraocular Pressure in OCT Study.", "ABSTRACT",
+                           "Background: x.", "Keywords: a; b", "Running Title: Valsalva and IOP", "INTRODUCTION",
+                           "Text."])
+    ms = docmodel.load(path)
+    pl = fm.plan(ms, ijo, fm.Sources(first_page=TITLE_PAGE[3:], meta=fm.parse_xml(PORTAL_XML)))
+    rh = next(b.text for b in pl.blocks if b.role == "running_head")
+    assert rh.endswith(": Valsalva and IOP")
+    line = next(p for p in ms.paragraphs if p.text.startswith("Running Title"))
+    assert any(c.para_id == line.id and c.new == "" for c in pl.changes)
+    assert not any(q.check == "front.running_head" for q in pl.queries)
+
+
+def test_proper_noun_backstop():
+    body = ("This study was carried out in Timor-Leste among mothers in rural villages of the country.\n"
+            "Data were collected in Timor-Leste by trained enumerators who visited every household in turn.\n"
+            "Many oral lesions and oral ulcers were seen in the patients that the dentists examined each week.")
+    title = "Changes in Knowledge in Timor-Leste and Indonesia: Oral Disorders (2004-January 2026)"
+    keep = fm.proper_keep([title], ["Oral"], body)
+    out = fm.recase(title, "sentence", keep)
+    assert out == "Changes in knowledge in Timor-Leste and Indonesia: Oral disorders (2004-January 2026)"
+    assert "Oral" not in keep  # the text writes "oral" in lower case
+    assert fm.recase("in Oral Disorders", "sentence", keep) == "In oral disorders"
+    assert fm.recase("Supportive Interventions—A Systematic Review", "sentence", []) == \
+        "Supportive interventions—A systematic review"
+    assert fm.recase("in Timor-Leste", "sentence", ["Timor-Leste"]) == "In Timor-Leste"
+
+
+def test_cite_name_order_follows_the_co_authors():
+    f = fm.Fields(authors=[fm.Author("Nguyen Thi", "Diep"), fm.Author("", "Tran Hoa"), fm.Author("", "Al Amin")])
+    fm._consistent_name_order(f)
+    assert [fm.cite_name(a) for a in f.authors] == ["Diep NT", "Hoa T", "Al Amin"]
+
+
+def test_designation_retired():
+    assert fm.strip_designation("Retired Scientist, CSIR-NISTADS") == "CSIR-NISTADS"
+
+
+def test_jehp_correspondence_prefix_from_the_xml(tmp_path):
+    path = make(tmp_path, ["A title", "Abstract", "x"])
+    ms = docmodel.load(path)
+    st = style.load("jehp")
+    st.settings["front_matter"]["ai_split"] = False
+    pl = fm.plan(ms, st, fm.Sources(meta=fm.parse_xml(ORDER_XML)))
+    corr = [b.text for b in pl.blocks if b.role == "correspondence"]
+    assert corr[0].startswith("Address for correspondence: Mrs. Asha Rao")  # G91-92: the XML's <title>
