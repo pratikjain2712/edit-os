@@ -34,6 +34,7 @@ QUERY_TEXT = {
     "figures.no_table": "Table {n} is cited in the text but not provided. Kindly provide.",
     "figures.uncited": "{kind} {n} has not been cited in the text part. Kindly cite.",
     "figures.part_case": "Figure part labels have been changed to lower case. Kindly check.",
+    "figures.no_captions": "Kindly provide the captions for {figs}.",
 }
 
 
@@ -52,12 +53,14 @@ def roman_to_int(s: str) -> int | None:
     return total if 0 < total < 40 else None
 
 
+# "Supplimentary Table 1" (1193): a misspelt supplementary label is still a supplementary one.
+_SUPP = r"(?P<supp>(?:Suppl[ei]m[ae]nt(?:ary|al)|Suppl\.?)\s+)?"
 _LABEL = re.compile(
-    r"(?P<supp>(?:Supplementary|Suppl\.?|Supplemental)\s+)?"
+    _SUPP +
     r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Tables?|TABLES?)(?![A-Za-z])(?P<dot>\.?)",
 )
 _LABEL_ANYCASE = re.compile(
-    r"(?P<supp>(?:Supplementary|Suppl\.?|Supplemental)\s+)?"
+    _SUPP +
     r"(?P<word>fig(?:ure)?s?|pictures?|tables?)(?![a-z])(?P<dot>\.?)", re.I)
 _NUM = re.compile(r"\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z])")
 _PART = re.compile(r"\(([a-zA-Z])\)|-?([A-Za-z])(?![A-Za-z0-9])")
@@ -354,8 +357,8 @@ def _diff(p: Paragraph, base: int, old: str, new: str, rule: str) -> list[Change
 
 _CAPTION = re.compile(
     r"^(?P<lead>\s*)(?P<pre>(?:Legends?\s+(?:to|for|of)\s+(?:the\s+)?)?)"
-    r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Graphs?|GRAPHS?|Tables?|TABLES?)(?![A-Za-z])\.?"
-    r"(?P<sp>\s*(?:[-_]\s*)?(?:No\.?\s*)?)"
+    r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Graphs?|GRAPHS?|Tables?|TABLES?|Tabels?|TABELS?)"
+    r"(?![A-Za-z])\.?(?P<sp>\s*(?:[-_]\s*)?(?:No\.?\s*)?)"
     r"(?P<num>\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z]))(?P<part>[A-Za-z](?![A-Za-z]))?"
     r"(?P<sep>\s*[.:\-–—]+\s*|\s+)(?P<rest>\S.*)$", re.S)
 
@@ -382,10 +385,25 @@ def lead_part(rest: str) -> re.Match | None:
     return m
 
 
+def _beside_table(el) -> bool:
+    """Whether a body paragraph sits right above or below a table (blank paragraphs between)."""
+    from .docmodel import paragraph_text
+
+    for step in ("getnext", "getprevious"):
+        x = getattr(el, step)()
+        while x is not None and x.tag == f"{_W}p" and not paragraph_text(x).strip():
+            x = getattr(x, step)()
+        if x is not None and x.tag == f"{_W}tbl":
+            return True
+    return False
+
+
 def caption_match(p: Paragraph) -> re.Match | None:
-    if p.style.lower().startswith("heading"):
-        return None
     m = _CAPTION.match(p.text)
+    if m and p.style.lower().startswith("heading"):
+        # A heading is not a caption, except a "Table 1. ..." line in a heading style right next to its table (1751).
+        if not (m.group("word").lower().startswith("tab") and not p.in_table and _beside_table(p.element)):
+            return None
     if not m:
         return None
     rest = m.group("rest")
@@ -399,8 +417,8 @@ def caption_match(p: Paragraph) -> re.Match | None:
         # "Table 2 Detection rate" is a caption; "Table 2 shows ..." is a sentence.
         if not (rest[0].isupper() or rest[0] == "(") or re.match(r"[A-Z](?:[\s).:,-]|$)", rest):
             return None
-        if re.match(r"\w+\s+" + _VERB, rest):
-            return None
+        if re.match(r"\w+\s+" + _VERB, rest) or re.match(r"\([^)]{0,30}\)\s+" + _VERB, rest):
+            return None  # "Figure 4 (above) shows ...": a sentence
     elif has_punct and m.group("sep").strip().startswith(".") and rest[0].islower() and not parted:
         return None
     if m.group("num").isdigit():
@@ -780,6 +798,20 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
         if new != p.text[s:e] or bold:
             out.append(_change(p, s, e, new, Layer.TABLES_FIGURES, "fig_captions.parts",
                                {"bold": False} if bold else None))
+    # The legend text in sentence case, its first word capitalised ("Figure 2: depicts ..." -> "Depicts ...";
+    # figures.figure_caption_case: the JEHP editors, the sheet is silent; S398 "all sentences start with a capital").
+    if style.get("figures.figure_caption_case") == "sentence":
+        from .rules_sections import sentence_case_changes
+        busy = [(s, e) for s, e, _ in edits.get(0, [])]
+        after_part = {m.end() for m in re.finditer(r"\([a-lA-L](?:[,–-]\s*[a-lA-L])*\)\s*", p.text)}
+        for c in sentence_case_changes(ms, p, "fig_captions.case", start=rest_start,
+                                       hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False)):
+            if any(s < c.end and c.start < e for s, e in busy) or c.start in after_part \
+                    or re.search(r"[.!?]\s+$", p.text[rest_start:c.start]) \
+                    or (c.new.islower() and re.match(r"[A-Za-z]+[’']s\b", p.text[c.start:])):  # "Lotka’s Law"
+                continue  # a part label's own edit; the word opening a part ("(b) Axial") or a sentence keeps its capital
+            c.layer = Layer.TABLES_FIGURES
+            out.append(c)
     # The final period: add | delete | keep (figures.figure_caption_end_period; unset: caption_end_period).
     end_mode = style.get("figures.figure_caption_end_period")
     if end_mode is None:
@@ -879,10 +911,94 @@ def table_footnotes(ms: Manuscript) -> list[list[Paragraph]]:
     return out
 
 
+# --- table notes: abbreviation lists ("term = definition", S244 / S246) ---------------------------------------------
+#
+# A pair is "TERM<sep> definition" with <sep> ",", "=" or ":"; TERM an abbreviation ("SD", "N/A", "df", "ρA and ρC"),
+# not a plain capitalised word ("Overall, ...").
+_TERM = r"[A-Za-zµμρα-ω%][\w%µμρα-ω²\-/]{0,14}(?:\s+(?:and|&)\s+[A-Za-zµμρα-ω][\w%µμρα-ω²\-/]{0,14})?"
+_PAIR = re.compile(r"(?P<lead>\s*(?:(?:Abbreviations?|Abbr\.)\s*:\s*)?)(?P<term>" + _TERM + r")(?P<sep>\s*[,=:]\s*)"
+                   r"(?P<defn>[A-Za-z(][^;=]*?)\s*$")
+_SENTENCE = re.compile(r"(?<!\b[a-z])(?<!\bvs)(?<!\bal)(?<!\be\.g)(?<!\bi\.e)\.\s+(?=\S)")
+
+
+def _is_term(term: str) -> bool:
+    t = term.split()[0]
+    if re.fullmatch(r"[A-Z][a-z]+", t) or t.lower() in _MINOR or t.lower() in ("values", "data", "note", "notes"):
+        return False
+    return bool(re.search(r"[A-Z]", t)) or len(t) <= 3
+
+
+def abbreviation_pairs(text: str) -> list[list[re.Match]]:
+    """The abbreviation lists in a table note: for each sentence that is one ("df, degrees of freedom; SD, standard
+    deviation"), its pairs (matches of _PAIR with positions in `text`). Sentences with other text are left out."""
+    out = []
+    starts = [0] + [m.end() for m in _SENTENCE.finditer(text)]
+    ends = [m.start() + 1 for m in _SENTENCE.finditer(text)] + [len(text)]
+    for a, b in zip(starts, ends):
+        sent = text[a:b]
+        body = sent.rstrip().rstrip(".")
+        segs, pos = [], a
+        for piece in body.split(";"):
+            segs.append((pos, piece))
+            pos += len(piece) + 1
+        pairs = []
+        for k, (pos, piece) in enumerate(segs):
+            m = _PAIR.match(text, pos, pos + len(piece))
+            if m is None or not _is_term(m.group("term")) or len(m.group("defn").split()) > 12:
+                break
+            if m.group("lead").strip() and k:
+                break
+            if m.group("sep").strip() == "," and "," in m.group("defn") and len(segs) == 1:
+                break  # "IQR, interquartile range, SD, standard deviation": where the pairs split is unclear
+            pairs.append(m)
+        else:
+            if pairs and (len(pairs) >= 2 or pairs[0].group("sep").strip() != "," or
+                          re.search(r"[A-Z].*[A-Z]|/", pairs[0].group("term"))):
+                out.append(pairs)
+    return out
+
+
+def table_notes(ms: Manuscript) -> list[list[Paragraph]]:
+    """table_footnotes, and the paragraph right under a table that holds an abbreviation list after free text
+    ("The mean difference represents ... P < 0.05. df, degrees of freedom; SD, standard deviation")."""
+    blocks = table_footnotes(ms)
+    seen = {q.id for b in blocks for q in b}
+    paras = ms.paragraphs
+    for i in range(1, len(paras)):
+        q = paras[i]
+        if q.in_table or not paras[i - 1].in_table or q.id in seen or not q.text.strip():
+            continue
+        if caption_match(q) is None and len(q.text.split()) <= 80 and abbreviation_pairs(q.text):
+            blocks.append([q])
+    return blocks
+
+
+def _footnote_abbreviations(ms: Manuscript, sep: str) -> list[Change]:
+    """S244 (JEHP): 'Abbreviations should be as per format "term<space>=<space>definition"', S246 "Comma should be
+    delimiter between abbreviations": "df, degrees of freedom; SD, standard deviation" -> "df = degrees of freedom, SD
+    = standard deviation". A "term: definition" pair is left as typed (the sheet's struck S232 asks for it: owner)."""
+    from .rules import _change
+
+    out = []
+    for block in table_notes(ms):
+        for q in block:
+            for pairs in abbreviation_pairs(q.text):
+                for k, m in enumerate(pairs):
+                    if m.group("sep").strip() == "," and sep.strip() != ",":
+                        out.append(_change(q, m.start("sep"), m.end("sep"), sep, Layer.TABLES_FIGURES,
+                                           "fig_captions.footnote_abbreviation"))
+                    if k:
+                        semi = q.text.rfind(";", pairs[k - 1].end() - 1, m.start("term"))
+                        if semi >= 0:
+                            out.append(_change(q, semi, semi + 1, ",", Layer.TABLES_FIGURES,
+                                               "fig_captions.footnote_delimiter"))
+    return out
+
+
 def _footnote_periods(ms: Manuscript) -> list[Change]:
     from .rules import _change
     out = []
-    for block in table_footnotes(ms):
+    for block in table_notes(ms):
         p = block[-1]
         i = _end_period(p.text)
         if i is not None:
@@ -914,9 +1030,13 @@ def _footnote_delimiters(ms: Manuscript) -> list[Change]:
             continue
         seen.add(q.id)
         t = q.text
-        for m in re.finditer(r";(?=\s*[A-Za-zµμ%][\w%µμ\-/]{0,14}\s*[=:]\s*\S)", t):
+        # Between two definitions of abbreviations ("CDVA = corrected ...; SD = standard deviation"), not between
+        # values ("df = 154; R² = 0.167") or running text ("the journals Autism; Child: Care, Health and ...").
+        for m in re.finditer(r";(?=\s*([A-Za-zµμ%][\w%µμ\-/]{0,14})\s*[=:]\s*[A-Za-z(])", t):
             before = t[:m.start()].split(";")[-1]
-            if re.search(r"(?:^|[(,.]\s*|\s)[A-Za-zµμ%][\w%µμ\-/]{0,14}\s*[=:]\s*\S", before):
+            b = [x.group(1) for x in re.finditer(r"(?:^|[(,.]\s*|\s)([A-Za-zµμ%][\w%µμ\-/]{0,14})\s*[=:]\s*[A-Za-z(]",
+                                                 before)]
+            if b and _is_term(b[-1]) and _is_term(m.group(1)):
                 out.append(_change(q, m.start(), m.end(), ",", Layer.TABLES_FIGURES, "fig_captions.footnote_delimiter"))
     return out
 
@@ -966,6 +1086,58 @@ def _table_heads_title_case(ms: Manuscript) -> list[Change]:
     return out
 
 
+def _head_cells(ms: Manuscript) -> list[Paragraph]:
+    """The paragraphs of the tables' column-head rows (rules_format._header_rows)."""
+    from . import docview
+    from .rules_format import _header_rows
+
+    paras = docview.classify(ms)
+    by_id = {p.id: p for p in ms.paragraphs}
+    for d in paras:
+        d["el"] = by_id[d["id"]].element
+    heads = _header_rows(paras)
+    return [by_id[d["id"]] for d in paras if d["cell"] and d["cell"]["table"] in heads
+            and d["cell"]["row"] in heads[d["cell"]["table"]]]
+
+
+def _table_heads_sentence_case(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """S (JEHP): "Column heads | Sentence case, bold": "Study Design" -> "Study design", "Experimental Group (n = 30)"
+    -> "Experimental group (n = 30)". A word stays capitalised when the running text capitalises it inside a sentence
+    (names, places), as do acronyms and mixed-case words (rules_sections.sentence_case_changes); heads in ALL CAPS are
+    left to `table_heads_title_case` (S: "In case the content is in All Caps then please make it as Title Case")."""
+    from .rules_sections import sentence_case_changes
+
+    out = []
+    for p in _head_cells(ms):
+        words = re.findall(r"[A-Za-z]+", p.text)
+        if not words or all(w == w.upper() for w in words):
+            continue
+        got = sentence_case_changes(ms, p, "fig_captions.table_head_case",
+                                    hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
+        # Words in brackets ("Control Group (Mean ± SD)"): sentence_case_changes keeps them (a maker, a place);
+        # in a column head they are units and statistics: lowered when the text writes them in lower case.
+        from .rules_sections import _counts
+        body = getattr(ms, "_sentence_body", "") or ""
+        done = {c.start for c in got}
+        for b in re.finditer(r"\(([^()]*)\)", p.text):
+            for w in re.finditer(r"\b[A-Z][a-z]+\b", b.group(1)):
+                i = b.start(1) + w.start()
+                lower, caps = _counts(w.group(0), body)
+                if i not in done and i > 0 and lower > caps:
+                    got.append(_change_at(p, i, w.group(0)[0].lower()))
+        for c in got:
+            if not re.match(r"[A-Za-z]{3}", p.text[c.start:]):
+                continue  # "95% Cl" (a mistyped "CI"), "No": two-letter words keep their case
+            c.layer = Layer.TABLES_FIGURES
+            out.append(c)
+    return out
+
+
+def _change_at(p: Paragraph, i: int, new: str) -> Change:
+    from .rules import _change
+    return _change(p, i, i + len(new), new, Layer.TABLES_FIGURES, "fig_captions.table_head_case")
+
+
 def heading_above(ms: Manuscript, i: int) -> int | None:
     """Index of the legends heading right above paragraph i (pictures and blank lines between), if there is one."""
     from .docmodel import has_picture
@@ -1012,10 +1184,16 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.captions", True):
         return []
     out = _footnote_periods(ms) if style.get("figures.table_footnote_end_period") == "delete" else []
+    abbr = style.get("figures.table_footnote_abbreviation")  # " = ": "SD, standard deviation" -> "SD = standard deviation"
+    if abbr:
+        out += _footnote_abbreviations(ms, abbr)
     if style.get("figures.table_footnote_delimiter") == ",":
-        out += _footnote_delimiters(ms)
+        done = {(c.para_id, c.start) for c in out}
+        out += [c for c in _footnote_delimiters(ms) if (c.para_id, c.start) not in done]
     if style.get("figures.table_heads_title_case"):
         out += _table_heads_title_case(ms)
+    if style.get("figures.table_heads_case") == "sentence":
+        out += _table_heads_sentence_case(ms, style)
     legs = legends(ms)
     out += _legends_heading(ms, style, legs)
     in_legend = {q.id for leg in legs for q in leg.paragraphs}
@@ -1046,19 +1224,103 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if new_label != old_label:
             out += _diff(p, m.end("lead"), old_label, new_label, "fig_captions.label")
         # S: 'followed by caption content in bold style and Sentence Case' (table captions; figures.table_caption_case)
-        if cap.kind == TABLE and style.get("figures.table_caption_case") == "sentence":
-            from .rules_sections import sentence_case_changes
-            out += sentence_case_changes(ms, p, "fig_captions.case", start=rest_start,
-                                         hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
-        # The final period, per kind: add | delete | keep (figures.table_caption_end_period / figure_caption_end_period);
-        # unset: the older caption_end_period / caption_end_period_keep switches (delete unless kept).
         end_mode = style.get("figures.table_caption_end_period" if cap.kind == TABLE else
                              "figures.figure_caption_end_period" if cap.kind == FIG else "figures.graph_caption_end_period")
         if end_mode is None:
             keep = style.get("figures.caption_end_period", False) or style.get("figures.caption_end_period_keep")
             end_mode = "keep" if keep else "delete"
-        _end_changes(out, p, m.start("rest"), end_mode, [])
+        # A note typed into the caption ("Table 1. Baseline characteristics (N=100). IQR, interquartile range; SD,
+        # standard deviation.") goes under the table as its footnote (figures.table_caption_notes: the JEHP editors, 1787).
+        split = _caption_note(ms, p, m, end_mode, style) if cap.kind == TABLE and \
+            style.get("figures.table_caption_notes") == "split" else None
+        cut = split[0] if split else len(p.text)
+        if cap.kind == TABLE and style.get("figures.table_caption_case") == "sentence":
+            from .rules_sections import sentence_case_changes
+            out += [c for c in sentence_case_changes(ms, p, "fig_captions.case", start=rest_start,
+                                                     hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False))
+                    if c.end <= cut]
+        # The final period, per kind: add | delete | keep (figures.table_caption_end_period / figure_caption_end_period);
+        # unset: the older caption_end_period / caption_end_period_keep switches (delete unless kept).
+        if split:
+            out += split[1]
+        else:
+            _end_changes(out, p, m.start("rest"), end_mode, [])
     return out
+
+
+def _note_text(note: str, sep: str | None) -> str:
+    """A note taken out of a caption, as a table footnote: abbreviation pairs "term = definition" joined by commas
+    (S244 / S246, when `sep` is set), no final period (S248 / S252)."""
+    if sep:
+        edits = []
+        for pairs in abbreviation_pairs(note):
+            for k, m in enumerate(pairs):
+                if m.group("sep").strip() == ",":
+                    edits.append((m.start("sep"), m.end("sep"), sep))
+                if k:
+                    semi = note.rfind(";", pairs[k - 1].end() - 1, m.start("term"))
+                    if semi >= 0:
+                        edits.append((semi, semi + 1, ","))
+        note = _apply_edits(note, edits)
+    note = note.strip()
+    i = _end_period(note)
+    return note[:i].rstrip() if i is not None else note
+
+
+def _caption_note(ms: Manuscript, p: Paragraph, m: re.Match, end_mode: str, style: JournalStyle):
+    """(where the caption now ends, [changes]) for a table caption with a note after its first sentence, or None. The
+    note becomes a paragraph of its own under the table: in the caption's paragraph when the caption sits below the
+    table, else at the start of the paragraph after the table (both changes go together or not at all)."""
+    from .docmodel import paragraph_text
+    from .rules import _change
+    from .tracked import PARAGRAPH_BREAK
+
+    rest_start = m.start("rest")
+    text = p.text
+    if p.in_table or "\n" in text:
+        return None
+    b = next((x for x in _SENTENCE.finditer(text, rest_start)
+              if text[rest_start:x.start()].count("(") == text[rest_start:x.start()].count(")")), None)
+    if b is None or len(text[rest_start:b.start()].split()) < 2:
+        return None
+    note = text[b.end():]
+    if not re.search(r"[A-Za-z]{2}", note):
+        return None
+    new_note = _note_text(note, style.get("figures.table_footnote_abbreviation"))
+    if not new_note:
+        return None
+    keep_dot = end_mode != "delete"
+    cut = b.start() + 1 if keep_dot else b.start()
+    group = f"caption-note-{p.id}"
+
+    def tbl_side(step):
+        x = getattr(p.element, step)()
+        while x is not None and x.tag == f"{_W}p" and not paragraph_text(x).strip():
+            x = getattr(x, step)()
+        return x if x is not None and x.tag == f"{_W}tbl" else None
+
+    above = tbl_side("getnext")  # the caption is above this table
+    below = tbl_side("getprevious")
+    split_here = _change(p, cut, len(text), PARAGRAPH_BREAK + new_note, Layer.TABLES_FIGURES,
+                         "fig_captions.caption_note", {"bold": False, "italic": False})
+    split_here._group = group
+    if below is not None and above is None:  # caption under its table: the note follows it
+        return cut, [split_here]
+    if above is None:
+        return None
+    nxt = above.getnext()
+    q = next((x for x in ms.paragraphs if x.element is nxt), None) if nxt is not None and nxt.tag == f"{_W}p" else None
+    if q is not None and not q.in_table and not q.text.strip():  # a blank line under the table takes the note
+        a = _change(p, cut, len(text), "", Layer.TABLES_FIGURES, "fig_captions.caption_note")
+        c = _change(q, 0, 0, new_note, Layer.TABLES_FIGURES, "fig_captions.caption_note",
+                    {"bold": False, "italic": False})
+        a._group = c._group = group
+        return cut, [a, c]
+    # Else the note is split off under the caption, and goes under the table when the caption goes into the table's
+    # first row (legends.py, figures.table_caption_row); without that move it would stay above (no split then).
+    if not style.get("figures.table_caption_row"):
+        return None
+    return cut, [split_here]
 
 
 
@@ -1291,10 +1553,12 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     queries.TEXT.update({k: v for k, v in QUERY_TEXT.items() if k not in queries.TEXT})
     cits = citations(ms)
     caps = [c for c in captions(ms)]
+    lines = _line_captions(ms)  # "... text.\nTable 2: Means ..." just above its table (1764): provided, not a caption
     renumbered = renumber_plan(ms, style)
     for kind in (FIG, TABLE):
         kc = [c for c in cits if c.kind == kind]
         cap_nums = {c.number for c in caps if c.kind == kind}
+        known = cap_nums | {n for k, n in lines if k == kind}
         # Order: each number's first citation must come after every smaller cited number's.
         seen: list[int] = []
         for c in kc:
@@ -1309,10 +1573,18 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
             missing_done: set[int] = set()
             for c in kc:
                 for n in c.numbers:
-                    if n not in cap_nums and n not in missing_done:
+                    if n not in known and n not in missing_done:
                         missing_done.add(n)
                         check = "figures.no_caption" if kind == FIG else "figures.no_table"
                         qs.add(c.para_id, check, c.start, c.end, n=n)
+        elif kind == FIG and kc and not known and style.get("figures.query_no_captions", False):
+            # G244: "In case citation(s) is present but caption is not present then please query using comments" --
+            # no figure legend in the file at all (figures sent as files, 1486): one query at the first citation.
+            nums = sorted(cited)
+            figs = f"Figure {nums[0]}" if len(nums) == 1 else \
+                f"Figures {nums[0]}\u2013{nums[-1]}" if nums == list(range(nums[0], nums[-1] + 1)) else \
+                "Figures " + ", ".join(map(str, nums[:-1])) + f" and {nums[-1]}"
+            qs.add(kc[0].para_id, "figures.no_captions", kc[0].start, kc[0].end, figs=figs)
         # Captioned, never cited.
         for cap in caps:
             if cap.kind == kind and cap.number not in cited:
@@ -1326,6 +1598,21 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
                        for it in seg.items):
                     qs.add(p.id, "figures.part_case", g.start, g.end)
                     return
+
+
+def _line_captions(ms: Manuscript) -> list[tuple[str, int]]:
+    """(kind, number) of captions typed as a later line of a body paragraph ("...as follows.\nTable 2: Means and
+    standard deviations ..."), which `captions` does not take (the paragraph is running text)."""
+    out = []
+    for p in ms.paragraphs:
+        if p.in_table or "\n" not in p.text:
+            continue
+        for line in p.text.split("\n")[1:]:
+            m = _CAPTION.match(line)
+            if m and re.search(r"[.:\-–—]", m.group("sep")) and m.group("num").isdigit():
+                word = m.group("word").lower()
+                out.append((TABLE if word.startswith("tab") else FIG, int(m.group("num"))))
+    return out
 
 
 # --- renumbering by first citation ----------------------------------------------------

@@ -220,6 +220,17 @@ figures:                        # figure and table citations and captions (rules
                                   # definitions in table notes (S: "Comma should be delimiter between abbreviations")
   table_heads_title_case: false # column heads in ALL CAPS -> Title Case (S / G205 "In case the content is in All Caps
                                 # then please make it as Title Case"); words the text writes in capitals stay
+  table_heads_case: null        # sentence: Title Case column heads -> sentence case ("Study Design" -> "Study design");
+                                # words the running text capitalises mid-sentence (names) and acronyms stay
+  table_footnote_abbreviation: null  # " = ": table-note pairs "SD, standard deviation" -> "SD = standard deviation"
+                                     # (S: 'term<space>=<space>definition'); "term: definition" is left as typed
+  table_caption_notes: null     # split: a note typed after a table caption's first sentence ("... (N=100). IQR,
+                                # interquartile range") goes under the table as its footnote
+  figure_caption_case: null     # sentence: figure legend text in sentence case, first word capitalised
+  tables_to_end: false          # true: captioned tables in the body move to the end, after the figure legends (G195
+                                # "at end of document after figure captions"), under `tables_heading` (legends.py)
+  tables_heading: null          # the heading over the tables at the end ("Tables"); null: none added
+  query_no_captions: false      # true: figures cited but no legend in the file at all -> one query (G244)
   legend_run_on: false          # true: a legend's parts typed as separate paragraphs ("Fig.1 A ...", "Fig.1 B ...",
                                 # "(C) ...", "b. ...") run on into one legend (G264); false: each part keeps its line,
                                 # the repeated label replaced by "(b) "
