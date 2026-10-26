@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import references
+from . import preservation, references
 from .docmodel import Manuscript
 from .rules import _SQUARE, body_paragraphs, not_citation_before, round_citations
 from .style import JournalStyle
@@ -33,6 +33,7 @@ CHECKS = {
     "statistics.spacing": "Spaces around statistical operators",
     "signoff.name": "The technical editing sign-off carries the editor's name",
     "figures.order": "Tables and figures are cited in numerical order",
+    **preservation.CHECKS,  # compared with the original manuscript (when `check` is given it)
 }
 
 
@@ -78,8 +79,18 @@ def _unary_after_word(text: str, m: re.Match) -> bool:
     return bool(word) and len(word.group(1)) >= 2 and word.group(1).lower() not in _STAT_WORDS
 
 
-def check(ms: Manuscript, style: JournalStyle) -> Report:
+def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = None, changes=None, inserts=None,
+          statuses=None) -> Report:
+    """QC of `ms` (the rendered output) against the journal's rules. With `source` (the manuscript as received),
+    also what the output kept of it (preservation.py): main sections, body text, cited references; `changes` and
+    `inserts` (with the `statuses` rendered into `ms`) say which rule deleted what and what was only moved."""
     issues: list[Issue] = []
+    if source is not None:
+        from .changes import Status
+
+        for f in preservation.check(ms, source, style, changes or (), inserts or (),
+                                    statuses or (Status.SUGGESTED, Status.ACCEPTED)):
+            issues.append(Issue(f.severity, f.check, f.message, f.para_id))
     refs = references.extract(ms)
     headings = {_heading_key(p.text) for p in ms.paragraphs if len(p.text) < 80}
 
