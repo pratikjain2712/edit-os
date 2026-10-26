@@ -127,8 +127,8 @@ def test_figures_are_tracked_insertions_above_their_legends(tmp_path):
     tracked_path, clean_path = out.path("tracked"), out.path("clean")
     paras = body(tracked_path)
     pics = pictures(tracked_path)
-    assert [text(paras[i + 1]) for i in pics] == ["Figure 1: Clinical photograph of the lesion",
-                                                  "Figure 2: Axial scan of the orbit"]
+    assert [text(paras[i + 1]) for i in pics] == ["Figure 1: Clinical photograph of the lesion.",
+                                                  "Figure 2: Axial scan of the orbit."]  # IJO: end period (owner)
     for i in pics:  # an inserted paragraph mark and an inserted run holding the drawing
         p = paras[i]
         assert p.find(f"{W}pPr/{W}rPr/{W}ins") is not None

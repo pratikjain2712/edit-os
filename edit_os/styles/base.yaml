@@ -112,6 +112,7 @@ references:
   max_authors: 6               # more than 6 -> first 6, et al.
   et_al: "et al."
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"
+  max_initials: null           # 2: "Chandrasena PPCM" -> "Chandrasena PP" (per journal: JEHP)
   page_range_compress: true    # 101-109 -> 101-9
   label_period: false          # typed labels as "1. ": "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (per journal)
   label_auto_number: false     # typed labels removed, the entries numbered by Word instead: "1.<tab>Angus DC" ->
@@ -174,6 +175,7 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   body_unbold: true            # stray bold inside running text (labels and run-in headings stay)
   heading_italic_levels: []    # tagged headings at these levels in italics (IJO S: "H3 | Sentence Case, Italics")
   heading_roman_levels: []     # tagged headings at these levels not italic (S: "H1 | ... Bold, Roman")
+  heading_unbold_levels: []    # tagged headings at these levels not bold (IJO H3: owner, 2026-10-26)
   # Font family, size and alignment of every run and paragraph (rules_format.rule_fonts), and of the paragraphs
   # the tool inserts (front matter, header lines, legends heading, "Figure N: ???"). The guide is common to all
   # journals: paragraphs, author group, affiliations, correspondence, abstract text, tables, figure labels 12 pt
@@ -188,6 +190,8 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
     heading_size: 14
     align: null                # left: paragraphs left aligned (not table cells, pictures or equations)
     running_head_align: center
+  symbol_font:                 # Greek letters, ±, ≤, ≥ and the minus sign as Word's Symbol-font symbols (<w:sym>),
+    enabled: false             # never ×, ®, ©, µ (owner, 2026-10-26: IJO, JEHP)
 
 figures:                        # figure and table citations and captions (rules_figures.py)
   citations: true
@@ -213,11 +217,14 @@ figures:                        # figure and table citations and captions (rules
                                   # end with a period" (table captions); journals without that line: delete (G200)
   figure_caption_end_period: null # add | delete | keep; null: as above (delete: G261 "The period if present at end of
                                   # caption should be deleted"; the stylesheets are silent but SGMJ)
+  graph_caption_end_period: null  # add | delete | keep for "Graph N:" captions; null: as above
   table_footnote_end_period: null  # delete: the period ending a table's last footnote goes ("SD, standard deviation.")
   table_caption_case: null      # sentence: "Table 1: Baseline Characteristics" -> "Table 1: Baseline characteristics"
                                 # (S: 'followed by caption content in bold style and Sentence Case'); null: as typed
   table_footnote_delimiter: null  # ",": "CDVA = ...; SD = ..." -> "CDVA = ..., SD = ..." between abbreviation
                                   # definitions in table notes (S: "Comma should be delimiter between abbreviations")
+  table_footnote_abbreviation: null  # colon: "term: definition" | equals: "term = definition" in table notes
+                                     # ("CI, confidence interval" after "Abbreviations:" too); null: as typed
   table_heads_title_case: false # column heads in ALL CAPS -> Title Case (S / G205 "In case the content is in All Caps
                                 # then please make it as Title Case"); words the text writes in capitals stay
   legend_run_on: false          # true: a legend's parts typed as separate paragraphs ("Fig.1 A ...", "Fig.1 B ...",
@@ -439,6 +446,8 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
                                  # affiliations should be complete" (the rule wins over the sheets' own grouped example)
   affiliation_country_each: true   # the country after every affiliation ("complete"); KJO, IJA, SJG follow the guide
   correspondence_one_line: false   # the address on the "Address for correspondence:" line after the name
+  affiliation_postal_code: false   # the postal code the title page gives after an affiliation's city is printed
+                                   # ("Chennai - 600 006"; per journal: IJO, JEHP)
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
   correspondence_drop_street: false  # street / building / office parts dropped when the address names the institution

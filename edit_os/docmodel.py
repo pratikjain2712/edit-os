@@ -20,6 +20,28 @@ _BREAKS = (qn("w:br"), qn("w:cr"))
 _RPR = qn("w:rPr")
 _FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
 _NOT_OWN = {qn("w:del"), qn("w:p"), _FALLBACK}
+_SYM = qn("w:sym")
+
+# Characters Word inserts from the Symbol font (Insert > Symbol: <w:sym w:font="Symbol" w:char="F0B1"/>), by their
+# Symbol code: the Greek letters, ±, ≤, ≥ and the minus sign (owner, 2026-10-26: these, never ×, ®, ©, µ). The text
+# view shows them as the Unicode character, so rules and QC see "±" whichever way it was typed.
+_GREEK_UPPER = "ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟΠΘΡΣΤΥςΩΞΨΖ"  # Symbol 0x41-0x5A
+_GREEK_LOWER = "αβχδεφγηιϕκλμνοπθρστυϖωξψζ"  # Symbol 0x61-0x7A
+SYMBOL_CODES: dict[str, int] = {ch: 0x41 + k for k, ch in enumerate(_GREEK_UPPER)}
+SYMBOL_CODES.update({ch: 0x61 + k for k, ch in enumerate(_GREEK_LOWER)})
+SYMBOL_CODES.update({"±": 0xB1, "≤": 0xA3, "≥": 0xB3, "−": 0x2D})
+_FROM_SYMBOL = {code: ch for ch, code in SYMBOL_CODES.items()}
+
+
+def sym_char(el) -> str:
+    """The Unicode character of a <w:sym> in the Symbol font (one of SYMBOL_CODES), else ""."""
+    if (el.get(qn("w:font")) or "").strip().lower() != "symbol":
+        return ""
+    try:
+        code = int(el.get(qn("w:char")) or "", 16)
+    except ValueError:
+        return ""
+    return _FROM_SYMBOL.get(code - 0xF000 if code >= 0xF000 else code, "")
 
 
 @dataclass
@@ -66,6 +88,8 @@ def run_text(run) -> str:
             out.append("\t")
         elif child.tag in _BREAKS:
             out.append("\n")
+        elif child.tag == _SYM:
+            out.append(sym_char(child))
     return "".join(out)
 
 

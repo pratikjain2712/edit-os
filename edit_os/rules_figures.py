@@ -809,12 +809,16 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
             tail = "".join(pieces)
             if end_mode == "delete" and _end_period(tail) is not None:
                 tail = tail[:_end_period(tail)] + tail[_end_period(tail) + 1:].rstrip()
+            elif end_mode == "add" and tail.strip() and not tail.rstrip().endswith((".", "?", "!", ":")):
+                tail = tail.rstrip() + "."  # the legend's last part ends it
             k = len(p.text.rstrip())
             c = _change(p, k, len(p.text), tail, Layer.TABLES_FIGURES, "fig_captions.run_on", {"bold": False})
             c._group = group
             out.append(c)
             return out
-    _end_changes(out, p, rest_start, end_mode, edits.get(0, []))
+    # "add": a legend that goes on in unlabelled lines ("b. ...", a line broken by hand) ends on its last line
+    unlabelled = [k for k in range(1, len(leg.conts) + 1) if k not in labels]
+    _end_changes(out, p, rest_start, "keep" if end_mode == "add" and unlabelled else end_mode, edits.get(0, []))
     for k, (q, kind) in enumerate(leg.conts, 1):
         fq = char_formats(q)
         for s, e, new in edits.get(k, []):
@@ -827,6 +831,8 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
             if q.text[s:e] != new:
                 out += _diff(q, s, q.text[s:e], new, "fig_captions.label")
             _end_changes(out, q, starts[k], end_mode, edits.get(k, []))
+        elif end_mode == "add" and k == len(leg.conts):
+            _end_changes(out, q, 0, "add", edits.get(k, []))
     return out
 
 
@@ -918,6 +924,60 @@ def _footnote_delimiters(ms: Manuscript) -> list[Change]:
             before = t[:m.start()].split(";")[-1]
             if re.search(r"(?:^|[(,.]\s*|\s)[A-Za-zµμ%][\w%µμ\-/]{0,14}\s*[=:]\s*\S", before):
                 out.append(_change(q, m.start(), m.end(), ",", Layer.TABLES_FIGURES, "fig_captions.footnote_delimiter"))
+    return out
+
+
+def footnote_paragraphs(ms: Manuscript) -> list[Paragraph]:
+    """The table footnotes (table_footnotes) and the first paragraph under each table, whatever it opens with."""
+    out = [q for block in table_footnotes(ms) for q in block]
+    after_table = False
+    for q in ms.paragraphs:
+        if q.in_table:
+            after_table = True
+        elif q.text.strip():
+            if after_table and caption_match(q) is None:
+                out.append(q)
+            after_table = False
+    seen: set[str] = set()
+    return [q for q in out if not (q.id in seen or seen.add(q.id))]
+
+
+_ABBR_LABEL = re.compile(r"\s*(?:Abbreviations?|Abbr\.?)\s*:\s*", re.I)
+_NOT_TERM = {"note", "notes", "source", "sources", "abbreviation", "abbreviations", "abbr", "data", "values", "table",
+             "figure", "key"}
+# A "term<sep>definition" pair at the start of the note, after an "Abbreviations:" label or after a delimiter.
+_ABBR_PAIR = re.compile(r"(?:^|(?<=[;,.]\s)|(?<=[;,.]))\s*(?P<term>[A-Za-zµμͰ-Ͽ%][\w%µμͰ-Ͽ\-/+]{0,14})"
+                        r"(?P<sep>\s*=\s*|\s*:\s*|,\s+)(?=[A-Za-zͰ-Ͽ])")
+
+
+def _footnote_format(ms: Manuscript, mode: str) -> list[Change]:
+    """Owner (2026-10-26): table-note abbreviations as the journal writes them, "term: definition" (`colon`, IJO) or
+    "term = definition" (`equals`, JEHP): "CDVA = corrected ..." / "Abbreviations: CI, confidence interval; ..." ->
+    "CDVA: corrected ...", "CI: confidence interval". The "term, definition" form only after an "Abbreviations:"
+    label or in a list of two or more such pairs; a term is an abbreviation (two capitals, or one capital letter)."""
+    from .rules import _change
+
+    new_sep = ": " if mode == "colon" else " = "
+    out = []
+    for q in footnote_paragraphs(ms):
+        t = q.text
+        label = _ABBR_LABEL.match(t)
+        start = label.end() if label else 0
+        pairs = []
+        for m in _ABBR_PAIR.finditer(t, start):
+            term = m.group("term")
+            if term.lower() in _NOT_TERM or not (re.fullmatch(r"[A-Z]", term) or sum(c.isupper() for c in term) >= 2):
+                continue
+            if m.start("term") != start and not re.search(r"[;,.]\s*$", t[:m.start("term")]):
+                continue
+            pairs.append(m)
+        commas = [m for m in pairs if m.group("sep").startswith(",")]
+        if commas and not label and (len(commas) < 2 or ";" not in t):
+            pairs = [m for m in pairs if not m.group("sep").startswith(",")]
+        for m in pairs:
+            if m.group("sep") != new_sep:
+                out.append(_change(q, m.start("sep"), m.end("sep"), new_sep, Layer.TABLES_FIGURES,
+                                   "fig_captions.footnote_abbreviation"))
     return out
 
 
@@ -1014,6 +1074,8 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = _footnote_periods(ms) if style.get("figures.table_footnote_end_period") == "delete" else []
     if style.get("figures.table_footnote_delimiter") == ",":
         out += _footnote_delimiters(ms)
+    if style.get("figures.table_footnote_abbreviation") in ("colon", "equals"):
+        out += _footnote_format(ms, style.get("figures.table_footnote_abbreviation"))
     if style.get("figures.table_heads_title_case"):
         out += _table_heads_title_case(ms)
     legs = legends(ms)

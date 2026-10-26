@@ -131,7 +131,7 @@ def test_acknowledgement_from_the_title_page(tmp_path):
     path = make(tmp_path, ["Discussion", BODY] + REFS)
     fp = ["Title: A study", "Acknowledgements:", "We thank the participants of this study for their cooperation."]
     t, _, _ = run(path, BACK, first_page=fp)
-    i = t.index("<H2>Acknowledgement")  # S384: 'please delete "s"'
+    i = t.index("<H1>Acknowledgement")  # G146 "Acknowledgement", first level (owner, 2026-10-26)
     assert t[i + 1] == "We thank the participants of this study for their cooperation."
     assert t[i + 2] == "<H2>Financial support and sponsorship"
 

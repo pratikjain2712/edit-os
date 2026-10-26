@@ -180,7 +180,7 @@ def test_figure_renumbering_and_kjo_queries_instead(tmp_path):
     texts = [p.text for p in docmodel.load(str(tmp_path / "c.docx")).paragraphs]
     assert "The scan [Fig. 1] and the photograph [Fig. 2a and 2b] differ." in texts  # IJO (S300 "Fig. 1")
     k = next(i for i, t in enumerate(texts) if t.startswith("Figure 2: Photograph"))
-    assert texts[k + 1] == "Figure 1: Scan"  # renumbered in place (the legends move when the file is rendered)
+    assert texts[k + 1] == "Figure 1: Scan."  # renumbered in place (the legends move when the file is rendered)
 
     kjo = _style("kjo")  # the KJO sheet has no chronological-order line: the guide's query instead
     assert rules_figures.renumber_plan(docmodel.load(path), kjo) == {}

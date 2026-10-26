@@ -24,7 +24,7 @@ from lxml import etree
 from docx.oxml.ns import qn
 
 from .changes import Change, ChangeSet
-from .docmodel import Manuscript, explode_runs, paragraph_text, run_text, text_runs
+from .docmodel import SYMBOL_CODES, Manuscript, explode_runs, paragraph_text, run_text, text_runs
 
 
 PARAGRAPH_BREAK = "\u2029"  # in Change.new: a new paragraph starts here
@@ -148,8 +148,8 @@ def apply_format(rpr, fmt: dict) -> None:
                 f.attrib.pop(qn(attr), None)
             for attr in ("w:ascii", "w:hAnsi", "w:cs"):
                 f.set(qn(attr), on)
-        elif prop == "align":
-            continue  # a paragraph property: `_align` sets it
+        elif prop in ("align", "symbol"):
+            continue  # a paragraph property (`_align` sets it); the Symbol font character (`_new_run`, `_to_symbol`)
         elif prop in _CLEARED:
             for tag in _CLEARED[prop]:
                 for el in rpr.findall(qn(tag)):
@@ -192,6 +192,14 @@ def _format_run(run, fmt: dict, tracked: bool, ids: "_Ids", author: str, date: s
         rpr.append(ch)
 
 
+def _sym(ch: str):
+    """<w:sym w:font="Symbol" w:char="F0B1"/> for a character of docmodel.SYMBOL_CODES (Word's inserted symbol)."""
+    el = OxmlElement("w:sym")
+    el.set(qn("w:font"), "Symbol")
+    el.set(qn("w:char"), f"F0{SYMBOL_CODES[ch]:02X}")
+    return el
+
+
 def _new_run(template, text: str, fmt: dict | None = None):
     r = OxmlElement("w:r")
     if template is not None and template.find(qn("w:rPr")) is not None:
@@ -201,11 +209,31 @@ def _new_run(template, text: str, fmt: dict | None = None):
         r.append(rpr)
     if fmt:
         apply_format(_rpr_of(r), fmt)
+    if fmt and fmt.get("symbol") and text in SYMBOL_CODES:
+        r.append(_sym(text))  # formatting.symbol_font: the character in the Symbol font, as Word inserts it
+        return r
     t = OxmlElement("w:t")
     t.text = text
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
     r.append(t)
     return r
+
+
+def _to_symbol(run, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """A one-character text run ("±") -> the same character as a Symbol-font <w:sym>: tracked, the typed character
+    is deleted and the symbol inserted (Word has no format revision for it)."""
+    t = run.find(qn("w:t"))
+    if t is None or (t.text or "") not in SYMBOL_CODES:
+        return
+    new = _new_run(run, t.text, {"symbol": True})
+    if tracked:
+        run.addnext(new)
+        _to_deleted(run)
+        _wrap("w:del", run, ids, author, date)
+        _wrap("w:ins", new, ids, author, date)
+    else:
+        run.addnext(new)
+        run.getparent().remove(run)
 
 
 def _wrap(tag: str, run, ids: _Ids, author: str, date: str):
@@ -247,10 +275,16 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
         _cut(p_el, c.start)
         _cut(p_el, c.end)
 
-    # Formatting first: it does not move any offsets.
+    # Formatting first: it does not move any offsets (the Symbol-font characters last: they replace their run).
+    formats.sort(key=lambda c: bool(c.format.get("symbol")))
     for c in formats:
         if "align" in c.format:
             _align(p_el, c.format["align"], tracked, ids, c.author, date)
+        if c.format.get("symbol"):
+            for r, s, e in _spans(p_el):
+                if s >= c.start and e <= c.end and e > s:
+                    _to_symbol(r, tracked, ids, c.author, date)
+            continue
         if not set(c.format) - {"align"}:
             continue
         for r, s, e in _spans(p_el):
@@ -280,7 +314,8 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
         if not c.new:
             continue
         first, *rest = c.new.split(PARAGRAPH_BREAK)
-        ins = _new_run(template, first, c.segment(0))
+        runs = [_new_run(template, text, fmt) for text, fmt in c.pieces(0, first)] or [_new_run(template, "", c.segment(0))]
+        ins = runs[0]
         if doomed and tracked:
             anchor.addnext(ins)
         elif after:
@@ -291,6 +326,13 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
             p_el.append(ins)
         if tracked:
             _wrap("w:ins", ins, ids, c.author, date)
+        last = ins
+        for run in runs[1:]:  # [length, format] pieces of the first segment
+            (last.getparent() if tracked else last).addnext(run)
+            if tracked:
+                _wrap("w:ins", run, ids, c.author, date)
+            last = run
+        ins = last
         if rest:
             _break_paragraph(p_el, ins, after, rest, template, c, tracked, ids, date)
         if not first:  # only there to mark the position of the break

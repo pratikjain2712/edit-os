@@ -16,7 +16,8 @@ from enum import Enum
 # right, both), set on the whole paragraph by a formatting-only change.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
                      "color", "size", "highlight", "font", "align",
-                     "list_number")
+                     "list_number", "symbol")
+# "symbol": the one character the change covers becomes Word's Symbol-font symbol (<w:sym>; formatting.symbol_font).
 # "list_number": a paragraph-level property carried by a change that deletes a typed list label ("1.<tab>"): the
 # paragraph becomes an item of Word's automatic numbering instead (tracked.render; references.label_auto_number).
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets

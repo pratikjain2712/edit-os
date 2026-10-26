@@ -34,6 +34,10 @@ headings:
   # Characteristics" heads (1751); italic heads are <H3> only in a section that has bold ones (1410).
   nested_subheadings: true
   sentence_case_brackets: true  # S: "H2 | Sentence Case": "Anti-Candida Activity (In Vitro)" -> "... (in vitro)" (1044)
+  # "References:" -> "References", "Materials and Methods:" -> "Materials and Methods", "Acknowledgment:" (body and
+  # back-matter headings; not the structured abstract's run-in "Purpose:" nor "Keywords:"): the editors drop the
+  # colon; G137 says retain it -- the owner follows the editors (owner, 2026-10-26).
+  strip_trailing_colon: true
 
 # statistics.unary_after_word: false as base (G301: unary "><space>10 -> >10"; editors 0 of 20 spaced)
 
@@ -65,11 +69,17 @@ guide_replace:
   # 23 closer / 1 further, unary_comparison 15 / 0, unary_minus (G300) 25 / 15 (1153 keeps the hyphen; 4 more
   # used an en dash), ampersand 2 / 2 (G293 asks for it), p_value_capital "p" heads 1646 ×3, ">=" 1787 ×2.
   table_rules: [range_dash, unary_minus, unary_comparison, p_value_capital, comparison_symbol, smart_quotes,
-                ampersand]
+                ampersand]  # unary signs closed up in cells too (G300 / G301; owner, 2026-10-26)
 
-# figures: as base. S: "The caption should end with a period" (table captions: added; editors 9 add, 8 leave none);
-# figure legends: G261 deletes a final period (the sheet is silent on legends).
+# S: "The caption should end with a period": table and figure captions alike (owner, 2026-10-26: keep the sheet over
+# G261, which deletes a legend's final period; editors 9 add, 8 leave none on table captions).
 figures:
+  table_caption_end_period: add
+  figure_caption_end_period: add
+  graph_caption_end_period: add
+  # Owner, 2026-10-26: table footnote abbreviations as "term = definition" (the sheet's live line; "CI, confidence
+  # interval" / "CI: confidence interval" -> "CI = confidence interval").
+  table_footnote_abbreviation: equals
   lowercase_labels: true  # "in table 2" -> "in Table 2" (S: "Table citation | Tables 1–6; Table 1; Tables 2 and 3";
                           # editors 4 of 4 tables, 2 of 3 figures)
   table_footnote_end_period: delete  # S: "Table footnotes | ... Period should be deleted at end of last footnote"
@@ -94,7 +104,8 @@ sections:
     rename: {material and methods: Materials and Methods, material and method: Materials and Methods,
              materials and method: Materials and Methods, result: Results}
   # abstract.rename: as base. S: 'The sub-headings “Materials and Methods” or “Methodology” should be changed to
-  # “Methods”' (the JEHP editors keep "Materials and Methods" in 17 of 17: owner's list).
+  # “Methods”' (struck through in the sheet, still live; the JEHP editors keep "Materials and Methods" in 17 of 17):
+  # applied and no longer held for the editor (owner, 2026-10-26).
   abstract:
     rename: {conclusions: Conclusion}  # "Conclusions" -> "Conclusion": 2 of 3 (the sheet is silent)
     heading_case: true  # S: 'The word "Abstract" should be added as heading': "ABSTRACT" -> "Abstract" (editors 2 of 2)
@@ -113,6 +124,8 @@ sections:
     # a heading and its statement each (S: H2; editors 1401, 1787)
     split_run_in: true
     data_heading: Data availability statement  # "Data availability:" -> the H2 list's wording (editors 2 of 2)
+    acknowledgement_heading: Acknowledgement  # G146: "The heading 'Acknowledgement'" (UK spelling), <H1> (owner,
+                                              # 2026-10-26)
 
 required_sections:
   # "Finance support and sponsorship" (the submission template's wording) is this section: renamed (editors 3 of 4); with
@@ -127,8 +140,10 @@ references:
   # training 7 of 10: 1153, 1209, 1280, 1402, 1559, 1588, 1683, kept in 924, 1039, 1793). One editor typed labels
   # over Word's numbering (997): owner's list. IJO keeps them as "1. " (label_period).
   label_auto_number: true
+  # At most two initials per author: "Chandrasena PPCM" -> "Chandrasena PP" (the editors 6 of 8; owner, 2026-10-26)
+  max_initials: 2
 
-# references.non_indexed_journal: full as base (S: "Use complete name of the journal for non-indexed journals"): a CrossRef
+# references.non_indexed_journal: full as base (owner, 2026-10-26: keep -- not in NLM's list -> CrossRef's full title) (S: "Use complete name of the journal for non-indexed journals"): a CrossRef
 # journal NLM does not list keeps its full title. The editors wrote an ISO-style abbreviation for 13 of 15 such
 # journals ("Interact Technol Smart Educ", "J Learn Sci"): owner's list. "Indexed" is read as listed by NLM
 # (J_Medline): "MIS Q", "Cogent Educ", "Glob J Health Sci" are NLM's abbreviations and stay so, while the editors of
@@ -152,7 +167,12 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   fonts:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (32 of 33 articles)
-    align: left
+    align: left                # G16 "left aligned"; headings 14 pt (owner, 2026-10-26: keep the guide; table cells
+                               # keep the alignment they were typed with)
+  # Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font (Word's inserted symbols, w:sym), never ×, ®, ©, µ
+  # (owner, 2026-10-26)
+  symbol_font: {enabled: true}
+  # S: "fourth level ... underlined": the tool tags three levels only (no fourth-level detection yet)
 
 # copyedit.abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by
 # abbreviation in parentheses (only abbreviation should be used thereafter)": full form after the definition ->
@@ -182,8 +202,12 @@ text:
 front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together. All the affiliations should be complete"
   group_departments: false
   affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")
-  # correspondence_one_line stays off: editors split 9 / 8 between the address on the name line and on its own line
-  # (the stylesheet's "run-on" is read as the address lines joined); on, front-matter similarity fell 82.8% -> 78.2%
+  # S90: the correspondence run on, the address on the name line (owner, 2026-10-26; the editors split 9 / 8, and
+  # front-matter similarity fell 82.8% -> 78.2% when it was first tried)
+  correspondence_one_line: true
+  # S: "All the affiliations should be complete": the postal code the title page gives after the city stays;
+  # "Faculty of ..." units stay as written (owner, 2026-10-26)
+  affiliation_postal_code: true
   # G91-92: "Suffix and/or prefix like "Dr." ... can be present. Please retain/add period" (the sheet is silent):
   # the editors add the XML's <title> to the correspondence name -- Mrs. 3 of 4 (1266, 944, 1738), Mr. in 1209 but
   # not 1874 (1401: the XML's Mr, the editor wrote Dr.), Dr. / Prof. as before. Ms. is left out: added in 1 of 5
@@ -198,7 +222,6 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
 autopilot:
   # Left for the editor to confirm (the rules stay on; the stylesheet / guide asks for them, the editors mostly skip):
   #   use abbreviation   S: "only abbreviation should be used thereafter" (final text 0 of 11)
-  #   sections_abstract.rename:methods  S: '"Materials and Methods" ... should be changed to "Methods"' (0 of 2; 17 of 17 kept)
   #   sections_back_matter.added  G283: "If information of SoS/CoI is not provided ... keep both as Source of support: Nil"
   #                      (the statements added with "Nil.": 0 of 3)
   #   guide.unary_comparison  G301: '"><space>10" -> ">10"' (0 of 5; editors keep the author's space)
@@ -208,5 +231,6 @@ autopilot:
   # captions sentence case in 4 of the 4 articles that had them and added the period in 9 of 17; holding both cut
   # the text closure 23.1% -> 22.5%. ref_year / ref_pages / ref_issue (S: "J Pharm Bioall Sci 2017;9:80-7", G165,
   # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
+  # Not held: sections_abstract.rename:methods (S, struck through but live: owner, 2026-10-26).
   hold: [sections_back_matter.consent_added, fmt_color, figure_insert, use abbreviation,
-         sections_abstract.rename:methods, sections_back_matter.added, guide.unary_comparison, claude]
+         sections_back_matter.added, guide.unary_comparison, claude]

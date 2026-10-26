@@ -538,6 +538,9 @@ def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
         parts = {k: ok(aff.get(k, ""), k) for k in ("department", "institution", "city", "state", "country")}
         parts["department"] = strip_designation(parts["department"])
         parts = {k: ("" if re.search(r"\d{5,}|@", v) else v) for k, v in parts.items()}
+        pin = affiliation_postal_code(source, parts)
+        if pin:
+            parts["postal_code"] = pin
         if parts["department"] or parts["institution"]:
             f.affiliations[aff.get("id", len(f.affiliations) + 1)] = parts
     c = raw.get("correspondence") or {}
@@ -555,6 +558,30 @@ def verify(raw: dict, source: str, para_ids: dict[str, str]) -> Fields:
         if item.get("id") in para_ids and item.get("role") in ROLES:
             f.roles[para_ids[item["id"]]] = item["role"]
     return f
+
+
+_CORRESPONDENCE_LINE = re.compile(r"(?i)correspond|address\s+for|\b(?:phone|tel|mobile|mob|fax)\b")
+
+
+def affiliation_postal_code(source: str, aff: dict) -> str:
+    """The postal code the title page writes next to an affiliation's city ("Chennai - 600006", "Tokyo 102-8554",
+    "75006 Paris"), on a line that also names the affiliation's institution or department; "" when none. The model
+    is told to leave postal codes out; this reads them back from the text (S: "All the affiliations should be
+    complete": owner, 2026-10-26)."""
+    city = (aff.get("city") or "").strip()
+    unit = _norm(aff.get("institution") or aff.get("department") or "")
+    if not city or not unit:
+        return ""
+    c = re.escape(city)
+    after = re.compile(rf"(?i)\b{c}\b\s*[,\-–]?\s*(\d{{3}}\s?\d{{3}}|\d{{3}}-\d{{4}}|\d{{4,5}})(?![\d/])")
+    before = re.compile(rf"(?i)(?<![\d\-/])(\d{{4,6}})\s+{c}\b")
+    for line in source.splitlines():
+        if unit not in _norm(line) or _CORRESPONDENCE_LINE.search(line):
+            continue  # the correspondence address may be another building's (or a home's) postal code
+        m = after.search(line) or before.search(line)
+        if m:
+            return m.group(1)
+    return ""
 
 
 def _complete_affiliations(affs: dict[int, dict], order: list[int], notes: list[str]) -> None:
@@ -1138,7 +1165,7 @@ def _clean_part(text: str) -> str:
 Run = tuple[str, dict]
 
 
-def _affiliation_body(a: dict, parts: list[str]) -> str:
+def _affiliation_body(a: dict, parts: list[str], postal: bool = False) -> str:
     """An affiliation as printed, without the country: `parts` (the department, or nothing when it is printed
     with its group) + institution, city and state, cleaned, a place the institution already ends with dropped."""
     parts = parts + [a.get("institution", ""), _place_case(a.get("city", "")), _place_case(_state(a))]
@@ -1150,17 +1177,24 @@ def _affiliation_body(a: dict, parts: list[str]) -> str:
         if not any(_norm(q).endswith(_norm(p))
                    and not re.search(r"(?i)\b(?:of|in|at|de|du|di)\s+" + re.escape(p) + "$", q) for q in dedup):
             dedup.append(p)
+    city = _clean_part(_place_case(a.get("city", "")))
+    pin = re.sub(r"\s+", "", a.get("postal_code", "")) if postal else ""
+    at = next((k for k in range(len(dedup) - 1, -1, -1) if city and _norm(dedup[k]).endswith(_norm(city))), None)
+    if pin and at is not None:  # after the city, as the correspondence prints it: "Chennai - 600 006" (India),
+        # else "Tokyo, 102-8554"
+        india = _country(a).casefold() == "india" and re.fullmatch(r"\d{6}", pin)
+        dedup[at] += f" - {pin[:3]} {pin[3:]}" if india else f", {pin}"
     return ", ".join(dedup)
 
 
-def affiliation_text(f: "Fields", i: int) -> str:
+def affiliation_text(f: "Fields", i: int, postal: bool = False) -> str:
     """Affiliation `i` of `f` printed complete, as the author group's affiliation line prints it on its own
     (department, institution, city, state, country). A missing country is the one the other affiliations all
     give, when the affiliation names no state that could say otherwise."""
     a = f.affiliations.get(i)
     if not a:
         return ""
-    text = _affiliation_body(a, [department_form(a.get("department", ""))])
+    text = _affiliation_body(a, [department_form(a.get("department", ""))], postal)
     country = _country(a)
     if not country and not a.get("state"):
         others = {_country(b) for j, b in f.affiliations.items() if j != i} - {""}
@@ -1344,7 +1378,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 if number.get(g[0]):
                     runs.append((number[g[0]], SUP))
                 parts = [department_form(a0.get("department", ""))]
-            text = _affiliation_body(a0, parts)
+            text = _affiliation_body(a0, parts, bool(cfg.get("affiliation_postal_code")))
             if len(g) > 1 and text:
                 text = ", " + text
             last_of_country = gi == len(groups) - 1 or countries[gi + 1] != countries[gi] \

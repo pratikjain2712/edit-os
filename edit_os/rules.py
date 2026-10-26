@@ -1074,6 +1074,13 @@ def _reference_edits(text: str, style: JournalStyle) -> list[tuple[int, int, str
         for m in _INITIAL_PERIOD.finditer(text[:authors_end]):
             out.append((m.start(), m.end(), "", "ref_initials", None))
 
+    max_i = style.get("references.max_initials")
+    if authors_end and max_i:  # "Chandrasena PPCM," -> "Chandrasena PP," (JEHP: owner, 2026-10-26)
+        for m in re.finditer(r"(?<![\w'’\-])[^\W\d][\w'’\-]*[a-z][\w'’\-]*\s+([A-Z]{%d,4})(?=\s*,|\s*$|\s+et al)" % (max_i + 1), text[:authors_end]):
+            name = text[:m.end(1)].rsplit(",", 1)[-1].split()
+            if len(name) <= 3:  # a person ("Ten Ham-Baloyi WAB"), not a group ("World Health Organization WHO")
+                out.append((m.start(1) + max_i, m.end(1), "", "ref_initials", None))
+
     if authors_end:  # "ALIZADEH GJ" -> "Alizadeh GJ" (S: "Elnaem MH, Mohamed MH"); "WHO" and other groups stay
         for m in _CAPS_SURNAME.finditer(text[:authors_end]):
             name = m.group("sur")
@@ -1329,6 +1336,7 @@ RULES = {
     "guide_replace": rules_guide.rule_guide,
     "format_cleanup": rules_format.rule_cleanup,  # author's colours, stray bold, labels and heads bold
     "format_fonts": rules_format.rule_fonts,  # font family, sizes (12 pt, headings 14 pt) and alignment
+    "format_symbols": rules_format.rule_symbols,  # Greek, ±, ≤, ≥, minus in the Symbol font (formatting.symbol_font)
 }
 
 # Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
@@ -1400,6 +1408,7 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     kept = rules_format.finish_fonts(ms, style, kept, replaced)
     kept = [c for c in kept if c.reason == "fmt_align" or not (c.format_only and any(
         t.para_id == c.para_id and t.start <= c.start and c.end <= t.end for t in replaced))]
+    kept = rules_format.finish_symbols(style, kept)  # the symbols in text a kept change writes
     if not only or "references" in only or "ref_lookup" in only:
         _reference_provenance(ms, style, kept)
     return ChangeSet(kept)

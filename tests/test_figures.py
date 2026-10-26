@@ -100,8 +100,9 @@ def test_captions(tmp_path):
     assert t[1] == "Table 3 shows the results."
     # S / G264: Figure 1B is part (b) of Figure 1, run on; "et al." keeps its period
     assert t[5] == "Figure 1: (a) Slit-lamp photograph of the right eye. (b) B-scan, et al."
-    assert t[6] == "Figure 2: Fundus photograph"  # captions keep "Figure", even for IJO
-    assert t[7] == "Figure 3: Montage"
+    # captions keep "Figure", even for IJO; they end with a period (S: owner, 2026-10-26)
+    assert t[6] == "Figure 2: Fundus photograph."
+    assert t[7] == "Figure 3: Montage."
     assert t[8] == "Table 2: Baseline characteristics."  # S: table "caption should end with a period"
     assert t[9] == "Table 4: Outcomes."
     assert t[10] == "Table 5: Costs."

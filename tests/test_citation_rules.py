@@ -13,6 +13,13 @@ def _style(code="ijo"):
     return st
 
 
+def _moving():
+    """IJO with the citation moved next to the study's author (base; IJO keeps it in place: owner, 2026-10-26)."""
+    st = _style()
+    st.settings["citations"]["next_to_author"] = True
+    return st
+
+
 def _refs(*first_authors):
     return ["References"] + [f"{i}. {a}. A title {i}. J Test 2001;{i}:1-2." for i, a in enumerate(first_authors, 1)]
 
@@ -56,7 +63,7 @@ def test_citation_moves_next_to_matching_author(tmp_path):
         "Themes were coded as described by Evans and Frost.[4] NVivo was used.",  # only "." between: stays
     ]
     path = _save(tmp_path, body + _refs("Ames JB, Kay T", "Brook A, Lee B", "Dunn C", "Evans D, Frost E", "Hall F"))
-    _, t = _run(path, _style(), tmp_path, CITE_RULES)
+    _, t = _run(path, _moving(), tmp_path, CITE_RULES)
     assert t[7] == "Themes were coded as described by Evans and Frost.[4] NVivo was used."
     assert t[1] == "Ames et al.[1] showed the drug works in rats. They found more in mice."
     assert t[2] == "In a study by Brook et al.,[2] values fell (P = 0.02). Later work is new."
@@ -72,7 +79,7 @@ def test_moved_citation_is_superscript_and_renumbered(tmp_path):
         "Glaucoma is common [2]. Özer et al. reported a rise in density in the macula [1].",
     ]
     path = _save(tmp_path, body + _refs("Özer Ö, Baysal Z", "Weinreb RN"))
-    cs, t = _run(path, _style(), tmp_path, CITE_RULES)
+    cs, t = _run(path, _moving(), tmp_path, CITE_RULES)
     # Renumbered by first citation: [2] -> [1], Özer's [1] -> [2], placed after the name.
     assert t[1] == "Glaucoma is common.[1] Özer et al.[2] reported a rise in density in the macula."
     moved = [c for c in cs.changes if c.reason == "author_citations" and c.new == "[2]"]
@@ -124,10 +131,11 @@ def test_legend_part_labels(tmp_path):
         "Figure 4: Cross section (2A) of the (R) eye",
     ]
     _, t = _run(_save(tmp_path, paras), _style(), tmp_path, ["fig_captions"])
-    assert t[0] == "Figure 1: Photograph showing the chamber (a). B-scan shows echoes (b)"
-    assert t[1] == "Figure 2: Fundus. (a, b) Discs in both eyes. (c) Imaging"
-    assert t[2] == "Figure 3: Curves for (a) diameter (b) height (c) index"
-    assert t[3] == "Figure 4: Cross section (2A) of the (R) eye"  # another figure's number; not a part label
+    # captions end with a period (S; owner, 2026-10-26)
+    assert t[0] == "Figure 1: Photograph showing the chamber (a). B-scan shows echoes (b)."
+    assert t[1] == "Figure 2: Fundus. (a, b) Discs in both eyes. (c) Imaging."
+    assert t[2] == "Figure 3: Curves for (a) diameter (b) height (c) index."
+    assert t[3] == "Figure 4: Cross section (2A) of the (R) eye."  # another figure's number; not a part label
     st = _style()
     st.settings["figures"]["legend_part_labels"] = False
     _, t = _run(_save(tmp_path, paras, "b.docx"), st, tmp_path, ["fig_captions"])
@@ -158,7 +166,7 @@ def test_subheadings_tagged(tmp_path):
     assert t[9] == "Inclusion criteria:"
     assert t[12] == "Funding"
     assert t[14] == "OCT: optical coherence tomography"
-    assert t[18] == "<H2>Data collection:"  # G137: punctuation at the end of a heading is retained
+    assert t[18] == "<H2>Data collection"  # IJO: the heading's colon goes (owner, 2026-10-26, over G137)
 
 
 def test_subheadings_skip_run_in_section_and_abstract(tmp_path):
@@ -178,14 +186,15 @@ def test_citation_at_paragraph_end_takes_trailing_space(tmp_path):
     body = ["Introduction", "It is the main target in glaucoma [1]. ", "Ames et al. showed it in rats.[2]  ",
             "Caption-free text with a citation [1] in the middle. "]
     path = _save(tmp_path, body + _refs("Kay T", "Ames JB"))
-    _, t = _run(path, _style(), tmp_path, CITE_RULES)
+    _, t = _run(path, _moving(), tmp_path, CITE_RULES)
     assert t[1] == "It is the main target in glaucoma.[1]"   # not "glaucoma.[1] "
     assert t[2] == "Ames et al.[2] showed it in rats."
     assert t[3] == "Caption-free text with a citation[1] in the middle."  # the guide's paragraph-end spaces go (G143)
 
 
 def test_caption_end_period_takes_trailing_space(tmp_path):
-    _, t = _run(_save(tmp_path, ["Figure 1: Fundus photograph showing folds. "]), _style(), tmp_path, ["fig_captions"])
+    _, t = _run(_save(tmp_path, ["Figure 1: Fundus photograph showing folds. "]), _style("ijdr"), tmp_path,
+                ["fig_captions"])  # a journal whose figure captions lose the period (G261)
     assert t[0] == "Figure 1: Fundus photograph showing folds"
 
 
@@ -199,7 +208,8 @@ def test_heading_tags_replace_leading_spaces(tmp_path):
     path = _save(tmp_path, paras)
     _, t = _run(path, _style(), tmp_path, ["heading_tags", "sections_headings", "subheadings"])
     # IJO drops "Introduction" (editors); H1 in Title case (S: "H1 | Caps", owner reading)
-    assert t[:5] == [LONG, "<H1>Methods:", "<H2>Study design", LONG, "<H1>Results"]  # G137 colon kept, G143 spaces go
+    # the colon goes (IJO: owner, 2026-10-26, over G137), G143 spaces go
+    assert t[:5] == [LONG, "<H1>Methods", "<H2>Study design", LONG, "<H1>Results"]
 
 
 def test_caption_end_period_kept_when_set_to_keep(tmp_path):
