@@ -82,12 +82,12 @@ figures:
   table_caption_case: sentence
   # S (table footnotes): "Period should be deleted at end of last abbreviation definition" / "... at end of last
   # footnote" and "Comma should be delimiter between abbreviations." Whether a definition reads "term = definition"
-  # (the live line) or "term: definition" (the struck one, and the editors) is the owner's question: left as typed.
+  # (the live line) or "term: definition" (the struck one, and the editors): the owner follows the editors (below).
   table_footnote_end_period: delete
   table_footnote_delimiter: ","
   # Owner, 2026-10-26: the IJO editors' "term: definition" ("CDVA = corrected ..." / "CDVA, corrected ..." ->
   # "CDVA: corrected ...").
-  table_footnote_abbreviation: colon
+  table_footnote_abbreviation: ": "
   # S: "The caption should end with a period": table and figure captions (owner, 2026-10-26: keep the sheet)
   table_caption_end_period: add
   figure_caption_end_period: add
