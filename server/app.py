@@ -242,7 +242,10 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
 
     @app.get("/api/journals", dependencies=[Depends(require_key)])
     def journals():
-        return [{"code": c, "name": n} for c, n in journal_codes().items()]
+        prefixes = {}
+        for alias, code in style_mod.ALIASES.items():
+            prefixes.setdefault(code, []).append(alias)
+        return [{"code": c, "name": n, "prefixes": [c] + prefixes.get(c, [])} for c, n in journal_codes().items()]
 
     @app.post("/api/jobs", status_code=202, dependencies=[Depends(require_key)])
     def upload(file: UploadFile = File(...), journal: str = Form(...), external_id: str = Form(""),

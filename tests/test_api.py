@@ -313,3 +313,9 @@ def test_session_tokens_expire():
     assert sessions.verify("secret", t, now=1000 + 3601) is None
     assert sessions.verify("other", t, now=1000) is None
     assert sessions.verify("secret", "s1.garbage", now=1000) is None
+
+
+def test_journals_list_the_file_name_prefixes(client):
+    js = {j["code"]: j for j in client.get("/api/journals", headers=KEY).json()}
+    assert js["ijo"]["prefixes"] == ["ijo"]
+    assert "neurol" in js["ni"]["prefixes"] and js["ni"]["prefixes"][0] == "ni"

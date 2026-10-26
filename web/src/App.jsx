@@ -145,6 +145,19 @@ function JournalPicker({ journals, value, onChange }) {
   );
 }
 
+// The journal a file name starts with: "IJO_702_26.zip" -> ijo, "jehp_1044_26.docx" -> jehp,
+// "Neurol-India-D-26-00445.zip" -> ni. The longest matching prefix wins ("ijoem_..." is not IJO).
+export function journalFromName(name, journals) {
+  const n = (name || "").toLowerCase();
+  let best = null;
+  for (const j of journals) {
+    for (const p of j.prefixes || [j.code]) {
+      if (n.startsWith(p) && /^[\s_\-.]/.test(n.slice(p.length)) && (!best || p.length > best.len)) best = { code: j.code, len: p.length };
+    }
+  }
+  return best && best.code;
+}
+
 const ago = (iso) => {
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
   if (s < 60) return "just now";
@@ -176,6 +189,8 @@ function Home() {
     if (!f) return;
     if (!/\.(docx|zip)$/i.test(f.name)) { toast("Choose a .docx manuscript or a submission .zip", "error"); return; }
     setFile(f);
+    const code = journalFromName(f.name, journals);
+    if (code) setJournal(code);
   };
 
   async function submit(e) {
