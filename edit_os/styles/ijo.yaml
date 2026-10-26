@@ -52,8 +52,9 @@ formatting:
   symbol_font: {enabled: true}
 
 citations:
-  # The citation stays where the author put it (no move next to the study's author name): owner, 2026-10-26 (as JEHP).
-  next_to_author: false
+  # Owner, 2026-10-26: "follow the editors" on where a citation sits. The IJO editors move it next to the study's
+  # author name (as base); the JEHP editors leave it where the author put it (jehp.yaml).
+  next_to_author: true
   # "[3,4,5]" -> "[3-5]", "[1,3,4,5]" -> "[1,3-5]" in every citation, not only renumbered ones (the IJO editors,
   # 510 / 837 / 702; the sheet is silent: S328 only sets the hyphen, S330 keeps two numbers a list)
   compress_from: 3
