@@ -1088,12 +1088,28 @@ def _place_case(text: str) -> str:
     return " ".join(w.capitalize() if w.isupper() and len(w) > 3 else w for w in text.split())
 
 
+# Function words of other languages inside a name ("Başakşehir Çam ve Sakura Şehir Hastanesi", "Universidade de
+# São Paulo", "Hospital Universitario y Politécnico La Fe", "Klinikum rechts der Isar", "Karolinska Institutet för
+# ..."): they stay lowercase when a name is recased.
+_FOREIGN_MINOR = {"ve", "de", "del", "della", "delle", "dei", "degli", "da", "do", "dos", "das", "di", "du", "des",
+                  "la", "le", "les", "y", "e", "und", "van", "von", "der", "den", "et", "för", "och", "og", "es", "el"}
+# The conjunctions among them, written with a capital inside a name ("Çam Ve Sakura", "Universidade De São Paulo"):
+# lowered between two capitalised words. Single letters (initials: "Dr Y S R"), articles and words that begin
+# place and family names ("La Paz", "Van", "Der", "Des Moines", "Di Venere", "Da Nang") are left as written.
+_FOREIGN_LOWER = {"ve", "und", "och", "og", "et", "för", "de", "del", "do", "dos", "das", "du"}
+
+
 def _cap_words(text: str) -> str:
-    """Capitalise lowercase major words: "city eye hospital" -> "City Eye Hospital"."""
+    """Capitalise lowercase major words: "city eye hospital" -> "City Eye Hospital"; a foreign connector inside
+    a name stays (or becomes) lowercase: "Çam Ve Sakura" -> "Çam ve Sakura"."""
     words = re.split(r"(\s+)", re.sub(r"\s+", " ", text.strip()))
     out = []
     for i, w in enumerate(words):
-        if w.isspace() or not w[:1].islower() or (i and (w in _MINOR or w in _PARTICLES or w in ("es", "el"))):
+        if i and w[:1].isupper() and w[1:].islower() and w.casefold() in _FOREIGN_LOWER \
+                and i + 2 < len(words) and words[i + 2][:1].isupper() and out[-2][:1].isupper() \
+                and out[-2].casefold() not in _MINOR:
+            out.append(w.lower())
+        elif w.isspace() or not w[:1].islower() or (i and (w in _MINOR or w in _PARTICLES or w in _FOREIGN_MINOR)):
             out.append(w)
         else:
             out.append(w[:1].upper() + w[1:])
@@ -1755,15 +1771,34 @@ _RUNNING_LINE = re.compile(r"^\s*(?:running\s*(?:title|head)|short\s*(?:title|he
 _INTRO_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?introduction\b", re.I)
 
 
-def late_running_title(ms: Manuscript, lead: list[Paragraph]) -> Paragraph | None:
-    """A "Running Title: ..." line below the abstract and key words, before the Introduction heading: front matter
-    left in the body. Its text is the running title, and the line goes (the running head carries it)."""
+_RUNNING_LABEL = re.compile(r"^\s*(?:running\s*(?:title|head)|short\s*(?:title|head))\s*[:\-–]?\s*$", re.I)
+
+
+def _short_title_line(p: Paragraph) -> bool:
+    """A line that can be a short title on its own: not in a table, not a heading or body text, a few words."""
+    t = p.text.strip()
+    return bool(t) and not p.in_table and len(t) < 150 and len(t.split()) <= 15 and not _BODY_START.match(t) \
+        and not _BACK_MATTER.match(t) and not re.search(r"[.;]\s*$|\.\s+[A-Z]", t)
+
+
+def late_running_title(ms: Manuscript, lead: list[Paragraph]) -> tuple[Paragraph, str, Paragraph | None] | None:
+    """A "Running Title: ..." line below the title page (after the abstract and key words, or below an "Abstract
+    Page" heading), before the Introduction heading: front matter left in the body. Its text is the running title,
+    and the line goes (the running head carries it). Also the label on a line of its own with the short title on
+    the next ("Running title" / "Uric Acid-to-HDL Ratio in ACS"): both go. Returns (the paragraph with the short
+    title, the short title, the label paragraph when separate)."""
     seen = {p.id for p in lead}
-    for p in ms.paragraphs[:80]:
+    paras = [p for p in ms.paragraphs[:80] if p.text.strip()]
+    for k, p in enumerate(paras):
         if _INTRO_HEAD.match(p.text) and len(p.text) < 40:
             break
-        if p.id not in seen and not p.in_table and _RUNNING_LINE.match(p.text) and len(p.text) < 200:
-            return p
+        if p.id in seen or p.in_table:
+            continue
+        if _RUNNING_LINE.match(p.text) and len(p.text) < 200:
+            return p, _RUNNING_LINE.match(p.text).group(1), None
+        if _RUNNING_LABEL.match(p.text) and k + 1 < len(paras) and paras[k + 1].id not in seen \
+                and _short_title_line(paras[k + 1]):
+            return paras[k + 1], paras[k + 1].text.strip(), p
     return None
 
 
@@ -1827,9 +1862,10 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     else:
         f = fields_from_meta(src.meta)
     _consistent_name_order(f)
-    late_rt = late_running_title(ms, lead)
-    if late_rt is not None and not f.running_title:
-        f.running_title = _RUNNING_LINE.match(late_rt.text).group(1)
+    late = late_running_title(ms, lead)
+    late_rt = late[0] if late is not None else None
+    if late is not None and not f.running_title:
+        f.running_title = late[1]
         f.notes.append(f"running title from the line after the key words: {f.running_title!r}")
     _fix_roles(f, lead)
     _link_affiliations(f, src, lead)
@@ -1855,23 +1891,37 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     # Map existing manuscript paragraphs onto blocks; insert the rest in reading order.
     have: dict[str, list[Paragraph]] = {}
     front_roles = [p for p in lead if f.roles.get(p.id) in set(_ROLE_TO_BLOCK) | _DELETE_ROLES]
-    for p in lead:
+    for k, p in enumerate(lead):
         role = f.roles.get(p.id)
         if role == "running_title" and front_roles and front_roles[0] is p:
             have.setdefault("running_head", []).append(p)  # a running head on top: rewrite it in place
         elif role in _ROLE_TO_BLOCK:
             have.setdefault(_ROLE_TO_BLOCK[role], []).append(p)
-        elif role in _DELETE_ROLES and _LABEL.match(p.text) and (role == "running_title" or len(p.text) < 60):
+        elif (role in _DELETE_ROLES and _LABEL.match(p.text) and (role == "running_title" or len(p.text) < 60)) \
+                or (role not in _ROLE_TO_BLOCK and _RUNNING_LABEL.match(p.text)):
             pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=p.id, start=0, end=len(p.text), old=p.text,
                                      new="", layer=Layer.STRUCTURE, source=Source.RULE, reason="front_matter",
                                      provenance=provenance.make("manuscript", "Manuscript label", p.text, para_id=p.id,
-                                                                role=role)))
-    if late_rt is not None:
-        pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=late_rt.id, start=0, end=len(late_rt.text),
-                                 old=late_rt.text, new="", layer=Layer.STRUCTURE, source=Source.RULE,
+                                                                role=role or "label")))
+        elif role not in _ROLE_TO_BLOCK and _short_title_line(p) and (
+                (f.running_title and _norm(p.text) == _norm(f.running_title) and _norm(p.text) != _norm(f.title))
+                or (role == "running_title" and _norm(p.text) != _norm(f.title))
+                or (k and _RUNNING_LABEL.match(lead[k - 1].text))):
+            # The author's short title on a line of its own ("Marital Enrichment and Childbearing" below the title,
+            # or below a bare "Running Title" label): the running head carries it, the line goes like the labels.
+            pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=p.id, start=0, end=len(p.text), old=p.text,
+                                     new="", layer=Layer.STRUCTURE, source=Source.RULE, reason="front_matter",
+                                     provenance=provenance.make("manuscript", "Manuscript", "the short title on a line "
+                                                                "of its own: it goes into the running head",
+                                                                para_id=p.id, role="running_title")))
+    for q in ([late[0], late[2]] if late is not None else []):
+        if q is None:
+            continue
+        pl.changes.append(Change(id=f"fm{next(_ids)}", para_id=q.id, start=0, end=len(q.text),
+                                 old=q.text, new="", layer=Layer.STRUCTURE, source=Source.RULE,
                                  reason="front_matter",
                                  provenance=provenance.make("manuscript", "Manuscript", "the running title below the "
-                                                            "key words: it goes into the running head", para_id=late_rt.id,
+                                                            "title page: it goes into the running head", para_id=q.id,
                                                             role="running_title")))
     by_role: dict[str, list[Block]] = {}
     for b in blocks:
