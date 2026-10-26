@@ -46,6 +46,45 @@ def norm(s: str) -> str:
     return " ".join(s.replace("–", "-").split()).rstrip(".")
 
 
+def score_article(d: str, st) -> collections.Counter | None:
+    """One article folder (`original.zip`, `te.docx`) against the editor's references, paired by number:
+    refs, dOT / dUT (token distance original / ours to the editor's), exact_before / exact_after (identical to the
+    editor's), status:<lookup status> counts, and `shown` [(number, status, orig, ours, editor)] where ours differs."""
+    src = manuscript_from_zip(os.path.join(d, "original.zip"))
+    if src is None:
+        return None
+    with open(os.path.join(d, "te.docx"), "rb") as f:
+        ed = editor_refs(f.read())
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "m.docx")
+        with open(path, "wb") as f:
+            f.write(src)
+        ms = docmodel.load(path)
+        before = {r.number: r.text for r in references.extract(ms) if r.number}
+        status = {r.number: res.status for r, res in rules.lookup_references(ms, st)}
+        cs = rules.run_all(ms, st)
+        for c in cs.changes:
+            c.status = Status.ACCEPTED
+        out = os.path.join(tmp, "u.docx")
+        tracked.render(docmodel.load(path), cs, tracked=False).save(out)
+        after = {r.number: r.text for r in references.extract(docmodel.load(out)) if r.number}
+    tot: collections.Counter = collections.Counter()
+    tot.shown = []
+    for n, orig in before.items():
+        if n not in ed or n not in after:
+            continue
+        t, u = ed[n], after[n]
+        tot["refs"] += 1
+        tot["status:" + status.get(n, "-")] += 1
+        tot["dOT"] += distance(orig, t)
+        tot["dUT"] += distance(u, t)
+        tot["exact_before"] += norm(orig) == norm(t)
+        tot["exact_after"] += norm(u) == norm(t)
+        if norm(u) != norm(t):
+            tot.shown.append((n, status.get(n), orig, u, t))
+    return tot
+
+
 def main(argv):
     data, journal = argv[0], argv[1].lower()
     show = int(argv[argv.index("--show") + 1]) if "--show" in argv else 0
@@ -57,35 +96,14 @@ def main(argv):
     for d in sorted(glob.glob(os.path.join(data, "*"))):
         if not os.path.basename(d).lower().startswith((journal + "_", journal + "-")):
             continue
-        src = manuscript_from_zip(os.path.join(d, "original.zip"))
-        with open(os.path.join(d, "te.docx"), "rb") as f:
-            ed = editor_refs(f.read())
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "m.docx")
-            with open(path, "wb") as f:
-                f.write(src)
-            ms = docmodel.load(path)
-            before = {r.number: r.text for r in references.extract(ms) if r.number}
-            status = {r.number: res.status for r, res in rules.lookup_references(ms, st)}
-            cs = rules.run_all(ms, st)
-            for c in cs.changes:
-                c.status = Status.ACCEPTED
-            out = os.path.join(tmp, "u.docx")
-            tracked.render(docmodel.load(path), cs, tracked=False).save(out)
-            after = {r.number: r.text for r in references.extract(docmodel.load(out)) if r.number}
-        for n, orig in before.items():
-            if n not in ed or n not in after:
-                continue
-            t, u = ed[n], after[n]
-            tot["refs"] += 1
-            tot["status:" + status.get(n, "-")] += 1
-            tot["dOT"] += distance(orig, t)
-            tot["dUT"] += distance(u, t)
-            tot["exact_before"] += norm(orig) == norm(t)
-            tot["exact_after"] += norm(u) == norm(t)
-            if show and shown < show and norm(u) != norm(t):
+        one = score_article(d, st)
+        if one is None:
+            continue
+        tot.update(one)
+        for n, stat, orig, u, t in one.shown:
+            if show and shown < show:
                 shown += 1
-                print(f"[{status.get(n)}] {os.path.basename(d)} #{n}\n  orig:   {orig[:200]}\n  ours:   {u[:200]}\n  editor: {t[:200]}")
+                print(f"[{stat}] {os.path.basename(d)} #{n}\n  orig:   {orig[:200]}\n  ours:   {u[:200]}\n  editor: {t[:200]}")
     r = tot["refs"] or 1
     print(f"references {tot['refs']}  identical to editor: before {tot['exact_before'] / r:.0%} -> after {tot['exact_after'] / r:.0%}"
           f"  closure {(tot['dOT'] - tot['dUT']) / (tot['dOT'] or 1):.1%}")

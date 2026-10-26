@@ -1,0 +1,28 @@
+# tools/daily_learn.py settings (no client material here).
+
+# Evaluation priority: these journals first, in this order; the rest after them.
+journals: [ijo, jehp, mjdrdypu]
+
+# Thresholds of the learning step (tools/learn.py DEFAULTS has the meaning of each).
+learn:
+  window: 30
+  min_judged: 20
+  hold_below: 0.8
+  release_above: 0.9
+  conflict_below: 0.2
+  min_articles: 3
+  min_missed: 5
+  min_consistency: 0.7
+  noise: 0.01
+  top: 10
+
+# Rules the owner decided on for a journal's autopilot: never held or released automatically.
+pinned:
+  jehp:
+    - sections_abstract.rename   # struck through but live (owner, 2026-10-26): not held
+    - fig_captions.case          # table captions in sentence case: accepted although the word count looks low
+    - fig_captions.end_period
+    - fig_captions.period_added
+    - ref_year                   # "Journal 2017;" in 15 of 17 final lists
+    - ref_pages
+    - ref_issue

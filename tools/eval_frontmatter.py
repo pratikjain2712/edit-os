@@ -151,6 +151,34 @@ def similarity(a: str, b: str) -> float:
     return 1 - distance(a, b) / n
 
 
+def article_fields(d: str, code: str, overrides=()) -> tuple[dict[str, str], dict[str, str]] | None:
+    """(editor's fields, our fields) for one article folder (`original.zip`, `te.docx`), or None when it has no
+    editor front matter. `overrides`: [(front_matter.KEY path, YAML value)] set on the journal style first."""
+    te_path, zip_path = os.path.join(d, "te.docx"), os.path.join(d, "original.zip")
+    if not (os.path.exists(te_path) and os.path.exists(zip_path)):
+        return None
+    with open(te_path, "rb") as f:
+        ed = editor_fields(f.read())
+    if not ed:
+        return None
+    src_bytes = manuscript_from_zip(zip_path)
+    if src_bytes is None:
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "m.docx")
+        with open(path, "wb") as f:
+            f.write(src_bytes)
+        ms = docmodel.load(path)
+    st = style_mod.load(code)
+    for key, value in overrides:
+        node = st.settings
+        *path, last = key.split(".")
+        for part in path:
+            node = node.setdefault(part, {})
+        node[last] = yaml.safe_load(value)
+    return ed, our_fields(frontmatter.plan(ms, st, frontmatter.sources_from_zip(zip_path)).blocks)
+
+
 def main(argv):
     data, journal = argv[0], argv[1].lower()
     only = argv[argv.index("--field") + 1] if "--field" in argv else None
@@ -162,29 +190,10 @@ def main(argv):
     n = 0
     for d in dirs:
         code = re.split(r"[_-]", os.path.basename(d))[0].lower()
-        te_path, zip_path = os.path.join(d, "te.docx"), os.path.join(d, "original.zip")
-        if not (os.path.exists(te_path) and os.path.exists(zip_path)):
+        got = article_fields(d, code, overrides)
+        if got is None:
             continue
-        with open(te_path, "rb") as f:
-            ed = editor_fields(f.read())
-        if not ed:
-            continue
-        src_bytes = manuscript_from_zip(zip_path)
-        if src_bytes is None:
-            continue
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "m.docx")
-            with open(path, "wb") as f:
-                f.write(src_bytes)
-            ms = docmodel.load(path)
-        st = style_mod.load(code)
-        for key, value in overrides:
-            node = st.settings
-            *path, last = key.split(".")
-            for part in path:
-                node = node.setdefault(part, {})
-            node[last] = yaml.safe_load(value)
-        ours = our_fields(frontmatter.plan(ms, st, frontmatter.sources_from_zip(zip_path)).blocks)
+        ed, ours = got
         n += 1
         for fld in FIELDS:
             if fld not in ed:
