@@ -393,7 +393,9 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         os.remove(projected)
     else:
         qc_doc = docmodel.load(paths["clean"])
-    report = qc.check(qc_doc, st)
+    # compared with the manuscript as received too: the projected output holds every deletion the clean copy has
+    report = qc.check(qc_doc, st, source=base, changes=changes, inserts=inserts,
+                      statuses=pending if n_pending else (Status.ACCEPTED,))
 
     summary = build_report(dict(man, notes=man.get("notes", []) + head_notes), changes, inserts, qdicts, report,
                            conflicts, n_pending)
