@@ -45,8 +45,19 @@ def test_jehp_holds_the_rules_its_editors_confirm():
                ch("k1", "sections_abstract.rename:conclusion"), ch("k2", "fig_captions.label"),
                ch("k3", "fig_captions.end_period"), ch("k4", "ref_year", layer=Layer.REFERENCES)]
     p = autopilot.plan(changes, [], st, judge=lambda items: {c.id: ("accept", "") for c in items})
-    assert p.accept == ["k5", "k1", "k2", "k3", "k4"]
-    assert {d["id"] for d in p.left} == {"h1", "h2", "h3", "h4", "h7"}
+    # the abstract's "Methods" renaming is no longer held (owner, 2026-10-26)
+    assert p.accept == ["h2", "k5", "k1", "k2", "k3", "k4"]
+    assert {d["id"] for d in p.left} == {"h1", "h3", "h4", "h7"}
+
+
+def test_mjdrdypu_holds_prefixes_added_sections_and_abbreviation_use():
+    # owner, 2026-10-26
+    st = style.load("mjdrdypu")
+    changes = [ch("h1", "use abbreviation after its definition"), ch("h2", "text.prefixes"),
+               ch("h3", "sections_back_matter.added"), ch("k1", "fig_captions.label")]
+    p = autopilot.plan(changes, [], st, judge=lambda items: {c.id: ("accept", "") for c in items})
+    assert p.accept == ["k1"]
+    assert {d["id"] for d in p.left} == {"h1", "h2", "h3"}
 
 
 def test_plan_holds_and_needs_a_key_for_ai_edits():

@@ -48,7 +48,8 @@ def test_ijo_rules(manuscript, tmp_path):
     assert t[2] == "Dermoids are rare.[1] Earlier series reported similar results,[2,3] and others.[2,3]"
     # statistics, not a citation: operators spaced (G297), P capital (G294); H1 in Title case (S: "H1 | Caps", owner reading)
     assert t[3] == "Mean age was 45 (12) years and P = 0.03."
-    assert t[4] == "<H1>Methods:" and t[5] == "<H1>Results" and t[7] == "<H1>References"  # G137 keeps the colon
+    # the heading's colon goes (owner, 2026-10-26, over G137)
+    assert t[4] == "<H1>Methods" and t[5] == "<H1>Results" and t[7] == "<H1>References"
     assert t[8] == "1. Mohammad AEA, Kroosh SS. Huge corneal dermoid: A case report. Orbit Amst Neth 2002;21:295-9."
     assert t[9] == ("2. Duncan JL, Golabi M, Fredrick DR, Hoyt CS, Hwang DG, Kramer SG, et al. "
                     "Complex limbal choristomas. Ophthalmology 1998;105:1459-65.")

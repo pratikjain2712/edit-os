@@ -69,17 +69,17 @@ def test_parts_on_their_own_lines_run_on_into_the_legend(tmp_path):
     texts, _ = apply(path, ijo(), tmp_path)
     assert texts[5:] == [
         "Figure 1: (a) Pre-operative map. (b) Post-operative OCT. (c) Comparative map showing preoperative and 1 week "
-        "postoperative maps",
-        "Figure 2: (a) Face photograph in primary gaze. (b) Face photograph in lateral view",
-        "Figure 3: Fundus photographs due to (a) Toxoplasmosis (b) Tuberculosis (c) Viral & (d) Bartonella"]
+        "postoperative maps.",  # IJO: captions end with a period (S; owner, 2026-10-26)
+        "Figure 2: (a) Face photograph in primary gaze. (b) Face photograph in lateral view.",
+        "Figure 3: Fundus photographs due to (a) Toxoplasmosis (b) Tuberculosis (c) Viral & (d) Bartonella."]
 
 
 def test_without_run_on_parts_keep_their_lines(tmp_path):
     path = make(tmp_path, [*REFS, "Figure 1A. Slit-lamp photograph.", "Figure 1B. B-scan, et al.",
                            "Figure 2 a. Pre-operative map", "   b. Post-operative OCT"])
     texts, _ = apply(path, ijo(legend_run_on=False), tmp_path)
-    assert texts[2:] == ["Figure 1: (a) Slit-lamp photograph", "(b) B-scan, et al.",
-                         "Figure 2: (a) Pre-operative map", "   (b) Post-operative OCT"]
+    assert texts[2:] == ["Figure 1: (a) Slit-lamp photograph.", "(b) B-scan, et al.",
+                         "Figure 2: (a) Pre-operative map", "   (b) Post-operative OCT."]
 
 
 def test_unbracketed_labels_only_in_order_and_in_pairs(tmp_path):
@@ -88,9 +88,9 @@ def test_unbracketed_labels_only_in_order_and_in_pairs(tmp_path):
                            "Figure 3. Case 1. A–C: right eye; D–F: left eye.",
                            "Figure 4 A shows the fundus."])  # a sentence, not a legend
     texts, _ = apply(path, ijo(), tmp_path)
-    assert texts[2] == "Figure 1: MR results. (a): Causal scatter plot. (b): Funnel plot"
-    assert texts[3] == "Figure 2: Rich in vitamin A. Shown here"
-    assert texts[4] == "Figure 3: Case 1. (a–c): right eye; (d–f): left eye"
+    assert texts[2] == "Figure 1: MR results. (a): Causal scatter plot. (b): Funnel plot."
+    assert texts[3] == "Figure 2: Rich in vitamin A. Shown here."
+    assert texts[4] == "Figure 3: Case 1. (a–c): right eye; (d–f): left eye."
     assert texts[5] == "Figure 4 A shows the fundus."
 
 
@@ -107,7 +107,7 @@ def test_bold_part_labels_set_plain(tmp_path):
     p.add_run(" left eye")
     doc.save(tmp_path / "b.docx")
     texts, cs = apply(str(tmp_path / "b.docx"), ijo(), tmp_path)
-    assert texts[-1] == "Figure 1: Photographs (a) right eye (b) left eye"
+    assert texts[-1] == "Figure 1: Photographs (a) right eye (b) left eye."
     out = docmodel.load(str(tmp_path / "out.docx"))
     runs = [r for r in out.paragraphs[-1].element.iter(W + "r")]
     bold = {"".join(t.text for t in r.iter(W + "t")): r.find(f"{W}rPr/{W}b") is not None
@@ -120,11 +120,11 @@ def test_unnumbered_legends_become_figure_1(tmp_path):
                            "Figure (A, B): Slit-lamp photographs. ", "(C) Anterior segment OCT.", "(D) B-scan."])
     texts, _ = apply(path, ijo(), tmp_path)
     assert texts[3:] == ["Figure Legend",
-                         "Figure 1: (a, b): Slit-lamp photographs. (c) Anterior segment OCT. (d) B-scan"]
+                         "Figure 1: (a, b): Slit-lamp photographs. (c) Anterior segment OCT. (d) B-scan."]
     path = make(tmp_path, ["Case report text.", *REFS, ("bold", "Image description"),
                            "A 7-year-old girl with lesions. (A) Lower lid. (B) Upper lid."], "u2.docx")
     texts, _ = apply(path, ijo(), tmp_path)
-    assert texts[3:] == ["Figure Legend", "Figure 1: A 7-year-old girl with lesions. (a) Lower lid. (b) Upper lid"]
+    assert texts[3:] == ["Figure Legend", "Figure 1: A 7-year-old girl with lesions. (a) Lower lid. (b) Upper lid."]
 
 
 def test_legends_heading_renamed(tmp_path):
@@ -149,7 +149,8 @@ def test_table_notes_comma_between_abbreviations_and_no_end_period(tmp_path):
                            "Table 2: More", ("table", [["A", "B"], ["1", "2"]]),
                            "Note: Model 0: unadjusted; Model 1: adjusted for age, and sex."])
     texts, _ = apply(path, ijo(), tmp_path)
-    assert "CDVA = corrected distance visual acuity, SD = standard deviation, D = diopters" in texts
+    # IJO: "term: definition" (owner, 2026-10-26)
+    assert "CDVA: corrected distance visual acuity, SD: standard deviation, D: diopters" in texts
     assert "Note: Model 0: unadjusted; Model 1: adjusted for age, and sex" in texts  # not abbreviations: as typed
 
 
@@ -188,8 +189,8 @@ def test_legends_move_to_the_end_with_their_pictures_and_a_heading(tmp_path):
     out = pipeline.edit(_ijo_zip(tmp_path, BODY), ijo(), str(tmp_path / "out"), stages=("style",), accept_all=True)
     body = _body(out.path("clean"))
     i = next(k for k, t in enumerate(body) if "Lee K" in t)
-    assert body[i + 1:] == ["First author:", "Figure Legends", "[picture] ", "Figure 1: Clinical photograph",
-                            "Figure 2: Scan of the orbit",
+    assert body[i + 1:] == ["First author:", "Figure Legends", "[picture] ", "Figure 1: Clinical photograph.",
+                            "Figure 2: Scan of the orbit.",
                             "TABLE: Table 1: Baseline data."]
     assert "Figure 2: Scan of the orbit" not in body[:i]
     man, _, inserts, _ = pipeline.load_records(str(tmp_path / "out"))
@@ -204,7 +205,7 @@ def test_legends_move_to_the_end_with_their_pictures_and_a_heading(tmp_path):
     pipeline.save_records(str(tmp_path / "out"), inserts=inserts)
     again = pipeline.render_outputs(str(tmp_path / "out"), style=ijo())
     body = _body(again.path("clean"))
-    assert body.index("Figure 2: Scan of the orbit") < next(k for k, t in enumerate(body) if "Discussion" in t)
+    assert body.index("Figure 2: Scan of the orbit.") < next(k for k, t in enumerate(body) if "Discussion" in t)
     assert "Table 1: Baseline data." in body
     # records round-trip
     d = moves[0].to_dict()
@@ -258,16 +259,16 @@ def test_legends_from_the_xml_and_a_legends_file(tmp_path):
     files = {"figure 1.png": picture(seed=2), "figure 2.png": picture(seed=3), "figure 3.png": picture(seed=4)}
     z = _ijo_zip(tmp_path, paras, files, XML)
     got = figures_insert.supplied_legends(z, ijo())
-    assert got[1] == ("(a) Slit-lamp photograph. (b) At 1 week", "ART_1.xml")
+    assert got[1] == ("(a) Slit-lamp photograph. (b) At 1 week.", "ART_1.xml")
     assert 2 not in got
     with zipfile.ZipFile(z, "a") as zf:
         zf.write(leg, "ART_1/LEGENDS.docx")
     got = figures_insert.supplied_legends(z, ijo())
-    assert got[3] == ("Anterior segment OCT. (a) Preoperative. (b) Postoperative", "LEGENDS.docx")
+    assert got[3] == ("Anterior segment OCT. (a) Preoperative. (b) Postoperative.", "LEGENDS.docx")
     out = pipeline.edit(z, ijo(), str(tmp_path / "out"), stages=("style",), accept_all=True)
     body = _body(out.path("clean"))
     i = body.index("Figure Legends")
-    assert body[i + 1:] == ["[picture] ", "Figure 1: (a) Slit-lamp photograph. (b) At 1 week", "[picture] ",
+    assert body[i + 1:] == ["[picture] ", "Figure 1: (a) Slit-lamp photograph. (b) At 1 week.", "[picture] ",
                             "Figure 2: ???", "[picture] ",
-                            "Figure 3: Anterior segment OCT. (a) Preoperative. (b) Postoperative"]
+                            "Figure 3: Anterior segment OCT. (a) Preoperative. (b) Postoperative."]
     assert out.summary["queries"]["by_check"].get("figures.legend_missing") == 1

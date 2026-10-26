@@ -9,12 +9,18 @@ headings:
   h1: [materials and methods, methods, methodology, patients and methods, subjects and methods,
        results, discussion, conclusion, conclusions, references, case report, case reports,
        case presentation, review of literature, case description, case history, case summary,
-       treatment and outcome, treatment and outcomes]
+       treatment and outcome, treatment and outcomes,
+       acknowledgment, acknowledgments, acknowledgement, acknowledgements]
+  # Acknowledgement heading first level (owner, 2026-10-26; G146 / G133: "The heading 'Acknowledgement' should be
+  # 14 points font size bold style", the first level's size).
   # as base, with "Diagnosis" under a case description (IJO_1016) and an "Ethics" statement head (IJO_2891)
   h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
-       declaration of patient consent, acknowledgment, acknowledgments, acknowledgement,
-       acknowledgements, author contribution statement, author contributions, data availability statement,
+       declaration of patient consent, author contribution statement, author contributions, data availability statement,
        ethical approval, ethics approval, ethics, ethics statement, diagnosis]
+  # "References:" -> "References", "Materials and Methods:" -> "Materials and Methods", "Acknowledgment:" (body and
+  # back-matter headings; not the structured abstract's run-in "Purpose:" nor "Keywords:"): the editors drop the
+  # colon; G137 says retain it -- the owner follows the editors (owner, 2026-10-26).
+  strip_trailing_colon: true
 
 # references.journal_drop_qualifier: as base (Index Medicus titles keep "Eye (Lond)")
 # statistics.space_around_operators: as base (G297 "add space on either side of operators"; the IJO editors leave
@@ -28,6 +34,7 @@ formatting:
   et_al_italic_references: true  # guide S&R row 1: "et al." in italics, references included (only "&", row 4,
                                  # spares them); the IJO editors italicise it in the list (6 of 6 articles)
   heading_italic_levels: [3]   # S: "H3 | Sentence Case, Italics"
+  heading_unbold_levels: [3]   # ... and not bold: an author's bold H3 goes roman-weight (owner, 2026-10-26)
   heading_roman_levels: [1, 2]  # S: "H1 | Title Caps, Bold, Roman", "H2 | Sentence Case, Bold, Roman"
   # Guide: 12 pt throughout, 14 pt for the article type, title, abstract heading, H1 and Acknowledgement heading,
   # left aligned, the running head centred; the sheet adds only "fourth level ... 12 points". The IJO editors set
@@ -38,15 +45,23 @@ formatting:
   fonts:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (19 of 19 articles)
-    align: left
+    align: left                # G16 "left aligned" (owner, 2026-10-26: keep the guide's left alignment and 14 pt
+                               # headings; table cells keep the alignment they were typed with)
+  # Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font (Word's inserted symbols, w:sym), never ×, ®, ©, µ
+  # (owner, 2026-10-26)
+  symbol_font: {enabled: true}
 
 citations:
+  # The citation stays where the author put it (no move next to the study's author name): owner, 2026-10-26 (as JEHP).
+  next_to_author: false
   # "[3,4,5]" -> "[3-5]", "[1,3,4,5]" -> "[1,3-5]" in every citation, not only renumbered ones (the IJO editors,
   # 510 / 837 / 702; the sheet is silent: S328 only sets the hyphen, S330 keeps two numbers a list)
   compress_from: 3
 
 references:
   label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)
+  # max_initials: as base (none). The owner cuts initials to two for JEHP and for IJO only if its editors do; they
+  # keep all of them ("Relvas LJM", "Ting DSW", "Meenink HCM": 12 of 12 in ijo_new): owner, 2026-10-26.
 
 figures:
   # S300 "Figure citation | Fig. 1": the sheet speaks, so it wins over the guide's G240 ("Figure" for "Fig.");
@@ -69,9 +84,16 @@ figures:
   table_caption_case: sentence
   # S (table footnotes): "Period should be deleted at end of last abbreviation definition" / "... at end of last
   # footnote" and "Comma should be delimiter between abbreviations." Whether a definition reads "term = definition"
-  # (the live line) or "term: definition" (the struck one, and the editors) is the owner's question: left as typed.
+  # (the live line) or "term: definition" (the struck one, and the editors): the owner follows the editors (below).
   table_footnote_end_period: delete
   table_footnote_delimiter: ","
+  # Owner, 2026-10-26: the IJO editors' "term: definition" ("CDVA = corrected ..." / "CDVA, corrected ..." ->
+  # "CDVA: corrected ...").
+  table_footnote_abbreviation: ": "
+  # S: "The caption should end with a period": table and figure captions (owner, 2026-10-26: keep the sheet)
+  table_caption_end_period: add
+  figure_caption_end_period: add
+  graph_caption_end_period: add
   table_heads_title_case: true  # S: "In case the content is in All Caps then please make it as Title Case" (G205)
   # G265: "The caption(s) should be placed at end of document (before table if present)", G195: tables "at end of
   # document after figure captions". Legends in the body move after the references (and the First author block),
@@ -90,6 +112,9 @@ front_matter:
   # should be used"). Not before a home address (flat, society, quarters).
   correspondence_add_institution: true
   initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
+  # S: "All the affiliations should be complete": the postal code the title page gives after the city stays
+  # ("Chennai - 600 006"); "Faculty of ..." units stay as written (owner, 2026-10-26)
+  affiliation_postal_code: true
 
 sections:
   letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
@@ -124,6 +149,7 @@ sections:
   back_matter:  # IJO editors (19 + 2 articles): consent, contributions, financial support, conflicts
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
     acknowledgement_from_sources: true  # S382 "Acknowledgments | This section is not mandatory. Retain if given"
+    acknowledgement_heading: Acknowledgement  # G146 (UK spelling), first level (owner, 2026-10-26)
     heading_bold: true  # S: "H2 | Sentence Case, Bold": the section headings added, renamed or split off are bold
     consent:
       # S392: 'Placement is before the "Financial support and sponsorship" section': a consent section after the
@@ -148,6 +174,10 @@ sections:
     first_author: {enabled: true, skip_types: [Letter to Editor, Letter to the Editor]}
 
 # guide_replace.multiplication: as base (G315 "10x20" -> "10 × 20"; the IJO editors leave "4.5x4.5 mm": owner's list)
+guide_replace:
+  # G300 / G301: no space after a unary sign ("< 0.001" -> "<0.001", "- 0.5" -> "−0.5") in table cells too
+  # (owner, 2026-10-26)
+  table_rules: [unary_minus, unary_comparison]
 
 copyedit:
   # abbreviations: as base. S: "All abbreviations should be expanded at the first instance followed by abbreviation

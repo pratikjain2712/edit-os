@@ -151,6 +151,16 @@ def find_unary_minus(text: str, cfg: dict) -> list:
         before = text[:m.start()].rstrip(" \u00a0")
         if not re.search(r"[\d)\]%]$", before):
             out.append((m.start(), m.end(), "−"))
+    # G300 / G301 "no space after a unary sign": "(- 0.5 to 0.3)", "of − 2.1", a table cell "- 0.25" -> "−0.25" when
+    # nothing before it is a left operand (a bracket, a comma, a function word; at the start only a lone number, not
+    # a list dash "- 5 patients").
+    for m in re.finditer(r"(?:(?<=^)|(?<=[\s(\[]))([-−])(" + _SP + r"+)(?=\.?\d)", text):
+        before = text[:m.start()].rstrip(" \u00a0")
+        if before and not _UNARY_CMP_LEFT.search(before):
+            continue
+        if not before and not re.fullmatch(r"[-−]" + _SP + r"+[\d.,]+\s*(?:%|\([^()]*\)|\[[^\[\]]*\])?\s*", text):
+            continue
+        out.append((m.start(), m.end(), "−"))
     return out
 
 
@@ -397,9 +407,15 @@ def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
     cfg = settings(style)
     in_tables = set(cfg.get("table_rules") or [])  # finders that also run in tables when include_tables is off
+    notes: set[str] = set()
+    if cfg.get("abbreviation_colon") and style.get("figures.table_footnote_abbreviation"):
+        from .rules_figures import footnote_paragraphs  # table notes take the journal's own form (rule_captions)
+        notes = {q.id for q in footnote_paragraphs(ms)}
     out = []
     for p in _paragraphs(ms, bool(cfg.get("include_tables") or in_tables)):
         pcfg = cfg if not p.in_table or cfg.get("include_tables") else {k: v for k, v in cfg.items() if k in in_tables}
+        if p.id in notes:
+            pcfg = {**pcfg, "abbreviation_colon": False}
         hidden = None
         for s, e, new, name in propose(p.text, pcfg):
             if name in _SPACING:

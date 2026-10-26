@@ -46,6 +46,12 @@ copyedit:
 formatting:  # measured with tools/eval_format.py against the style editors' tracked files (the sheet is silent)
   body_unbold: false  # editors keep bold in running text (0 of 12)
   remove_font_color: false  # editors keep the author's font colours (removed 0 of 238 the rule proposed, 16 training articles)
+  # Times New Roman 12 pt throughout, 14 pt for the article type, title, abstract heading, H1 and Acknowledgement
+  # heading, left aligned (guide G16-G146; the family is the editors': owner, 2026-10-26)
+  fonts:
+    enabled: true
+    family: Times New Roman
+    align: left
 
 text:
   prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 14 proposed, 86%
@@ -58,3 +64,9 @@ header:
     references: "Reference citations are not in sequential order. Therefore, the references and citations have been
       renumbered. Please check and confirm."
     columns: {references: [References, Renumber], tables: [Table, Renumber], figures: [Figure, Renumber]}
+
+autopilot:
+  # Left for the editor to confirm (owner, 2026-10-26; the rules stay on): prefixes closed up (text.prefixes), the
+  # back-matter sections added with the journal's standard text, and "use the abbreviation after its definition".
+  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, text.prefixes, sections_back_matter.added,
+         use abbreviation]

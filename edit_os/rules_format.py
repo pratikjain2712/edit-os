@@ -353,8 +353,9 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     styles = _Styles(ms)
     italic_levels = set(style.get("formatting.heading_italic_levels", []) or [])
     roman_levels = set(style.get("formatting.heading_roman_levels", []) or [])
-    levels = _tagged_headings(ms, style) if _on(style, "heading_bold_tagged") or italic_levels or roman_levels \
-        else {}
+    unbold_levels = set(style.get("formatting.heading_unbold_levels", []) or [])  # IJO H3 (owner, 2026-10-26)
+    levels = _tagged_headings(ms, style) \
+        if _on(style, "heading_bold_tagged") or italic_levels or roman_levels or unbold_levels else {}
     bold_levels = set(style.get("formatting.heading_bold_levels", [1, 2, 3]) or [])
     # IJO: "H3 | Sentence Case, Italics" is not bold
     tagged = {pid for pid, n in levels.items() if n in bold_levels} if _on(style, "heading_bold_tagged") else set()
@@ -419,14 +420,18 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
             emit(p, _regions(text, lambda i: not text[i].isspace() and bool(f[i].get("italic")) != italic,
                              lambda i: bool(f[i].get("italic")) == italic),
                  {"italic": italic}, "fmt_heading_italic", Layer.STRUCTURE)
+        if p.id in levels and not front and not label and levels[p.id] in unbold_levels:
+            emit(p, _regions(text, lambda i: not text[i].isspace() and bool(f[i].get("bold")), is_not("bold")),
+                 {"bold": False}, "fmt_heading_unbold", Layer.STRUCTURE)
         if p.id in tagged and not front and not label:
-            emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
-                 {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
+            if levels[p.id] not in unbold_levels:
+                emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
+                     {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
         elif kind == "heading" and not front:
             # A section heading is short and stands alone ("Keywords: a; b" is a labelled paragraph).
             short = len(text.strip()) <= 80 and not text.rstrip().endswith(".") and not label and \
                 not re.search(r":\s*\S", text)
-            if d["level"] == 1 and short and _on(style, "heading_bold"):
+            if d["level"] == 1 and short and _on(style, "heading_bold") and levels.get(p.id) not in unbold_levels:
                 emit(p, _regions(text, lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
                      {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
             if _on(style, "heading_no_underline"):
@@ -741,3 +746,83 @@ def finish_fonts(ms: Manuscript, style: JournalStyle, kept: list[Change], replac
                 sf[i] = {**base, **(sf[i] or {})}
         c.segment_format = sf
     return out
+
+
+# --- Symbol font -----------------------------------------------------------------------------------------
+#
+# Owner (2026-10-26; IJO, JEHP): Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font, never ×, ®, ©, µ.
+# Word shows Unicode text in a run set to "Symbol" through font substitution (≤ or a Greek letter is not in the
+# Symbol font's own code page), so each character becomes Word's inserted symbol, <w:sym w:font="Symbol"
+# w:char="F0B1"/>, as the IJO authors' files have it (IJO_1130: 26 of them). The text view reads <w:sym> back as
+# the Unicode character (docmodel.sym_char), so QC and the other rules still see "±". A Greek mu before a letter
+# ("μg", "μm") is the micro sign of a unit and is left as typed.
+
+def symbol_settings(style: JournalStyle) -> dict | None:
+    cfg = style.get("formatting.symbol_font") or {}
+    return cfg if style.get("formatting.enabled", True) and cfg.get("enabled") else None
+
+
+def symbol_offsets(text: str) -> list[int]:
+    """Offsets of the characters that go into the Symbol font."""
+    from .docmodel import SYMBOL_CODES
+
+    return [i for i, ch in enumerate(text) if ch in SYMBOL_CODES
+            and not (ch == "μ" and text[i + 1:i + 2].isalpha())]
+
+
+def rule_symbols(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """One formatting change {"symbol": True} per typed character (not one already inserted as a symbol)."""
+    from docx.oxml.ns import qn
+
+    if symbol_settings(style) is None:
+        return []
+    out: list[Change] = []
+    for p in ms.paragraphs:
+        if not p.text.strip():
+            continue
+        typed = set()
+        pos = 0
+        for r in text_runs(p.element):
+            n = len(run_text(r))
+            if r.find(qn("w:t")) is not None:
+                typed.update(range(pos, pos + n))
+            pos += n
+        for i in symbol_offsets(p.text):
+            if i in typed:
+                out.append(_fmt(p, i, i + 1, p.text[i], {"symbol": True}, Layer.HOUSE_STYLE, "fmt_symbol"))
+    return out
+
+
+def finish_symbols(style: JournalStyle, kept: list[Change]) -> list[Change]:
+    """After the overlap check: the Greek letters, ± ... that a kept change writes go in as symbols too (its
+    inserted text split into [length, format] pieces)."""
+    from .tracked import PARAGRAPH_BREAK
+
+    if symbol_settings(style) is None:
+        return kept
+    for c in kept:
+        if c.format_only or not c.new:
+            continue
+        segs = c.new.split(PARAGRAPH_BREAK)
+        if not any(symbol_offsets(seg) for seg in segs):
+            continue
+        sf = list(c.segment_format or [None])
+        sf += [None] * (len(segs) - len(sf))
+        if any(isinstance(x, list) for x in sf):
+            continue  # pieces of their own: left as typed
+        for k, seg in enumerate(segs):
+            at = set(symbol_offsets(seg))
+            if not at:
+                continue
+            base = sf[k] or {}
+            pieces, i = [], 0
+            while i < len(seg):
+                j = i + 1
+                if i not in at:
+                    while j < len(seg) and j not in at:
+                        j += 1
+                pieces.append([j - i, {**base, "symbol": True} if i in at else (dict(base) or None)])
+                i = j
+            sf[k] = pieces
+        c.segment_format = sf
+    return kept

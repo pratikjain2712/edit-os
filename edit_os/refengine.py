@@ -1099,11 +1099,30 @@ def _quotes(title: str, style: JournalStyle, p: Parsed | None) -> str:
     return out
 
 
+_NAME_INITIALS = re.compile(r"^(?P<sur>.*\S)\s+(?P<ini>[A-Z](?:-?[A-Z])+)(?P<suffix>\s+(?:Jr|Sr|II|III|IV|2nd|3rd))?$")
+
+
+def cut_initials(name: str, max_initials: int) -> str:
+    """"Chandrasena PPCM" -> "Chandrasena PP" (at most `max_initials` initials; "Smith J-P", "Cunningham ET Jr" kept
+    within the limit)."""
+    m = _NAME_INITIALS.match(name.strip())
+    if not m or not re.search(r"[a-z]", m.group("sur")):
+        return name
+    letters = [k for k, ch in enumerate(m.group("ini")) if ch.isalpha()]
+    if len(letters) <= max_initials:
+        return name
+    return f"{m.group('sur')} {m.group('ini')[:letters[max_initials - 1] + 1]}{m.group('suffix') or ''}"
+
+
 def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None, keep: frozenset | set = frozenset()) -> str:
     """The entry in journal style from a record (or, for an entry not verified, the author's own fields: refstyle).
     `keep`: title words that keep their capital besides the known names."""
     max_a = style.get("references.max_authors", 6)
     names = _usable_authors(r, p)
+    max_i = style.get("references.max_initials")
+    if max_i:  # JEHP (owner, 2026-10-26): "Chandrasena PPCM" -> "Chandrasena PP"; group names are left alone
+        group_names = {f"{s.rstrip('*').strip()} {i}".strip() for s, i in r.authors if _is_group(s, i)}
+        names = [n if n in group_names else cut_initials(n, max_i) for n in names]
     if max_a and len(names) > max_a:
         names = names[:max_a] + [style.get("references.et_al", "et al.").rstrip(".")]
     # (a one-word name without initials is a person known by one name, "Nurdiansyah", not a group)

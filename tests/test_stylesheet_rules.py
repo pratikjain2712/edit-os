@@ -32,8 +32,11 @@ def test_caption_final_period_per_kind(tmp_path):
     path = make(tmp_path, ["Results", BODY, "Table 1. Baseline data", "Figure 1. Axial scan.",
                            "Figure 2: (A) Axial and (B) sagittal views."])
     # Base (the shared sheet): table captions end with a period; legends lose theirs (G261); parts "(a)" (G263).
-    t = run(path, style.load("jehp"), ["fig_captions"])
+    t = run(path, style.load("mjdrdypu"), ["fig_captions"])
     assert t[2:5] == ["Table 1: Baseline data.", "Figure 1: Axial scan", "Figure 2: (a) Axial and (b) sagittal views"]
+    # JEHP: figure captions end with a period too (S "The caption should end with a period": owner, 2026-10-26)
+    t = run(path, style.load("jehp"), ["fig_captions"])
+    assert t[2:5] == ["Table 1: Baseline data.", "Figure 1: Axial scan.", "Figure 2: (a) Axial and (b) sagittal views."]
     # SGMJ: 'Figure caption | “Figure 1:” followed by caption in sentence case; bold; should have an end period'
     t = run(path, style.load("sgmj"), ["fig_captions"])
     assert t[2:4] == ["Table 1: Baseline data.", "Figure 1: Axial scan."]

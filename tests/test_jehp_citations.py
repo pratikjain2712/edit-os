@@ -232,5 +232,8 @@ def test_guide_replacements_in_table_cells(tmp_path):
     cells = ["p", "Vigorous activity >=30 min/day", "Aged 18-59 years", "-5.47", "Care & support"]
     path = make(tmp_path, [INTRO, "Body text."], table=cells)
     _, out, _ = run(path, only=["guide_replace"])
-    got = [c.text for c in Document(out).tables[0].rows[0].cells]
+    # (the text view reads the Symbol-font ≥ and − back: formatting.symbol_font, owner 2026-10-26)
+    got = ["".join(docmodel.paragraph_text(q._p) for q in c.paragraphs) for c in Document(out).tables[0].rows[0].cells]
     assert got == ["P", "Vigorous activity ≥30 min/day", "Aged 18–59 years", "−5.47", "Care and support"]
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode()
+    assert '<w:sym w:font="Symbol" w:char="F0B3"/>' in xml and '<w:sym w:font="Symbol" w:char="F02D"/>' in xml

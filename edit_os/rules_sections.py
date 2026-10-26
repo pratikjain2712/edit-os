@@ -1872,7 +1872,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if got:
             label, text = got
             want = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else ack_heading
-            new["ack"] = [f"{tag}{_sentence_label(want)}", text]
+            ack_tag = f"<{levels[want.lower()]}>" if tag and want.lower() in levels else tag  # IJO, JEHP: <H1>
+            new["ack"] = [f"{ack_tag}{_sentence_label(want)}", text]
             fsrc = getattr(ms, "front_sources", None)
             origins["ack"] = provenance.make("title_page", "Title page", text, file=getattr(fsrc, "first_page_name", ""))
     have = {s.kind for s in sections}

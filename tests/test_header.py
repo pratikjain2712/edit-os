@@ -144,7 +144,8 @@ def test_table_renumbering_in_captions_and_citations(tmp_path):
     nxt = third.getnext()
     while nxt is not None and not "".join(x.text or "" for x in nxt.iter(W + "t")).strip():
         nxt = nxt.getnext()
-    assert "".join(x.text or "" for x in nxt.iter(W + "t")) == "Abbreviations: CI, confidence interval"  # moves along
+    assert "".join(x.text or "" for x in nxt.iter(W + "t")) == "Abbreviations: CI: confidence interval"  # moves along
+    # (IJO table notes "term: definition": owner, 2026-10-26)
 
     # Tracked copy: the moved table is deleted where it was and inserted, edited, where it belongs.
     trk = docmodel.load(out.path("tracked"))
@@ -180,7 +181,7 @@ def test_figure_renumbering_and_kjo_queries_instead(tmp_path):
     texts = [p.text for p in docmodel.load(str(tmp_path / "c.docx")).paragraphs]
     assert "The scan [Fig. 1] and the photograph [Fig. 2a and 2b] differ." in texts  # IJO (S300 "Fig. 1")
     k = next(i for i, t in enumerate(texts) if t.startswith("Figure 2: Photograph"))
-    assert texts[k + 1] == "Figure 1: Scan"  # renumbered in place (the legends move when the file is rendered)
+    assert texts[k + 1] == "Figure 1: Scan."  # renumbered in place (the legends move when the file is rendered)
 
     kjo = _style("kjo")  # the KJO sheet has no chronological-order line: the guide's query instead
     assert rules_figures.renumber_plan(docmodel.load(path), kjo) == {}

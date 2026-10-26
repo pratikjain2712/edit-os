@@ -282,17 +282,18 @@ def test_acknowledgement_singular_and_supplementary_heading_from_the_stylesheet(
     # IJO sheet: 'If heading "Acknowledgements" is present, then please delete "s"' and 'please add the heading
     # “Supplementary Material” after Acknowledgement'
     t = run(path)
-    assert "<H2>Acknowledgement" in t
+    assert "<H1>Acknowledgement" in t  # IJO: G146 "Acknowledgement", first level (owner, 2026-10-26)
     assert t[t.index("<H2>Supplementary Material") + 1] == "Supplementary Table 1: Search strategy"
     # KJO follows the guide: "Acknowledgements" keeps its "s", supporting information as it is.
     t = run(path, "kjo")
     assert "<H2>Acknowledgements" in t and "Supplementary Material" not in str(t)
     # "singular" drops the s only: the author's US spelling stays.
     path2 = make(tmp_path, ["Discussion", BODY, "Acknowledgments", "We thank the staff."] + REFS, name="m2.docx")
-    assert "<H2>Acknowledgment" in run(path2)
+    assert "<H2>Acknowledgment" in run(path2, "ijdr")
+    assert "<H1>Acknowledgement" in run(path2)  # IJO: the guide's (UK) spelling
     st = style.load("ijo")
     st.settings["sections"]["back_matter"]["acknowledgement_heading"] = None
-    assert "<H2>Acknowledgments" in run(path2, st)
+    assert "<H1>Acknowledgments" in run(path2, st)  # IJO: first level either way
 
 
 def test_added_consent_has_its_own_reason(tmp_path):

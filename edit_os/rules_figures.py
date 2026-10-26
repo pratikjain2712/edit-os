@@ -841,12 +841,16 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
             tail = "".join(pieces)
             if end_mode == "delete" and _end_period(tail) is not None:
                 tail = tail[:_end_period(tail)] + tail[_end_period(tail) + 1:].rstrip()
+            elif end_mode == "add" and tail.strip() and not tail.rstrip().endswith((".", "?", "!", ":")):
+                tail = tail.rstrip() + "."  # the legend's last part ends it
             k = len(p.text.rstrip())
             c = _change(p, k, len(p.text), tail, Layer.TABLES_FIGURES, "fig_captions.run_on", {"bold": False})
             c._group = group
             out.append(c)
             return out
-    _end_changes(out, p, rest_start, end_mode, edits.get(0, []))
+    # "add": a legend that goes on in unlabelled lines ("b. ...", a line broken by hand) ends on its last line
+    unlabelled = [k for k in range(1, len(leg.conts) + 1) if k not in labels]
+    _end_changes(out, p, rest_start, "keep" if end_mode == "add" and unlabelled else end_mode, edits.get(0, []))
     for k, (q, kind) in enumerate(leg.conts, 1):
         fq = char_formats(q)
         for s, e, new in edits.get(k, []):
@@ -859,6 +863,8 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
             if q.text[s:e] != new:
                 out += _diff(q, s, q.text[s:e], new, "fig_captions.label")
             _end_changes(out, q, starts[k], end_mode, edits.get(k, []))
+        elif end_mode == "add" and k == len(leg.conts):
+            _end_changes(out, q, 0, "add", edits.get(k, []))
     return out
 
 
@@ -923,7 +929,8 @@ _SENTENCE = re.compile(r"(?<!\b[a-z])(?<!\bvs)(?<!\bal)(?<!\be\.g)(?<!\bi\.e)\.\
 
 def _is_term(term: str) -> bool:
     t = term.split()[0]
-    if re.fullmatch(r"[A-Z][a-z]+", t) or t.lower() in _MINOR or t.lower() in ("values", "data", "note", "notes"):
+    # "or" is a word, "OR" (odds ratio) an abbreviation
+    if re.fullmatch(r"[A-Z][a-z]+", t) or t in _MINOR or t.lower() in ("values", "data", "note", "notes"):
         return False
     return bool(re.search(r"[A-Z]", t)) or len(t) <= 3
 
@@ -973,10 +980,17 @@ def table_notes(ms: Manuscript) -> list[list[Paragraph]]:
     return blocks
 
 
+def _other_sep(got: str, sep: str) -> bool:
+    """A pair's separator to replace by the journal's `sep`: "," always; ":" / "=" when the journal writes the other
+    (owner, 2026-10-26: IJO "term: definition", JEHP "term = definition")."""
+    return got.strip() != sep.strip() and (got.strip() == "," or sep.strip() in ":=")
+
+
 def _footnote_abbreviations(ms: Manuscript, sep: str) -> list[Change]:
     """S244 (JEHP): 'Abbreviations should be as per format "term<space>=<space>definition"', S246 "Comma should be
     delimiter between abbreviations": "df, degrees of freedom; SD, standard deviation" -> "df = degrees of freedom, SD
-    = standard deviation". A "term: definition" pair is left as typed (the sheet's struck S232 asks for it: owner)."""
+    = standard deviation". A "term: definition" pair takes the journal's form too (owner, 2026-10-26: JEHP " = ", IJO
+    ": ")."""
     from .rules import _change
 
     out = []
@@ -984,7 +998,7 @@ def _footnote_abbreviations(ms: Manuscript, sep: str) -> list[Change]:
         for q in block:
             for pairs in abbreviation_pairs(q.text):
                 for k, m in enumerate(pairs):
-                    if m.group("sep").strip() == "," and sep.strip() != ",":
+                    if _other_sep(m.group("sep"), sep):
                         out.append(_change(q, m.start("sep"), m.end("sep"), sep, Layer.TABLES_FIGURES,
                                            "fig_captions.footnote_abbreviation"))
                     if k:
@@ -1039,6 +1053,21 @@ def _footnote_delimiters(ms: Manuscript) -> list[Change]:
             if b and _is_term(b[-1]) and _is_term(m.group(1)):
                 out.append(_change(q, m.start(), m.end(), ",", Layer.TABLES_FIGURES, "fig_captions.footnote_delimiter"))
     return out
+
+
+def footnote_paragraphs(ms: Manuscript) -> list[Paragraph]:
+    """The table footnotes (table_footnotes) and the first paragraph under each table, whatever it opens with."""
+    out = [q for block in table_footnotes(ms) for q in block]
+    after_table = False
+    for q in ms.paragraphs:
+        if q.in_table:
+            after_table = True
+        elif q.text.strip():
+            if after_table and caption_match(q) is None:
+                out.append(q)
+            after_table = False
+    seen: set[str] = set()
+    return [q for q in out if not (q.id in seen or seen.add(q.id))]
 
 
 _MINOR = {"a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or", "per", "the",
@@ -1255,7 +1284,7 @@ def _note_text(note: str, sep: str | None) -> str:
         edits = []
         for pairs in abbreviation_pairs(note):
             for k, m in enumerate(pairs):
-                if m.group("sep").strip() == ",":
+                if _other_sep(m.group("sep"), sep):
                     edits.append((m.start("sep"), m.end("sep"), sep))
                 if k:
                     semi = note.rfind(";", pairs[k - 1].end() - 1, m.start("term"))

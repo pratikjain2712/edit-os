@@ -89,7 +89,7 @@ def test_figure_legend_sentence_case_and_first_word(tmp_path):
     path = make(tmp_path, ["Introduction", BODY + " Schools in Iran took part. See Figure 1 and Figure 2.",
                            "Figure 1: Study Flow Of Participants In Iran", "Figure 2: depicts the trend. Counts rose"])
     out, _ = apply(path, jehp(), tmp_path)
-    assert "Figure 1: Study flow of participants in Iran" in out
+    assert "Figure 1: Study flow of participants in Iran." in out  # S: captions end with a period (owner, 2026-10-26)
     assert any(t.startswith("Figure 2: Depicts the trend. Counts rose") for t in out)
 
 

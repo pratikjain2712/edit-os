@@ -102,14 +102,14 @@ def test_textbox_paragraph_is_no_heading():
     assert rules_sections.in_textbox(para)
 
 
-def test_held_methods_rename_leaves_the_case_fix(tmp_path):
+def test_methods_rename_in_the_abstract(tmp_path):
     path = make(tmp_path, [("ABSTRACT",), "BACKGROUND: " + BODY, "MATERIALS AND METHODS: " + BODY, "RESULTS: " + BODY,
                            "CONCLUSION: " + BODY, "Keywords: Health; Nursing; Students", "Introduction", BODY] + REFS)
     st = jehp()
     cs = changes(path, st, ["sections_abstract"])
     mm = [c for c in cs.changes if c.old == "MATERIALS AND METHODS"]
-    assert [c.new for c in mm] == ["Materials and Methods"] and mm[0].reason == "sections_abstract"
-    assert '"Methods"' in str(mm[0].provenance)  # the renaming, for the editor
+    # S (struck through, still live): "Methods", no longer held for the editor (owner, 2026-10-26)
+    assert [c.new for c in mm] == ["Methods"] and mm[0].reason == "sections_abstract.rename:methods"
     assert any(c.old == "ABSTRACT" and c.new == "Abstract" for c in cs.changes)
 
 
@@ -156,7 +156,7 @@ def test_run_in_statements_split_and_bare_nil_ethics_go(tmp_path):
                             "<H2>Financial support and sponsorship", "Nil.",
                             "<H2>Conflicts of interest", "There are no conflicts of interest.",
                             "<H2>Data availability statement", "Data are available on request."]
-    assert "<H1>Acknowledgment" in out and "The authors thank the staff." in out
+    assert "<H1>Acknowledgement" in out and "The authors thank the staff." in out  # G146 spelling (owner, 2026-10-26)
     assert "<H2>Consent to participate" in out  # with a reason: kept as its own section
     assert not any("Consent for publication" in t for t in out)  # a bare "Not applicable." goes
     assert out.count("<H2>Financial support and sponsorship") == 1

@@ -43,16 +43,16 @@ def _body(doc):
     q.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
-def test_size_font_and_align_settings_are_on_for_ijo_and_jehp_only():
-    for code in ("ijo", "jehp"):
+def test_size_font_and_align_settings_are_on_for_ijo_jehp_and_mjdrdypu():
+    for code in ("ijo", "jehp", "mjdrdypu"):  # MJDRDYPU: owner, 2026-10-26
         cfg = rules_format.fonts_settings(style.load(code))
         assert cfg and cfg["family"] == "Times New Roman" and cfg["size"] == 12 and cfg["heading_size"] == 14
         assert cfg["align"] == "left" and cfg["running_head_align"] == "center"
-    assert rules_format.fonts_settings(style.load("mjdrdypu")) is None  # base: off until the owner confirms
+    assert rules_format.fonts_settings(style.load("ijdr")) is None  # base: off until the owner confirms
     assert rules_format.insert_format(style.load("ijo"), "title") == {"size": 14, "font": "Times New Roman"}
     assert rules_format.insert_format(style.load("ijo"), "authors") == {"size": 12, "font": "Times New Roman"}
     assert rules_format.insert_align(style.load("ijo"), "running_head") == "center"
-    assert rules_format.insert_format(style.load("mjdrdypu")) is None
+    assert rules_format.insert_format(style.load("ijdr")) is None
 
 
 def test_change_format_values_are_checked():
@@ -84,7 +84,7 @@ def test_rule_fonts_sizes_headings_body_and_keeps_symbol_font(tmp_path):
 
 
 def test_rule_fonts_off_by_default():
-    st = style.load("mjdrdypu")
+    st = style.load("ijdr")
     assert rules_format.rule_fonts(None, st) == []
 
 

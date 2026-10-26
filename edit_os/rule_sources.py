@@ -166,6 +166,9 @@ RULES: dict[str, Locator] = {
                           "heading bold"),
     "fmt_heading_underline": L("Heading not underlined", "Headings without underline", (r"heading|\bH[123]\b", r"underline"),
                                (r"heading", r"underline"), "heading underline"),
+    # owner's decisions (2026-10-26): no stylesheet line
+    "fmt_symbol": L("Symbol font", "Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font"),
+    "fmt_heading_unbold": L("Heading not bold", "Third-level headings in italics, not bold"),
     "fmt_body_bold": L("Bold removed", "Stray bold in body text", (r"bold",), (r"bold",), "text should not be bold"),
     "guide.p_value_capital": L("P value", "The probability p as capital P", (r"\bp[\s-]*values?\b",), (r"probabilit",),
                                "p value capital", first="guide"),
