@@ -437,6 +437,128 @@ def find(p: Parsed) -> tuple[biblio.Record | None, str]:
     return (found, "") if found else (None, why)
 
 
+# --- title-only search ---------------------------------------------------------------------
+#
+# The entry's first author can be wrong (an author list copied from another paper, the authors in another
+# order) and then every search above, held to the first author, finds nothing although the paper is indexed.
+# A search by the title alone is used only under stricter terms: the whole title (almost) word for word, the
+# year, the journal the entry names (and none of its volume / first page against the record), and either the
+# entry's first author somewhere in the record's author list or a long title with the entry's own volume and
+# first page. One paper only: two papers with that title leave the entry to the editor.
+
+TITLE_ONLY_MIN = 95       # whole-title similarity to accept
+TITLE_NEAR_MIN = 97       # ... to tell the editor the paper with this title differs from the entry
+TITLE_LONG_WORDS = 10     # a title this long, with the entry's volume and first page, needs no author
+
+
+def _title_words(title: str) -> int:
+    return len(fold(title).split())
+
+
+def _clean_title(title: str) -> str:
+    """The title without a year the regex split ran into ("... study. 2024")."""
+    return re.sub(r"[.,;]?\s*\(?(?:19|20)\d{2}\)?\.?\s*$", "", title or "").strip().rstrip(".")
+
+
+def _whole_title(p: Parsed, r: biblio.Record) -> float:
+    t = _clean_title(p.title)
+    return fuzz.token_sort_ratio(fold(t), fold(_clean_title(r.title))) if t and r.title else 0
+
+
+def _same_paper(a: biblio.Record, b: biblio.Record) -> bool:
+    if a.doi and b.doi:
+        return a.doi.lower() == b.doi.lower()
+    if a.pmid and b.pmid:
+        return a.pmid == b.pmid
+    vol = lambda r: re.sub(r"\D.*", "", r.volume or "")  # noqa: E731
+    return a.year == b.year and vol(a) == vol(b) and _first_page(a.pages) == _first_page(b.pages)
+
+
+def _same_last_page(text: str, r: biblio.Record) -> bool:
+    """The entry's last page is the record's, where both give a range ("54-60" is not "54-56")."""
+    c = citation(text)
+    mine, theirs = (re.split(r"\s*[-–]\s*", x.strip()) for x in ((c[3] if c else ""), r.pages or ""))
+    if len(mine) != 2 or len(theirs) != 2:
+        return True
+    a, b = re.sub(r"\D", "", mine[1]), re.sub(r"\D", "", theirs[1])
+    full = lambda first, last: first[:max(0, len(first) - len(last))] + last  # noqa: E731  "54-6" -> "56"
+    return full(re.sub(r"\D", "", mine[0]), a) == full(re.sub(r"\D", "", theirs[0]), b)
+
+
+def _author_in_list(p: Parsed, r: biblio.Record) -> bool:
+    """The entry's first author is one of the record's authors (the author list in another order)."""
+    if not p.authors or _is_group(p.authors[0]):
+        return False
+    first = p.authors[0]
+    return any(i and (same_surname(s, p.first_surname) or same_surname(s, first)) for s, i in r.authors)
+
+
+def _names_journal_in_entry(p: Parsed) -> bool:
+    return bool(citation(p.text) or biblio.journal_hint(p.text, p.title))
+
+
+def title_candidates(p: Parsed) -> list[biblio.Record]:
+    """PubMed by the title's words, CrossRef by the title and year (both cached; PubMed's is the search `_find`
+    already made)."""
+    title = _clean_title(p.title)
+    words = " ".join(w for w in re.sub(r"[^\w\s-]", " ", title).split() if len(w) > 2)
+    out = biblio.pubmed_fetch(biblio.pubmed_search(f"{words}[ti]")) if words else []
+    flat = re.sub(r"\s*[:.]\s+", ": ", title)
+    out += biblio.crossref_search(" ".join(x for x in (flat, p.year) if x))
+    return out
+
+
+def _only_paper(p: Parsed, r: biblio.Record) -> bool:
+    """No other paper (with a volume) has the entry's title: an entry without its journal cannot say which of two
+    is meant (the same title and authors in two journals)."""
+    return not any(x.title and _usable(x) and _whole_title(p, x) >= TITLE_ONLY_MIN and not _same_paper(x, r)
+                   for x in title_candidates(p))
+
+
+def find_by_title(p: Parsed) -> tuple[biblio.Record | None, str, list[tuple[str, dict]]]:
+    """(record, why, queries) from a title-only search, held to the terms above. A record accepted whose first
+    author is not the entry's comes with a query; a paper with this (long) title that differs from the entry in
+    its journal, year or volume is no match, and the editor is told which fields differ."""
+    if not p.title or _title_words(_clean_title(p.title)) < 6 or not p.year:
+        return None, "", []
+    # (a preprint or a dataset of the paper, with no volume, is not another paper)
+    close = [r for r in title_candidates(p) if r.title and _usable(r) and _whole_title(p, r) >= TITLE_ONLY_MIN]
+    papers: list[biblio.Record] = []
+    for r in close:
+        if not any(_same_paper(r, q) for q in papers):
+            papers.append(r)
+    if len(papers) != 1:
+        return None, "", []  # nothing, or two papers with this title: not ours to choose
+    # the PubMed record of the paper when there is one (its journal abbreviation and author list)
+    r = next((x for x in close if x.source == "pubmed" and _same_paper(x, papers[0])), papers[0])
+    named = _names_journal_in_entry(p)
+    author = author_agrees(p, r)
+    year = bool(p.year) and (p.year == r.year or year_close(p, r) and same_volume(p.text, r))
+    journal = journal_agrees(p.text, r) and not citation_conflicts(p.text, r) and not journal_conflicts(p, r) \
+        if named else author  # an entry without its journal (incomplete): the first author must be the record's
+    long_unique = _title_words(r.title) >= TITLE_LONG_WORDS and same_citation(p.text, r) and _same_last_page(p.text, r)
+    who = author or _author_in_list(p, r) or long_unique
+    if year and journal and who and _usable(r):
+        return r, "", [] if author else [("references.record_differs", {"what": "first author"})]
+    if _whole_title(p, r) >= TITLE_NEAR_MIN and _title_words(r.title) >= 8:
+        diff = [x for x, ok in (("first author", author), ("year", year_close(p, r)),
+                                ("journal", not named or journal_agrees(p.text, r)),
+                                ("volume", not citation(p.text) or same_volume(p.text, r))) if not ok]
+        if diff:
+            return None, f"Title search: the {' and '.join(diff)} {DIFFERS}", []
+    return None, "", []
+
+
+def incomplete_article(text: str, p: Parsed) -> bool:
+    """An entry with authors, a title and a year but no journal or source ("Miri F, ... A quasi-experimental
+    study. 2024"): a journal article left unfinished, which the title search may complete."""
+    from . import refs_other
+
+    if YEAR_VOL.search(text) or refs_other.URL.search(text) or refs_other.classify(text, p.kind) != refs_other.OTHER:
+        return False
+    return bool(p.authors and p.year and _title_words(_clean_title(p.title)) >= 6)
+
+
 _ACRONYM = re.compile(r"^[a-z]?[A-Z]{2,6}[a-z]?s?$")
 
 
@@ -646,6 +768,25 @@ def _surname_case(surname: str, initials: str, p: Parsed | None) -> str:
     return " ".join("-".join(x.capitalize() for x in w.split("-")) for w in surname.split())
 
 
+_WRITTEN_NAME = re.compile(r"(?P<sur>[^\W\d_][\w'’ -]*?)\s+(?P<ini>[A-Z]{1,4})")
+
+
+def same_name_other_case(surname: str, initials: str, written: str, text: str) -> bool:
+    """The author's own Vancouver name `written` (as typed in the entry `text`) is the record's (`surname`,
+    `initials`) with only the case of its letters different: a particle ("van den Berg G" / CrossRef's "Van den
+    Berg G"; G63: "van", "von", "der", "de" ... are kept as part of the surname). A name in capitals, other
+    letters, accents or initials are the record's."""
+    w = written.strip()
+    m = _WRITTEN_NAME.fullmatch(w)
+    if not m or not initials or w not in text:
+        return False
+    sur = m.group("sur").strip()
+    if sur.isupper() or sur == surname or sur.lower() != surname.lower() or m.group("ini") != initials:
+        return False
+    # only particles differ ("van", "den", "de"): "Alvarez-iglesias" is the author's slip, not a form of the name
+    return all(a == b or a.lower() in _PARTICLES for a, b in zip(sur.split(), surname.split()))
+
+
 def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
     # (PubMed marks some group names with a footnote star: "... Professional Practice Committee*")
     names = [f"{_surname_case(s.rstrip('*').strip(), i, p)} {i}".strip() for s, i in r.authors]
@@ -653,6 +794,14 @@ def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
         return p.authors  # the record's list is broken: keep the author's names (and query them)
     if p and r.source == "crossref" and len(names) < min(len(p.authors), 6):
         return p.authors  # CrossRef author lists are often incomplete; keep the author's
+    if p and r.source == "crossref":
+        # The author's own case of a particle where CrossRef's (the publisher's deposit) differs: "van den Berg G"
+        # for "Van den Berg G". PubMed's names (NLM's) are kept: the JEHP editors wrote "de Sá TH" and "Ten
+        # Ham-Baloyi W" from PubMed over the authors' "De Sá" and "ten". The order of a compound surname is
+        # the record's either way ("Naghavi Alhosseini SS" for the author's "Alhosseini SSN": editors 4 of 5).
+        for k, (s, i) in enumerate(r.authors[:len(p.authors)]):
+            if same_name_other_case(s.rstrip("*").strip(), i, p.authors[k], p.text):
+                names[k] = p.authors[k].strip()
     return names
 
 
@@ -1010,19 +1159,35 @@ def errata(text: str, style: JournalStyle) -> str:
 def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resolution:
     p = from_fields(text, fields) if fields else parse(text)
     journal_like = p.kind == "journal_article" if p.kind else looks_like_journal_article(text)
+    title_search = style.get("references.title_search", True)
+    queries = []
+    from .refstyle import style_unverified  # an entry not verified is still styled, from the author's text
+
     if not journal_like:
         from . import refs_other  # books, links, conference papers, reports, theses
 
-        return refs_other.resolve(text, style, p)
-    from .refstyle import style_unverified  # an entry not verified is still styled, from the author's text
-
-    record, why = find(p)
-    if not record:
-        return style_unverified(Resolution(QUERY, p, message=why), text, style, fields)
-    if not (record.volume and record.year):
-        return style_unverified(Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)"),
-                                text, style, fields)
-    queries = []
+        record = None
+        if title_search and incomplete_article(text, p):  # no journal: completed only from a strict match
+            q = Parsed(**{**p.__dict__, "title": _clean_title(p.title)})
+            record, _ = find(q)
+            if not _usable(record) or not accept(q, record):
+                record, _, queries = find_by_title(q)
+            if _usable(record) and author_agrees(q, record) and _only_paper(q, record):
+                p = q
+            else:
+                record, queries = None, []
+        if record is None:
+            return refs_other.resolve(text, style, p)
+    else:
+        record, why = find(p)
+        if not record and title_search and "points to a different article" not in why and DIFFERS not in why:
+            record, title_why, queries = find_by_title(p)
+            why = title_why or why
+        if not record:
+            return style_unverified(Resolution(QUERY, p, message=why), text, style, fields)
+        if not (record.volume and record.year):
+            return style_unverified(Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)"),
+                                    text, style, fields)
     if not record_pages(record, p):  # the guide's template needs a first page; nothing to take it from
         queries.append(("references.no_pages", {}))
     if malformed_authors(record) or not record.authors and p.authors:

@@ -397,7 +397,7 @@ def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
             out.append(c)
             continue
         prov = provenance.make("renumber", f"Reference {src.number} → {k}", _why(pl), old=[src.number], new=[k])
-        if pos.label:
+        if pos.label and not style.get("references.label_auto_number"):  # (else the label goes: Word numbers it)
             m = re.search(r"\d+", pos.label)
             if m and int(m.group(0)) != k:
                 c = rules._change(p, m.start(), m.end(), str(k), Layer.REFERENCES, "renumber")

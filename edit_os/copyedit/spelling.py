@@ -136,8 +136,18 @@ def _candidates(ms: Manuscript, skip: set[str]):
             w = m.group(0)
             if w.lower() in skip or overlaps(m.start(), m.end(), prot) or (w.isupper() and len(w) > 1):
                 continue
-            if w[0].isupper():
-                before = p.text[:m.start()].rstrip()
+            start = m.start()
+            compound = re.match(r"[A-Za-z]+-$", p.text[max(0, start - 30):start].split()[-1]) \
+                if start and p.text[start - 1] == "-" and p.text[max(0, start - 30):start].split() else None
+            if compound and compound.group(0)[0].isupper() and not w[0].isupper():
+                # the tail of a capitalised compound ("Risk Of Bias In Non-randomised Studies"): judged as the
+                # compound is, so a name keeps the spelling it was given
+                w0 = compound.group(0)
+                start -= len(w0)
+            else:
+                w0 = w
+            if w0[0].isupper():
+                before = p.text[:start].rstrip()
                 sentence_start = not before or before[-1] in ".?!:" or before.endswith(">")
                 nxt = words[i + 1].group(0) if i + 1 < len(words) else ""
                 gap = p.text[m.end():words[i + 1].start()] if nxt else ""

@@ -12,7 +12,10 @@ from enum import Enum
 
 # Run properties a change can set (True) or clear (False); see `Change.format`.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
-                     "color", "size", "highlight")
+                     "color", "size", "highlight",
+                     "list_number")
+# "list_number": a paragraph-level property carried by a change that deletes a typed list label ("1.<tab>"): the
+# paragraph becomes an item of Word's automatic numbering instead (tracked.render; references.label_auto_number).
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
 # automatic colour over a coloured style), direct font size, highlighting / coloured shading.
 CLEAR_ONLY = {"color": (False, "auto"), "size": (False,), "highlight": (False,)}
