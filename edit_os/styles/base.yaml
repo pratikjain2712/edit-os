@@ -41,6 +41,8 @@ headings:
                                  # "(In Vitro)" -> "(in vitro)" ("(Index Case)" kept: IJO editors)
   nested_subheadings: false  # a head over another head is its parent (<H2> over <H3>), heads over a caption, bold run-in
                              # methods labels split off, Word heading styles giving the level (per journal: JEHP)
+  case_report_methods_sections: false  # in a case report, the first own-line head under "Methods" that is not a case
+                                       # ("Literature Search Strategy") is a first-level section of its own (IJO)
   sentence_case_hyphen_parts: false  # sentence case also after a hyphen: "Long-Term Follow-Up" -> "Long-term follow-up"
   subheading_case: sentence  # keep | sentence: <H2> / <H3> heads "Statistical Analysis" -> "Statistical analysis"
                              # (S: "H2 | Sentence Case, Bold" / "H3 | Sentence Case", all 41 sheets)

@@ -252,3 +252,53 @@ def test_sentence_case_leaves_words_in_brackets(tmp_path):
                            long, "Discussion", long])
     t, _, _ = run(path, style.load("ijo"), only=["heading_tags", "subheadings"])
     assert t[3] == "<H2>Indirect examination (Heine, Germany)"
+
+
+def _case_report_run(path, st):
+    from types import SimpleNamespace
+
+    ms = docmodel.load(path)
+    ms.front_sources = SimpleNamespace(meta=SimpleNamespace(article_type="Case Report (for IJO Case Reports)"))
+    cs = rules.run_all(ms, st, only=["heading_tags", "subheadings"])
+    for c in cs.changes:
+        c.status = Status.ACCEPTED
+    out = str(path).replace(".docx", "_out.docx")
+    tracked.render(docmodel.load(path), cs, tracked=False).save(out)
+    return [p.text for p in docmodel.load(out).paragraphs]
+
+
+def test_case_report_methods_head_is_first_level(tmp_path):
+    # IJO_702: the case report's "Methods" holds the ethics statement; "Literature Search Strategy" after it is a
+    # section of its own (<H1>, Title Caps), the cases and the summary after it its <H2>s
+    long = ("The review was planned in advance and the cases were followed for a year; the search of the "
+            "databases used standard methods and the results were checked twice by two observers. Each report was "
+            "read in full.")
+    paras = ["Introduction", long, "Methods", long, "Literature Search Strategy", long, "Case 1", long, "Case 2",
+             long, "Summary of Previously Reported Cases", long, "Discussion", long]
+    path = make(tmp_path, paras)
+    t = _case_report_run(path, style.load("ijo"))
+    assert t[2] == "<H1>Methods"
+    assert t[4] == "<H1>Literature Search Strategy"
+    assert t[6] == "<H2>Case 1" and t[8] == "<H2>Case 2"
+    assert t[10] == "<H2>Summary of previously reported cases"
+    # not a case report: a sub-heading of the Methods
+    t, _, _ = run(path, style.load("ijo"), only=["heading_tags", "subheadings"])
+    assert t[4] == "<H2>Literature search strategy"
+    # the cases straight under Methods stay second level
+    path = make(tmp_path, ["Introduction", long, "Methods", long, "Case 1", long, "Case 2", long, "Discussion", long],
+                name="m2.docx")
+    t = _case_report_run(path, style.load("ijo"))
+    assert t[4] == "<H2>Case 1" and t[6] == "<H2>Case 2"
+
+
+def test_topic_and_question_head_is_a_subheading(tmp_path):
+    # IJO_702: "Mechanism: Why can OVM cause enophthalmos?" on its own line (plain) over the Discussion's text
+    long = ("Enophthalmos reflects a mismatch between orbital container volume and its contents; the "
+            "malformation may cause fat atrophy through repeated distension and the pressure it exerts over years. "
+            "The orbital fat is lost and the globe sinks back into the orbit.")
+    path = make(tmp_path, ["Introduction", long, "Discussion", long, "Mechanism: Why can OVM cause enophthalmos?",
+                           long, "Comparator (C): Non-smokers", long, "Discussion of this: Two words", long])
+    t, _, _ = run(path, style.load("ijo"), only=["heading_tags", "subheadings"])
+    assert t[4] == "<H2>Mechanism: Why can OVM cause enophthalmos?"
+    assert t[6] == "Comparator (C): Non-smokers"  # no question: a label, not a heading
+    assert t[8] == "Discussion of this: Two words"

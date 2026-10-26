@@ -21,6 +21,10 @@ headings:
   # back-matter headings; not the structured abstract's run-in "Purpose:" nor "Keywords:"): the editors drop the
   # colon; G137 says retain it -- the owner follows the editors (owner, 2026-10-26).
   strip_trailing_colon: true
+  # A case report's "Methods" (an ethics statement) has no sub-sections: the first own-line head in it that is not one
+  # of the cases ("Literature Search Strategy" over "Case 1" ...) is a first-level section of its own (IJO_702; the
+  # sheet is silent: "Headings (three levels only)", G139 the case report's sections first level)
+  case_report_methods_sections: true
 
 # references.journal_drop_qualifier: as base (Index Medicus titles keep "Eye (Lond)")
 # statistics.space_around_operators: as base (G297 "add space on either side of operators"; the IJO editors leave

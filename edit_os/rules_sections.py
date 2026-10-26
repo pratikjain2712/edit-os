@@ -456,6 +456,7 @@ _METHODS_LABEL = re.compile(r"\b(?:design|setting|participants?|sampl\w*|data\s+
                             r"|inclusion|exclusion|recruitment|population|search\s+strategy|eligibility|quality\s+assessment"
                             r"|study\s+selection|questionnaires?|validity|reliability)\b", re.I)
 _SUB_NUMBER1 = re.compile(r"^(\d+)\.\s+(?=[A-Z])")  # "1. Demographic Characteristics" (nested: bold / styled only)
+_CASE_HEAD = re.compile(r"[Cc]ase\s*\d+\b|[Cc]ase\s+(?:[IVX]+|[A-Z])\b")  # "Case 1", "Case II": one of a series' cases
 _RUN_IN_HEAD = re.compile(r"^(\s*)([A-Z][^:.;?!]{1,60}?)(\s*:\s+)(?=[A-Z(\d])")
 
 
@@ -506,7 +507,9 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             # "Comparator (C): Non-smokers" is a list item; "Antimicrobial Activity: Synthesis and Contextual
             # Comparison" in bold is a heading
             before, after = text[:text.index(":")].split(), text[text.index(":") + 1:].split()
-            if not (nested and emph and len(before) >= 2 and len(after) >= 2 and after[0][:1].isupper()):
+            # "Mechanism: Why can OVM cause enophthalmos?": a topic and its question, a heading in any journal
+            question = text.endswith("?") and 1 <= len(before) <= 4 and len(after) >= 2 and after[0][:1].isupper()
+            if not (question or nested and emph and len(before) >= 2 and len(after) >= 2 and after[0][:1].isupper()):
                 return False
         return bool(text[:1].isupper() or _SUB_NUMBER.match(text) or nested and emph and _SUB_NUMBER1.match(text))
 
@@ -525,6 +528,7 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     in_body = in_back = False
     back_tagged = None
     section = 0
+    section_key: dict[int, str] = {}  # section -> its main heading's key ("methods")
     run_in: dict[int, int] = {}  # section -> paragraphs opening with a run-in label ("Histopathology: The ...")
     run_in_bold: dict[int, list] = {}  # nested: section -> bold run-in labels (split off when alone)
     for i, p in enumerate(paras):
@@ -533,6 +537,7 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             continue
         key = _key(p.text)
         if key in main:
+            section_key[section + 1] = key
             # The statement heads after the Conclusion ("Conflicts of interest") do not open a body section.
             in_body = key not in ("conclusion", "conclusions") and not (
                 back_matter and in_back and (_levels(style).get(key) == "H2" or re.fullmatch(_ACK, key)))
@@ -614,6 +619,20 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     found.sort(key=lambda f: order[f.p.id])
     has_bold_all = any(f.bold and not f.back for f in found)
     has_bold = {f.section for f in found if f.bold and not f.back}
+    # A case report's Methods section holds a statement or two (ethics, consent), not sub-sections: the first own-line
+    # head in it that is not one of the cases opens a section of its own (<H1>), as the case report's other sections
+    # are first level (IJO G139); the heads after it ("Case 1", "Summary of Previously Reported Cases") are its <H2>s.
+    # IJO_702: "Methods" (the ethics statement) / "Literature search strategy" <H1> / "Case 1" ... <H2>.
+    first_level = set()
+    if style.get("headings.case_report_methods_sections", False) and _is_case_report(ms):
+        seen = set()
+        for f in found:
+            if f.back or f.section in seen:
+                continue
+            seen.add(f.section)
+            if "method" in section_key.get(f.section, "") and not _CASE_HEAD.match(f.p.text[:f.end].strip()):
+                first_level.add(f.p.id)
+    head_case = _cfg(style, "headings.case", "keep")
     out = []
     parent: _Sub | None = None
     last_sec = None
@@ -638,13 +657,20 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     parent = None  # a sibling in the parent's own heading style
                 else:
                     level = "H3"
+        if p.id in first_level:
+            level = "H1"
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
         if f.num and _on(style, "headings.strip_sub_numbering"):
             # "3.2 Association ..." -> "<H2>Association ...": the number goes with the tag
             out.append(_change(p, 0, lead + f.num.end(), f"<{level}>", Layer.STRUCTURE, "subheadings"))
         else:
             out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
-        if style.get("headings.subheading_case", "keep") == "sentence":
+        if level == "H1":
+            core = p.text[lead:f.end]
+            cased = _cased(core, head_case) if head_case != "keep" else core
+            if cased != core:  # the first level's case (IJO S: "H1 | Title Caps"), not a sub-heading's
+                out.append(_change(p, lead, f.end, cased, Layer.STRUCTURE, "subheadings"))
+        elif style.get("headings.subheading_case", "keep") == "sentence":
             out += sentence_case_changes(ms, p, "subheadings",
                                          hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False),
                                          end=f.end, brackets=style.get("headings.sentence_case_brackets", False))
