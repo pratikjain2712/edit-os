@@ -968,10 +968,28 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
     in_abstract = rules_sections.abstract_ids(ms)  # "Results" there is an abstract sub-heading
     front = _front_matter_ids(ms, style)  # "Case Report" as the article type on the title page is no heading
+    mains = rules_sections.main_heading_keys(style)
     for p in ms.paragraphs:
         text = p.text
-        if p.in_table or len(text) > 60 or text.lstrip().startswith("<H") or p.id in in_abstract or p.id in front:
+        if p.in_table or text.lstrip().startswith("<H") or p.id in in_abstract or p.id in front \
+                or rules_sections.in_textbox(p):  # a PRISMA box's "Identification" is no heading
             continue
+        if len(text) > 60 or "\n" in text.strip():
+            # "DISCUSSION \nTo the best ..." / "... [18].\nConclusion": the heading line becomes its own paragraph
+            hl = rules_sections.heading_line(text, mains)
+            if hl is not None:
+                s, e, b0, b1 = hl
+                level = levels.get(rules_sections._key(text[s:e]))
+                tag = f"<{level}>" if level else ""  # a renamed one ("Result") is tagged by sections_headings
+                if b0 >= e:  # the heading first: tag it, break after it
+                    if tag:
+                        out.append(_change(p, 0, s, tag, Layer.STRUCTURE, "heading_tags"))
+                    out.append(_change(p, b0, b1, rules_sections.BR, Layer.STRUCTURE, "heading_tags"))
+                else:  # the heading last: break before it, tagged
+                    out.append(_change(p, b0, b1, rules_sections.BR + tag, Layer.STRUCTURE, "heading_tags"))
+                continue
+            if len(text) > 60:
+                continue
         core = _NUMBERING.sub("", text).strip()
         key = core.rstrip(":").strip().lower()
         level = levels.get(key)
