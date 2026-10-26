@@ -57,6 +57,14 @@ _REPLY_HEAD = re.compile(
 _REPLY_TABLE = re.compile(r"(?i)^\W*(?:reviewer\s*(?:number|no\.?|#)|original\s+comments?\s+(?:of|by|from)\s+(?:the\s+)?reviewer|"
                           r"(?:reply|response)\s+(?:of|by|from)\s+(?:the\s+)?authors?|changes\s+done\s+on\s+page|location\s+of\s+"
                           r"change)")
+# An article section heading: a reply typed into the manuscript ends there ("Reviewer comment: … Response: …" left
+# between the Methods and the Discussion must not take the Discussion and the rest of the article with it).
+_SECTION_HEAD = re.compile(
+    r"(?i)^\W*(?:<H\d>)?\s*(?:\d+(?:\.\d+)*\.?\s+)?(?:introduction|background|methods?|materials?\s+and\s+methods?|methodology|"
+    r"results?|discussion|conclusions?|limitations?|strengths?\b.*|case\s+(?:report|presentation|description|history)|"
+    r"declarations?|acknowledge?ments?|funding|financial\s+support.*|conflicts?\s+of\s+interests?|competing\s+interests?|"
+    r"ethics?\b.*|data\s+availability.*|authors?['’]?\s+contributions?|abbreviations|recommendations?|implications?.*|"
+    r"summary|study\s+(?:design|setting|population)|statistical\s+analysis|intervention)\W*$")
 _REVIEWER_LABEL = re.compile(r"(?i)^\W*reviewer\s*(?:#|no\.?|number)?\s*\d+\b")
 _ARTICLE_TYPE = re.compile(
     r"(?i)^\W*(?:original\s+(?:research\s+)?article|case\s+reports?|case\s+series|review\s+article|systematic\s+review|"
@@ -237,6 +245,8 @@ def _reviewer_reply(paras: list[Paragraph], i: int, used: set[int]) -> tuple[int
             continue
         if j in used or _is_stop(t2) and not (_REPLY_HEAD.match(t2) and _heading_like(t2)) or _CAPTIONISH.match(t2):
             break
+        if _SECTION_HEAD.match(t2) and _heading_like(t2):
+            break  # the article goes on: the reply ends at its next section
         if tables:  # text after the reply table: a "Reviewer 2" label goes on, anything else ends the part
             if _REVIEWER_LABEL.match(t2) and _heading_like(t2):
                 end = j
@@ -250,7 +260,8 @@ def _reviewer_reply(paras: list[Paragraph], i: int, used: set[int]) -> tuple[int
         j += 1
     if end is None:
         return (i, i + 1, "a reply heading with nothing under it")
-    stopped = j < len(paras) and paras[j].text.strip() and (_is_stop(paras[j].text) or _CAPTIONISH.match(paras[j].text))
+    stopped = j < len(paras) and paras[j].text.strip() and (_is_stop(paras[j].text) or _CAPTIONISH.match(paras[j].text)
+                                                         or _SECTION_HEAD.match(paras[j].text) and _heading_like(paras[j].text))
     if not tables and not stopped and j < len(paras):
         return (i, end + 1, "could not tell where the reply ends")
     if not tables and j >= len(paras) and not _after_references(paras, i):

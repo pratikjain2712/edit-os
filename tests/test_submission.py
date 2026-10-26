@@ -232,3 +232,17 @@ def test_copyright_notice_prefix_per_journal(tmp_path):
     assert new == ["Query: "]
     new = [c.new for c in rules.run_all(docmodel.load(str(path)), style.load("ijo"), only=["submission"]).changes]
     assert new == ["AQ: "]
+
+
+def test_reply_typed_inside_the_article_stops_at_the_next_section(tmp_path):
+    # "Reviewer Comment: … Response: …" left between the Methods and the Discussion: only the exchange goes,
+    # never the Discussion, Conclusion and declarations after it (a JEHP file lost them all)
+    exchange = ["Reviewer Comment:", "Please add the CONSORT diagram at the end of the intervention section.",
+                "Response:", "Thank you. The CONSORT diagram has been added at the end of the Intervention section."]
+    path = make(tmp_path, ["Abstract", BODY, "Methods", BODY] + exchange
+                + ["Discussion", BODY, "Limitations", BODY, "Conclusion", BODY, "Declaration", BODY] + REFS)
+    ms = docmodel.load(path)
+    gone = submission.deleted_ids(ms, style.load("jehp"))
+    lost = [p.text for p in ms.paragraphs if p.id in gone]
+    assert "Discussion" not in lost and "Conclusion" not in lost and "Declaration" not in lost
+    assert set(lost) <= set(exchange)
