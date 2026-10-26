@@ -163,7 +163,8 @@ def test_table_footnote_final_period_deleted(tmp_path):
     path = tmp_path / "t.docx"
     doc.save(path)
     out = run(str(path), jehp(), ["fig_captions"])
-    assert "SD, standard deviation; SE, standard error" in out and "*P < 0.05." in out and BODY in out
+    # S244 / S246: "term = definition", comma between abbreviations; S248: no period after the last one
+    assert "SD = standard deviation, SE = standard error" in out and "*P < 0.05." in out and BODY in out
 
 
 def test_sentence_case_keeps_names_and_expansions(tmp_path):

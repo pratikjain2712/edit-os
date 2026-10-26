@@ -15,8 +15,13 @@ caption" (a picture moves with its legend). The back of the article then reads: 
   - Table captions go into a merged first row of their table (`figures.table_caption_row`): the IJO technical editors'
     form in every article with tables (8 of 8); the sheet is silent on where the caption sits.
 
+  - Captioned tables in the body move to the end, after the legends, with their captions and notes, under a
+    "Tables" heading (`figures.tables_to_end`, `figures.tables_heading`; the JEHP editors in every such article).
+    Tables already at the end stay; a moved one goes before the first of them with a higher number. Uncaptioned
+    tables stay where they are; renumbered tables are left (a note) since header.move_blocks reorders them.
+
 Settings: `figures.legends_to_end`, `figures.legends_heading`, `figures.legends_heading_single`,
-`figures.table_caption_row`.
+`figures.table_caption_row`, `figures.tables_to_end`, `figures.tables_heading`.
 
     back_slot(ms)                       where the back blocks start (First author, legends, tables)
     plan(ms, style, figure_inserts)     -> list of records (NewParagraph / BlockMove) and notes
@@ -40,6 +45,7 @@ from .style import JournalStyle
 
 MOVE_LEGENDS = "fig_legends_move"
 MOVE_TABLE_CAPTION = "table_caption_row"
+MOVE_TABLES = "tables_move"
 HEADING = "fig_legends_heading"
 
 
@@ -47,15 +53,16 @@ HEADING = "fig_legends_heading"
 class BlockMove(NewParagraph):
     """Paragraphs to move (legends to the end, a table caption into its table). `anchor` / `where` say where they go
     for the review screen; `render` works out the place in the rendered document."""
-    kind: str = "legends"  # legends | table_caption
+    kind: str = "legends"  # legends | table_caption | tables
     blocks: list[list[str]] = field(default_factory=list)  # paragraph ids, one list per block, in order
     heading: str = ""  # legends: a heading to put over them ("" = none, or the author's heading moves with them)
     refs_end: str = ""  # legends: the last paragraph of the reference list
     side: str = ""  # table_caption: "above" | "below" -- where the manuscript's table captions sit
+    notes: list[str] = field(default_factory=list)  # tables: notes split out of the captions (placed under the tables)
 
     def to_dict(self) -> dict:
         return {**super().to_dict(), "move": self.kind, "blocks": self.blocks, "heading": self.heading,
-                "refs_end": self.refs_end, "side": self.side}
+                "refs_end": self.refs_end, "side": self.side, "notes": self.notes}
 
     @classmethod
     def from_dict(cls, d: dict) -> "BlockMove":
@@ -65,7 +72,7 @@ class BlockMove(NewParagraph):
                    reason=d.get("reason", MOVE_LEGENDS), provenance=d.get("provenance") or None,
                    layer=Layer(d.get("layer", Layer.TABLES_FIGURES.value)), kind=d.get("move", "legends"),
                    blocks=[list(b) for b in d.get("blocks") or []], heading=d.get("heading", ""),
-                   refs_end=d.get("refs_end", ""), side=d.get("side", ""))
+                   refs_end=d.get("refs_end", ""), side=d.get("side", ""), notes=list(d.get("notes") or []))
 
 
 def is_move(n) -> bool:
@@ -175,9 +182,114 @@ def plan(ms: Manuscript, style: JournalStyle, figure_inserts=()) -> tuple[list[N
     notes: list[str] = []
     if style.get("figures.legends_to_end"):
         out += _plan_legends(ms, style, figure_inserts, notes)
+    split = _split_notes(ms, style)
     if style.get("figures.table_caption_row"):
-        out += _plan_table_captions(ms)
+        out += _plan_table_captions(ms, split)
+    if style.get("figures.tables_to_end"):
+        out += _plan_tables(ms, style, notes, split)  # after the caption rows: a caption goes into its row, then moves along
     return out, notes
+
+
+def _tbl_number(ms: Manuscript, tbl, cap) -> int | None:
+    if cap is not None:
+        m = rules_figures.caption_match(cap)
+        return _num(m.group("num")) if m else None
+    tr = tbl.find(qn("w:tr"))
+    m = _CAPTION_START.match(_row_text(tr)) if tr is not None else None
+    return _num(re.search(r"[\dIVX]+", m.group(0)).group(0)) if m else None
+
+
+def _row_text(tr) -> str:
+    return " ".join(paragraph_text(p) for p in tr.iter(qn("w:p")))
+
+
+def _num(s: str) -> int | None:
+    return int(s) if s.isdigit() else rules_figures.roman_to_int(s)
+
+
+def _split_notes(ms: Manuscript, style: JournalStyle) -> list[str]:
+    """The notes rules_figures splits out of table captions (figures.table_caption_notes), as they will read."""
+    if style.get("figures.table_caption_notes") != "split":
+        return []
+    from .tracked import PARAGRAPH_BREAK
+
+    out = []
+    mode = style.get("figures.table_caption_end_period") or "delete"
+    for cap in rules_figures.captions(ms):
+        if cap.kind != rules_figures.TABLE:
+            continue
+        got = rules_figures._caption_note(ms, ms.by_id(cap.para_id), cap.match, mode, style)
+        if got:
+            out += [t.strip() for c in got[1] for t in c.new.split(PARAGRAPH_BREAK) if t.strip()]
+    return out
+
+
+def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: list[str]) -> list[NewParagraph]:
+    """Captioned tables in the body (before the reference list's end) move to the end of the article, after the
+    figure legends (G195), each with its caption and the notes under it, under a "Tables" heading. A table with no
+    caption stays (the editors leave those: 1580, 1751)."""
+    paras = ms.paragraphs
+    end = refs_end(ms)
+    if end is None:
+        return []
+    body = ms.document.element.body
+    stop = _top(paras[end].element, body)
+    by_el = {}
+    for p in paras:
+        by_el.setdefault(_top(p.element, body), []).append(p)
+    note_ids = {q.id for block in rules_figures.table_notes(ms) for q in block}
+    kids = list(body)
+    blocks, numbers = [], []
+    for k, el in enumerate(kids):
+        if el is stop:
+            break
+        if el.tag != qn("w:tbl") or el not in by_el:
+            continue
+        cap, side = None, ""
+        for s_, step in (("above", -1), ("below", 1)):
+            j = k + step
+            while 0 <= j < len(kids) and kids[j].tag == qn("w:p") and _empty(kids[j]):
+                j += step
+            if 0 <= j < len(kids) and kids[j].tag == qn("w:p") and kids[j] in by_el:
+                q = by_el[kids[j]][0]
+                m = rules_figures.caption_match(q)
+                if m is not None and m.group("word").lower().startswith("tab"):
+                    cap, side = q, s_
+                    break
+        tr = el.find(qn("w:tr"))
+        in_row = tr is not None and _CAPTION_START.match(_row_text(tr))
+        if cap is None and not in_row:
+            continue
+        ids = ([cap.id] if cap is not None and side == "above" else []) + [by_el[el][0].id]
+        if cap is not None and side == "below":
+            ids.append(cap.id)
+        last = kids.index(cap.element) if cap is not None and side == "below" else k
+        for j in range(last + 1, len(kids)):  # the notes under it
+            x = kids[j]
+            if x.tag != qn("w:p") or x not in by_el:
+                break
+            q = by_el[x][0]
+            if _empty(x):
+                continue
+            if q.id in note_ids:
+                ids.append(q.id)
+                continue
+            break
+        blocks.append(ids)
+        numbers.append(_tbl_number(ms, el, cap))
+    if not blocks:
+        return []
+    if "Table" in rules_figures.renumber_plan(ms, style):
+        notes.append("Tables renumbered: left where they are (move them to the end after the figure legends by hand)")
+        return []
+    head = style.get("figures.tables_heading") or ""
+    what = ", ".join(f"Table {n}" for n in numbers if n is not None) or f"{len(blocks)} tables"
+    prov = provenance.make("guide", "Pre-editing guide", "G195: the tables at the end of the document, after the "
+                           "figure captions", rule=MOVE_TABLES)
+    return [BlockMove(id="tables_move", anchor=paras[end].id, where="after",
+                      runs=[(f"[Tables moved to the end, after the figure legends: {what}]", {})],
+                      role="move", reason=MOVE_TABLES, provenance=prov, layer=Layer.TABLES_FIGURES,
+                      kind="tables", blocks=blocks, heading=head, refs_end=paras[end].id, notes=split)]
 
 
 def _plan_legends(ms: Manuscript, style: JournalStyle, figure_inserts, notes: list[str]) -> list[NewParagraph]:
@@ -227,7 +339,7 @@ def _plan_legends(ms: Manuscript, style: JournalStyle, figure_inserts, notes: li
                          source=Source.RULE, reason=HEADING, provenance=hp, layer=Layer.TABLES_FIGURES)]
 
 
-def _plan_table_captions(ms: Manuscript) -> list[NewParagraph]:
+def _plan_table_captions(ms: Manuscript, split: list[str] = ()) -> list[NewParagraph]:
     """A table caption right above its table (or right below it, notes aside) goes into a merged first row."""
     out = []
     body = ms.document.element.body
@@ -256,7 +368,7 @@ def _plan_table_captions(ms: Manuscript) -> list[NewParagraph]:
         out.append(BlockMove(id=f"tcap{len(out) + 1}", anchor=p.id, where="before",
                              runs=[(f"[Table {cap.number} caption moved into the table's first row]", {})],
                              role="move", reason=MOVE_TABLE_CAPTION, provenance=prov, layer=Layer.TABLES_FIGURES,
-                             kind="table_caption", blocks=[[p.id]], side=here))
+                             kind="table_caption", blocks=[[p.id]], side=here, notes=list(split)))
     return out
 
 
@@ -293,12 +405,13 @@ def _captioned(tbl, side: str) -> bool:
     return el is not None and el.tag == qn("w:p") and bool(_CAPTION_START.match(paragraph_text(el)))
 
 
-def _caption_table(p_el, side: str):
+def _caption_table(p_el, side: str, notes=()):
     """The table a caption paragraph belongs to: the table right below it (captions above their tables), or right
-    above it (captions below), blank lines aside."""
+    above it (captions below), blank lines (and a note split out of the caption, `notes`) aside."""
     step = "getnext" if side == "above" else "getprevious"
     el = getattr(p_el, step)()
-    while el is not None and _empty(el):
+    while el is not None and (_empty(el) or el.tag == qn("w:p") and paragraph_text(el).strip() in notes
+                              and paragraph_text(el).strip()):
         el = getattr(el, step)()
     return el if el is not None and el.tag == qn("w:tbl") else None
 
@@ -319,6 +432,8 @@ def render(ms: Manuscript, inserts, statuses, *, tracked: bool, author: str, dat
                 notes += _move_legends(ms, n, mk)
             elif n.kind == "table_caption":
                 notes += _caption_row(ms, n, mk)
+            elif n.kind == "tables":
+                notes += _move_tables(ms, n, mk)
         except KeyError:
             notes.append(f"{n.text}: not done (a paragraph is gone)")
     return notes
@@ -465,7 +580,7 @@ def _caption_row(ms: Manuscript, n: BlockMove, mk) -> list[str]:
         return [f"{n.text}: not done (the caption is not a paragraph of its own)"]
     if _is_deleted(p_el):
         return [f"{n.text}: not done (the caption was moved with its table)"]
-    tbl = _caption_table(p_el, n.side or "above")
+    tbl = _caption_table(p_el, n.side or "above", n.notes)
     if tbl is None:
         return [f"{n.text}: not done (no table next to the caption)"]
     cols = _grid_columns(tbl)
@@ -482,6 +597,13 @@ def _caption_row(ms: Manuscript, n: BlockMove, mk) -> list[str]:
         tcpr.append(span)
     tc.append(tcpr)
     tr.append(tc)
+    split = []  # a note split out of the caption (between it and the table) goes under the table
+    if n.side != "below":
+        x = p_el.getnext()
+        while x is not None and x is not tbl:
+            if x.tag == qn("w:p") and paragraph_text(x).strip() in n.notes and paragraph_text(x).strip():
+                split.append(x)
+            x = x.getnext()
     (moved,) = _detach([p_el], mk)
     tc.append(moved)
     first = tbl.find(qn("w:tr"))
@@ -489,4 +611,118 @@ def _caption_row(ms: Manuscript, n: BlockMove, mk) -> list[str]:
         first.addprevious(tr)
     else:
         tbl.append(tr)
+    at = tbl
+    for e in _detach(split, mk):
+        at.addnext(e)
+        at = e
     return []
+
+
+def _move_tables(ms: Manuscript, n: BlockMove, mk) -> list[str]:
+    """Each table block (caption, table, notes -- whatever of them is still a body paragraph: a caption already put
+    into its table's first row travels inside it) goes to the end of the document, under the heading."""
+    body = ms.document.element.body
+    kids = list(body)
+    groups = []
+    for block in n.blocks:
+        els = []
+        for pid in block:
+            el = _top(ms.by_id(pid).element, body)
+            if el is None:
+                continue
+            if el.tag == qn("w:p") and _is_deleted(el):
+                continue  # a caption moved into its table (tracked copy): the deleted original stays
+            if not any(e is el for e in els):
+                els.append(el)
+        tbls = [e for e in els if e.tag == qn("w:tbl")]
+        if not tbls:
+            return [f"{n.text}: not done (a table is gone)"]
+        if any(_is_deleted_tbl(t) for t in tbls):
+            return [f"{n.text}: not done (the tables were moved with a renumbering)"]
+        tbl = tbls[0]
+        split = []  # notes split out of the caption: between the caption and the table, or under the table
+        for step in ("getprevious", "getnext"):
+            x = getattr(tbl, step)()
+            while x is not None and x.tag == qn("w:p"):
+                t = paragraph_text(x).strip()
+                if t and t in n.notes:
+                    split.append(x)
+                elif t:
+                    break
+                x = getattr(x, step)()
+        els = [e for e in els if not any(e is x for x in split)]
+        order = sorted(els, key=lambda e: list(body).index(e))
+        k = next(i for i, e in enumerate(order) if e is tbl)
+        groups.append(order[:k + 1] + sorted(split, key=lambda e: list(body).index(e)) + order[k + 1:])
+    groups.sort(key=lambda g: min(list(body).index(e) for e in g))
+    heading = _heading(n.heading, mk) if n.heading and not _has_tables_heading(ms, n.refs_end) else None
+    # Tables already at the end keep their place; a moved table goes before the first of them with a higher number.
+    later = _end_tables(ms, n.refs_end, groups)
+    sect = body.find(qn("w:sectPr"))
+    first = True
+    for els in groups:
+        num = _block_number(els)
+        dest = next((start for k, start in later if num is not None and k is not None and k > num), None)
+        moved = _detach(els, mk)
+        if first and heading is not None:
+            moved.insert(0, heading)
+            first = False
+        for e in moved:
+            if dest is not None:
+                dest.addprevious(e)
+            elif sect is not None and sect.getparent() is body:
+                sect.addprevious(e)
+            else:
+                body.append(e)
+    return []
+
+
+def _block_number(els) -> int | None:
+    """The number of a table block from its caption (a paragraph, or the table's first row)."""
+    for e in els:
+        tr = e.find(qn("w:tr")) if e.tag == qn("w:tbl") else None
+        t = paragraph_text(e) if e.tag == qn("w:p") else \
+            " ".join(paragraph_text(p) for p in tr.iter(qn("w:p"))) if tr is not None else ""
+        m = _CAPTION_START.match(t)
+        if m:
+            return _num(re.search(r"[\dIVX]+$", m.group(0).strip()).group(0))
+    return None
+
+
+def _end_tables(ms: Manuscript, refs_end_id: str, moving) -> list[tuple[int | None, object]]:
+    """(number, first element) of the table blocks already after the reference list (caption above or in its row)."""
+    body = ms.document.element.body
+    skip = {id(e) for g in moving for e in g}
+    el = _top(ms.by_id(refs_end_id).element, body)
+    out = []
+    x = el.getnext() if el is not None else None
+    while x is not None:
+        if x.tag == qn("w:tbl") and id(x) not in skip and not _is_deleted_tbl(x):
+            start = x
+            prev = x.getprevious()
+            while prev is not None and prev.tag == qn("w:p") and _empty(prev):
+                prev = prev.getprevious()
+            if prev is not None and prev.tag == qn("w:p") and _CAPTION_START.match(paragraph_text(prev)) \
+                    and not _is_deleted(prev):
+                start = prev
+            out.append((_block_number([start, x]), start))
+        x = x.getnext()
+    return out
+
+
+def _is_deleted_tbl(tbl) -> bool:
+    rows = tbl.findall(qn("w:tr"))
+    return bool(rows) and all(r.find(f"{qn('w:trPr')}/{qn('w:del')}") is not None for r in rows)
+
+
+def _has_tables_heading(ms: Manuscript, refs_end_id: str) -> bool:
+    """Whether a "Tables" heading already stands after the reference list."""
+    body = ms.document.element.body
+    el = _top(ms.by_id(refs_end_id).element, body)
+    nxt = el.getnext() if el is not None else None
+    while nxt is not None:
+        if nxt.tag == qn("w:p") and not _is_deleted(nxt) and _TABLES_HEADING.match(paragraph_text(nxt)) \
+                and paragraph_text(nxt).strip():
+            return True
+        nxt = nxt.getnext()
+    return False

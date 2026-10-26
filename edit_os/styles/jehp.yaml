@@ -48,6 +48,35 @@ figures:
                                      # (editors 3 of 5)
   table_caption_case: sentence  # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold
                                 # style and Sentence Case' (editors leave most captions as typed: owner's list)
+  # S: "Column heads | Sentence case, bold" ("Study Design" -> "Study design": 1044, 1193, 1401, 1486, 1562, 1751) and
+  # "In case the content is in All Caps then please make it as Title Case".
+  table_heads_case: sentence
+  table_heads_title_case: true
+  # S244 'Abbreviations should be as per format "term<space>=<space>definition"', S246 "Comma should be delimiter
+  # between abbreviations" (1646, 1732, 1772, 1874). The struck S232 (live, owner 2026-10-24) reads "term 1:
+  # definition": a "term: definition" pair is left as typed; which form wins is the owner's question.
+  table_footnote_abbreviation: " = "
+  table_footnote_delimiter: ","
+  # "Table 1. Baseline characteristics (N=100). IQR, interquartile range; SD, standard deviation." -> caption +
+  # footnote under the table (the editors in 1787; S: notes are table footnotes).
+  table_caption_notes: split
+  # Legend text in sentence case, first word capitalised ("Figure 2: depicts" -> "Depicts"): the sheet is silent on
+  # case; the editors set Title Case legends in sentence case (1044, 1266, 1401, 1580); S398 "all sentences start
+  # with a capital letter" (1410).
+  figure_caption_case: sentence
+  # G265 "The caption(s) should be placed at end of document (before table if present)", G195 the tables "at end of
+  # document after figure captions": the JEHP editors move both in every article with figures / tables in the body
+  # (1044, 1401, 1486, 1562, 1580, 1751, 1764, 1772, 944). Headings (the sheet is silent; editors' insertions):
+  # "Figures" over several legends (10 of 15 articles), "Figure Legend" over one (3 of 4); "Tables" (every article).
+  legends_to_end: true
+  legends_heading: Figures
+  legends_heading_single: Figure Legend
+  tables_to_end: true
+  tables_heading: Tables
+  # The sheet is silent on where a table caption sits; the JEHP editors put it in a merged first row of the table in
+  # every article whose captions were outside it (21 of 21 test and training articles with tables).
+  table_caption_row: true
+  query_no_captions: true  # G244: figures cited, no legend in the file (1486: "Please confirm caption for all figures")
 
 sections:
   # S: the reference list's heading is "REFERENCES" (set in title case as the other H1 heads): "Reference" ->
