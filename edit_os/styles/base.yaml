@@ -422,6 +422,8 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   correspondence_one_line: false   # the address on the "Address for correspondence:" line after the name
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
+  correspondence_drop_street: false  # street / building / office parts dropped when the address names the institution
+  correspondence_prefixes: [Dr, Prof]  # the name's prefix kept or added from the submission XML's <title> (G91-92)
   email_label: "E-mail:"
   pin_spaced: true               # Indian PIN after the city: "Chennai - 600 006"
   dates:

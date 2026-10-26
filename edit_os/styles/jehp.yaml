@@ -122,6 +122,14 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
   affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")
   # correspondence_one_line stays off: editors split 9 / 8 between the address on the name line and on its own line
   # (the stylesheet's "run-on" is read as the address lines joined); on, front-matter similarity fell 82.8% -> 78.2%
+  # G91-92: "Suffix and/or prefix like "Dr." ... can be present. Please retain/add period" (the sheet is silent):
+  # the editors add the XML's <title> to the correspondence name -- Mrs. 3 of 4 (1266, 944, 1738), Mr. in 1209 but
+  # not 1874 (1401: the XML's Mr, the editor wrote Dr.), Dr. / Prof. as before. Ms. is left out: added in 1 of 5
+  # (1559; not 1576, 1646, 1683, 1732).
+  correspondence_prefixes: [Dr, Prof, Mrs, Mr]
+  # The sheet deletes phone, fax, URL in the correspondence and is silent on street and office lines: the editors
+  # drop them when the address names the institution (1646, 1787, 1874: 3 of 3).
+  correspondence_drop_street: true
 
 # Measured against the final copy-edited files (tools/eval_final.py; 17 training articles): rule precision = the
 # accepted changes the final text has, against those where it kept the author's wording.
