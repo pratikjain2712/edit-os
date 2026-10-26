@@ -76,7 +76,7 @@ def test_moved_citation_is_superscript_and_renumbered(tmp_path):
     # Renumbered by first citation: [2] -> [1], Özer's [1] -> [2], placed after the name.
     assert t[1] == "Glaucoma is common.[1] Özer et al.[2] reported a rise in density in the macula."
     moved = [c for c in cs.changes if c.reason == "author_citations" and c.new == "[2]"]
-    assert moved and moved[0].format == {"superscript": True}
+    assert moved and moved[0].format == {"superscript": True, "italic": False}
 
 
 def test_author_citations_off_and_sentence_limit(tmp_path):

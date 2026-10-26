@@ -18,6 +18,8 @@ citations:
                             # sheets: "Match author names in the references list with those in citations"; guide E.g. 6)
   compress_from: null       # 3: runs of 3+ numbers in any citation as a range, "[3,4,5]" -> "[3-5]" (renumbered
                             # citations always: renumber.compress_from)
+  author_year: false         # "Surname et al. (2015) [7]" -> "Surname et al.[7]"; "Surname et al. (2015)" -> "Surname
+                            # et al.[7]" when the numbered list has exactly one entry by that first author in that year
 
 headings:
   tag: true  # prefix headings with <H1> / <H2> for typesetting
@@ -66,6 +68,7 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   degree_space: true          # "29 °C" -> "29°C" (G314)
   technetium: true            # "99 mTc" -> "99mTc" (G321)
   p_value_capital: true       # "p = 0.03" -> "P = 0.03" (G294: "Probability should be changed to capital case")
+  comparison_symbol: true     # ">=30 min" -> "≥30 min", "<=" -> "≤" (G319)
   range_dash: false           # numeric ranges "2-6 years", "(1.01-1.06)" -> en dash (not citations, dates, IL-6)
   trailing_space: true        # spaces at the end of a paragraph go (G143: "Space(s) present at beginning and at end
   leading_space: true         # should be deleted"); at the start too (tabs stay)
@@ -164,6 +167,7 @@ figures:                        # figure and table citations and captions (rules
   citations: true
   brackets: square              # (Figure 1) -> [Figure 1]
   before_full_stop: false       # "immunized. (Table 1)" -> "immunized [Table 1]." (square brackets only)
+  bracket_lead_words: null      # "(see Figure 1)": drop -> "[Figure 1]", keep -> "[see Figure 1]", null: left as typed
   unbold_citations: false       # true: bold figure / table citations in running text -> roman
   figure_label: Figure          # "Fig. 1" -> "Figure 1" (G240; IJO's sheet says "Fig. 1")
   lowercase_labels: false       # true: body citations written "table 2" / "figure 1" -> "Table 2" / "Figure 1"

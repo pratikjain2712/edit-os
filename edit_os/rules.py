@@ -115,9 +115,10 @@ _PLAIN_NUMS = re.compile(r"\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*")
 _UNITS = r"(?:m|cm|mm|km|μm|µm|um|nm|dm|in|ft|mL|ml|dL|dl|L|µL|μL|uL|kg|mg|g|Ω|kΩ)"
 _UNIT_BEFORE = re.compile(r"(?:\b" + _UNITS + r"|/(?:" + _UNITS + r"|s|h|min)|kg/m|g/m|[\d^×x]|\d\s*[⁻−]"
                           r"|\b" + _UNITS + r"\s*[-−]|⁻)\s*$")
-# A power in a formula: "n = (1.96)²", "p q/ d²", "n = N/(1 + Ne²)" ("mean 35 (1.69)¹²" and "Li et al. (2024)⁴"
-# cite).
-_FORMULA_BEFORE = re.compile(r"(?:[=+×÷*/^]\s*\(\s*\d+(?:\.\d+)?\s*\)|[=+×÷*^]\s*\(?[A-Za-z]{1,2}|/\s*[A-Za-z])\s*$")
+# A power in a formula: "n = (1.96)²", "p q/ d²", "n = N/(1 + Ne²)", "n = N / (1 + N(e)²)" ("mean 35 (1.69)¹²" and
+# "Li et al. (2024)⁴" cite).
+_FORMULA_BEFORE = re.compile(r"(?:[=+×÷*/^]\s*\(\s*\d+(?:\.\d+)?\s*\)|[=+×÷*^]\s*\(?[A-Za-z]{1,2}|/\s*[A-Za-z]"
+                             r"|[=+×÷*/^(]\s*[A-Za-z]{0,2}\s*\(\s*[A-Za-z]{1,2}\s*\))\s*$")
 # A statistic symbol or name standing alone right before the number: "p¹ = 0.129", "the p1 values", "n2 < 5",
 # "Cohen's f²", "Q²predict", "X2, df", "Chi2", "ΔΧ²(10)", "eta²", "I2 statistics"; any Greek letter too
 # ("η² = 0.42", "partial η²", "χ²") and a mathematical letter ("𝝌2-test"); "P within¹", "P for trend²".
@@ -182,7 +183,37 @@ def superscript_citations(p: Paragraph) -> list[tuple[int, int, str]]:
             if _is_statistic_index(p.text, s2, e2) or any(a <= s2 < b for a, b in taken):
                 continue
             out.append((s2, e2, p.text[s:e].strip()))
+        elif (messy := _messy_citation(p.text, s, e)) is not None:
+            if not any(a <= messy[0] < b for a, b in taken):
+                out.append(messy)
     return sorted(out)
+
+
+# Superscript citations typed with stray punctuation (S310, S316): " 3,5, ", " 3, ,9", "5,6.7", "17.", ".24-30" (the
+# sentence's full stop set in superscript with the numbers). The numbers run from the first digit to the last; the
+# citation rule takes the stray punctuation around them.
+_MESSY_SUP = re.compile(r"[\s.,;:]*(\d{1,3}(?:\s*[,.;\-–]\s*(?:[,.;]\s*)*\d{1,3})*)[\s.,;:]*")
+
+
+def _messy_citation(text: str, s: int, e: int) -> tuple[int, int, str] | None:
+    """(start, end, numbers) of a formatted superscript span holding citation numbers with stray punctuation, or
+    None. A full stop between two numbers counts as a comma only when the second is larger ("5,6.7"; "1.5" is a
+    value)."""
+    m = _MESSY_SUP.fullmatch(text, s, e)
+    if not m or s == 0 or not re.search(r"[A-Za-z)\].,;:%]\s*$", text[:s]):
+        return None
+    parts: list[str] = []
+    for i, (seps, tok) in enumerate(re.findall(r"([^\d]*)(\d+)", m.group(1))):
+        seps = re.sub(r"\s", "", seps)
+        if i and "-" not in seps and "–" not in seps and set(seps) == {"."} and int(tok) <= int(re.findall(r"\d+", parts[-1])[-1]):
+            return None  # "1.5": a value
+        if i and ("-" in seps or "–" in seps):
+            parts[-1] += "-" + tok
+        else:
+            parts.append(tok)
+    if not parts or _is_exponent(text, m.start(1)) or _is_statistic_index(text, m.start(1), m.end(1)):
+        return None
+    return m.start(1), m.end(1), ",".join(parts)
 
 
 # A table note that explains a marker: "³ Not reported ...", "1N not missing", "1: DSM-5 criteria, 2: in months",
@@ -507,7 +538,8 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if doubled:
             out.append(_change(p, start, end, new, Layer.REFERENCES, "citations", sup))
         elif sup and punct and new.startswith(punct + "["):  # bracket as its own insertion, superscript
-            out.append(_change(p, start, end, punct, Layer.REFERENCES, "citations"))
+            # The punctuation takes the place of the citation: never its superscript ("[13]." -> ".[13]").
+            out.append(_change(p, start, end, punct, Layer.REFERENCES, "citations", {"superscript": False}))
             out.append(_change(p, end, end, new[len(punct):], Layer.REFERENCES, "citations", sup))
         elif sup:
             out.append(_change(p, start, end - len(punct), new[:len(new) - len(punct)],
@@ -524,16 +556,53 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
             norm = normalise_citation(nums, style)
             if norm is None:
                 continue
-            nxt = p.text[e:e + 1]
-            if style.get("citations.after_punctuation", True) and nxt in ".,;:":
-                gap = len(p.text[:s]) - len(p.text[:s].rstrip())
-                # punctuation before, taking the space in front of the citation ("malformations ².")
-                out.append(_change(p, s - gap, s, nxt, Layer.REFERENCES, "citations"))
-                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
-                out.append(_change(p, e, e + 1, "", Layer.REFERENCES, "citations"))  # and not after
-                out += _trailing_space(p, e + 1, "citations")
-            else:
-                out.append(_change(p, s, e, f"[{norm}]", Layer.REFERENCES, "citations", sup))
+            out += _superscript_citation(p, s, e, norm, style, sup)
+    return out
+
+
+def _in_superscript(p: Paragraph, i: int) -> bool:
+    return any(a <= i < b for a, b in p.superscript)
+
+
+def _superscript_citation(p: Paragraph, s: int, e: int, norm: str, style: JournalStyle, sup: dict | None) -> list[Change]:
+    """"worldwide¹." -> "worldwide.[1]"; stray punctuation typed in the superscript goes: "procedures. ³˒⁵˒ Given" ->
+    "procedures.[3,5] Given", "high¹⁷." -> "high.[17]", "CR.²⁴⁻³⁰" (full stop in superscript) -> "CR.[24-30]" with the
+    full stop on the line; "outcomes. ³Simulation" -> "outcomes.[3] Simulation" (S310: "after punctuations")."""
+    text = p.text
+    after_punct = style.get("citations.after_punctuation", True)
+    out = []
+    end = e
+    tail = re.match(r"[\s,;]*", text[e:]).group(0).rstrip()
+    if tail and all(_in_superscript(p, i) for i in range(e, e + len(tail))):
+        end = e + len(tail)  # " 3,5, ": the commas after the numbers are the author's typing
+    before = text[:s].rstrip()
+    gap = len(text[:s]) - len(before)
+    for i in range(len(before) - 1, -1, -1):  # ".24-30": the sentence's full stop typed in superscript
+        if before[i] in ".,;:" and _in_superscript(p, i):
+            out.append(_change(p, i, i + 1, before[i], Layer.REFERENCES, "citations", {"superscript": False}))
+        else:
+            break
+    nxt = text[end:end + 1]
+    punctuated = bool(re.search(r"[.,;:?!]$", before))
+    sentence_end = bool(re.search(r"[.?!]$", before))
+    if after_punct and nxt and nxt in ".,;:":
+        if punctuated and _in_superscript(p, end):
+            out.append(_change(p, s - gap, s, "", Layer.REFERENCES, "citations"))  # "region.¹." : one stop
+        else:
+            # punctuation before, taking the space in front of the citation ("malformations ².")
+            out.append(_change(p, s - gap, s, nxt, Layer.REFERENCES, "citations"))
+            sentence_end = nxt == "."
+        out.append(_change(p, s, end, f"[{norm}]", Layer.REFERENCES, "citations", sup))
+        out.append(_change(p, end, end + 1, "", Layer.REFERENCES, "citations"))  # and not after
+        rest = end + 1
+        out += _trailing_space(p, rest, "citations")
+    else:
+        if after_punct and punctuated and gap:
+            out.append(_change(p, s - gap, s, "", Layer.REFERENCES, "citations"))  # "outcomes. ³" -> "outcomes.[3]"
+        out.append(_change(p, s, end, f"[{norm}]", Layer.REFERENCES, "citations", sup))
+        rest = end
+    if sentence_end and re.match(r"[A-Z]", text[rest:rest + 1]):
+        out.append(_change(p, rest, rest, " ", Layer.REFERENCES, "citations"))  # "manner.⁴Maternal"
     return out
 
 
@@ -696,11 +765,16 @@ def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if re.match(r"\s*[\[(⁰¹²³⁴⁵⁶⁷⁸⁹\d]", text[point:]):
                     continue
                 edits = []
+            poss = re.match(r"[’']s\b", text[point:])
+            if poss:  # "Roy et al.’s JEHP case study" -> "Roy et al.’s[16] JEHP case study", not "al.[16]’s"
+                point += poss.end()
             if point >= s or not text[point:s].strip(" \u00a0.,;:") or len(_SENTENCE_GAP.findall(text[point:s])) >= max_sentences:
                 # already at the name: "by Braun and Clarke.[15]" (only punctuation between)
                 continue
             out += edits
-            out.append(_change(p, point, point, new_cite, Layer.REFERENCES, "author_citations", sup))
+            # never the italic of the "et al." it follows
+            out.append(_change(p, point, point, new_cite, Layer.REFERENCES, "author_citations",
+                               {**(sup or {}), "italic": False}))
             # Take the citation out; punctuation right after it is kept but covered, so the citation
             # rule's bracket insertion after it ("worldwide¹." -> "worldwide.[1]") cannot come back.
             trail = re.match(r"[.,;:]?", after).group(0)
@@ -708,6 +782,111 @@ def rule_author_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if not text[end:].strip():  # it ended the paragraph: the spaces after it go too
                 end = len(text)
             out.append(_change(p, s, end, trail, Layer.REFERENCES, "author_citations"))
+    return out
+
+
+# --- "surname, year" citations ----------------------------------------------------------------
+#
+# S320 (JEHP): 'If citations are present in "surname, year" format and not in numbers then change them to respective
+# reference numbers'. "Sorte et al. (2025) reported" -> "Sorte et al.[4] reported" when the numbered reference list has
+# exactly one entry whose first author is Sorte and whose year is 2025; nothing is guessed. A year next to the number
+# goes: "Nagarajappa et al. (2015) [7]" -> "Nagarajappa et al.[7]", "Wagner et al. (2016), ... Castillo et al. (2021)
+# (11,31,32)" -> "Wagner et al., ... Castillo et al.[11,31,32]" (the name is the first author of one of the numbers);
+# the sheet is silent there, the editors drop it (1044, 1562, 1580, 1751, 1764). A study column's "Saulnier et al.,
+# 2022.[9]" keeps its year (1410: 22 of 22).
+
+_AY_PAREN = re.compile(r"\s*\((?P<year>(?:19|20)\d{2})[a-z]?\)")
+_AY_COMMA = re.compile(r",\s*(?P<year>(?:19|20)\d{2})[a-z]?\b(?![\d\-–/:;)])")
+_AY_ET_AL = re.compile(r"\bet\.?\s+al\b\.?$")
+_AY_PAIR = re.compile(r"\b(?P<a>[A-ZÀ-Ý][\w’'\-]+)\s+(?:and|&)\s+(?P<b>[A-ZÀ-Ý][\w’'\-]+)$")
+_AY_NUMBER_AFTER = re.compile(r"(?P<dot>\.?)\s*(?=\[\s*\d|\(\s*\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\s*\)|[⁰¹²³⁴⁵⁶⁷⁸⁹])")
+
+
+def _ay_mention(before: str, paren: bool) -> tuple[list[str], str | None] | None:
+    """(surname words of the first author, the second author's surname for "A and B") of the name that ends `before`,
+    or None. The comma form ("Saulnier et al., 2022") is read after "et al." only ("Tehran, Iran, 2020" is not)."""
+    m = _AY_ET_AL.search(before)
+    if m:
+        words = _surname_words_before(before, m.start())
+        return (words, None) if words else None
+    if not paren:
+        return None
+    m = _AY_PAIR.search(before)
+    if m:
+        return [m.group("a")], m.group("b")
+    words = _surname_words_before(before, len(before))
+    return (words, None) if words and len(words) <= 2 else None
+
+
+def _ay_matches(ref_text: str, words: list[str], second: str | None) -> bool:
+    keys = _author_keys(ref_text)
+    if not keys or not _mention_matches(words, keys[0]):
+        return False
+    return second is None or (len(keys) >= 2 and _name_key(second) == keys[1])
+
+
+def rule_author_year(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    if not style.get("citations.author_year", False):
+        return []
+    refs = references.extract(ms)
+    by_num = {r.number: r for r in refs if r.number is not None}
+    if not by_num:
+        return []  # an author-year list: there are no numbers to cite
+    ref_ids = {r.para_id for r in refs}
+    pl = renumber.plan(ms, style)
+    mapping = pl.mapping if pl.apply else {}
+    sup = rules_format.citation_format(style)
+    fmt = {**(sup or {}), "italic": False}  # never the italic of the "et al." before it
+    front = front_matter_ids(ms)
+    round_ok: dict[str, list[tuple[int, int]]] = {}
+    for c in rule_citations(ms, style):
+        if c.old.lstrip().startswith("("):
+            round_ok.setdefault(c.para_id, []).append((c.start, c.end))
+    out = []
+    for p in renumber.citation_paragraphs(ms):
+        if p.id in front or p.id in ref_ids:
+            continue
+        text = p.text
+        spans = None
+        found = [(m, True) for m in _AY_PAREN.finditer(text)] + [(m, False) for m in _AY_COMMA.finditer(text)]
+        for m, paren in sorted(found, key=lambda x: x[0].start()):
+            before = text[:m.start()]
+            mention = _ay_mention(before, paren)
+            if mention is None:
+                continue
+            words, second = mention
+            if spans is None:
+                spans = _citation_spans(p, round_ok.get(p.id, []))
+            nxt = _AY_NUMBER_AFTER.match(text, m.end())
+            if nxt and not paren:
+                continue  # "Saulnier et al., 2022.[9]" in a table's study column: kept (1410: 22 of 22)
+            if nxt:
+                # The number is there: the year goes, when the name is the cited reference's first author.
+                cite = next((nums for s, e, nums in spans if s >= m.end()), None)
+                if not cite or not any(n in by_num and _ay_matches(by_num[n].text, words, second) for n in cite):
+                    continue
+                end = m.end() + (len(nxt.group("dot")) if before.rstrip().endswith(".") else 0)
+                out.append(_change(p, m.start(), end, "", Layer.REFERENCES, "author_year"))
+                continue
+            # A number later in the sentence for a list of names: "Wagner et al. (2016), Peimani et al. (2018), and
+            # Castillo et al. (2021) (11,31,32)".
+            stop = _SENTENCE_GAP.search(text, m.end())
+            later = next(((s, nums) for s, e, nums in spans if m.end() <= s < (stop.start() if stop else len(text))),
+                         None)
+            between = re.sub(r"[.,;:]$", "", text[m.end():later[0]].rstrip()) if later else ""
+            if later and any(n in by_num and _ay_matches(by_num[n].text, words, second) for n in later[1]) \
+                    and not re.search(r"[.;:]", re.sub(r"\bet\.?\s+al\.", "et al", between)):
+                out.append(_change(p, m.start(), m.end(), "", Layer.REFERENCES, "author_year"))
+                continue
+            if later:
+                continue
+            year = m.group("year")
+            hits = [n for n, r in by_num.items()
+                    if _ay_matches(r.text, words, second) and re.search(rf"\b{year}[a-z]?\b", r.text)]
+            if len(hits) != 1:
+                continue  # none, or more than one: never a guess
+            new = f"[{renumber.compress([mapping.get(hits[0], hits[0])], style)}]"
+            out.append(_change(p, m.start(), m.end(), new, Layer.REFERENCES, "author_year", fmt))
     return out
 
 
@@ -1095,6 +1274,7 @@ def _reference_provenance(ms: Manuscript, style: JournalStyle, changes: list[Cha
 RULES = {
     "heading_tags": rule_heading_tags,
     "author_citations": rule_author_citations,  # before "renumber" and "citations": it moves whole citations
+    "author_year": rule_author_year,  # "Surname et al. (2015)" -> "Surname et al.[7]" (S320)
     "renumber": renumber.rule_renumber,  # before "citations": renumbered citations win the overlap
     "sections_headings": rules_sections.rule_headings,
     "subheadings": rules_sections.rule_subheadings,

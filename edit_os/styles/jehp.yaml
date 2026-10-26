@@ -28,6 +28,19 @@ headings:
 
 # statistics.unary_after_word: false as base (G301: unary "><space>10 -> >10"; editors 0 of 20 spaced)
 
+citations:
+  # S310: "Bibliography citations should be within square bracket, superscript style ..., after punctuations": the
+  # citation stays where the author put it, as the editors keep it (a passage's closing citation moved next to the
+  # study's name: 23 kept, 7 moved, in 33 articles of jehp_test + jehp_train).
+  next_to_author: false
+  compress_from: 3  # "[18,19,20]" -> "[18-20]": the editors 4 of 4 (944, 1209 ×3); the sheet's "[1,2,4]" has no run
+  # S320: 'If citations are present in "surname, year" format and not in numbers then change them to respective
+  # reference numbers': "Sorte et al. (2025) reported" -> "Sorte et al.[2] reported" when the numbered list has
+  # exactly one entry by that first author in that year (rules.rule_author_year). The year next to a number goes
+  # ("Nagarajappa et al. (2015) [7]" -> "Nagarajappa et al.[7]": 1044, 1562, 1580, 1751, 1764); a study column's
+  # "Saulnier et al., 2022.[9]" keeps it (1410).
+  author_year: true
+
 guide_replace:
   # p_value_capital, trailing_space, leading_space: on in base (G294, G143)
   range_dash: true        # numeric ranges "46-55 years" -> "46–55": editors 19 of 21 in 6 articles (silent; the sheet's
@@ -38,6 +51,12 @@ guide_replace:
   abbreviation_colon: true  # "Abbreviations: CI, confidence interval" -> "CI: confidence interval": 3 of 3 lists
                             # (S: 'Abbreviations should be as per format "term 1: definition, term 2: definition"';
                             # the same sheet also gives "term<space>=<space>definition": owner's list)
+  # In table cells too (the guide's table is not limited to running text; G293 "in all locations other than
+  # references"). Style editors' table cells, 33 articles (jehp_test + jehp_train), each finder alone: range_dash
+  # 23 closer / 1 further, unary_comparison 15 / 0, unary_minus (G300) 25 / 15 (1153 keeps the hyphen; 4 more
+  # used an en dash), ampersand 2 / 2 (G293 asks for it), p_value_capital "p" heads 1646 ×3, ">=" 1787 ×2.
+  table_rules: [range_dash, unary_minus, unary_comparison, p_value_capital, comparison_symbol, smart_quotes,
+                ampersand]
 
 # figures: as base. S: "The caption should end with a period" (table captions: added; editors 9 add, 8 leave none);
 # figure legends: G261 deletes a final period (the sheet is silent on legends).
@@ -46,6 +65,12 @@ figures:
                           # editors 4 of 4 tables, 2 of 3 figures)
   table_footnote_end_period: delete  # S: "Table footnotes | ... Period should be deleted at end of last footnote"
                                      # (editors 3 of 5)
+  # S260 / G241 / G250: 'In case citations are present within round/curly brackets then the brackets should be changed
+  # to square brackets'. A bracket that opens with "see" / "shown in" before the label is a citation too; the editors
+  # drop the words ("(see Figure 1)" -> "[Figure 1]", "(shown in figure 5)" -> "[Figure 5]": 1401 ×13, 0 kept).
+  bracket_lead_words: drop
+  # "analyses. (Table 3)" -> "analyses [Table 3].": the editors 3 of 3 (1044 ×2, 1039); the sheet is silent.
+  before_full_stop: true
   table_caption_case: sentence  # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold
                                 # style and Sentence Case' (editors leave most captions as typed: owner's list)
 
