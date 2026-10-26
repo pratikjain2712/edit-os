@@ -110,6 +110,12 @@ references:
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"
   page_range_compress: true    # 101-109 -> 101-9
   label_period: false          # typed labels as "1. ": "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (per journal)
+  label_auto_number: false     # typed labels removed, the entries numbered by Word instead: "1.<tab>Angus DC" ->
+                               # "Angus DC" as item 1 of an automatic "1." list (per journal; wins over label_period)
+  title_search: true           # nothing found by first author: a title-only search, accepted only with the whole
+                               # title, year, journal and the first author in the record's list (or a long title
+                               # with the entry's volume and first page); an entry with no journal ("... study. 2024")
+                               # is completed only from its first author's paper (refengine.find_by_title)
   page_range_dash: "-"
   drop_issue: true             # 2017;12(3):101-9 -> 2017;12:101-9
   no_period_before_year: true  # J Med Genet. 1987;24 -> J Med Genet 1987;24

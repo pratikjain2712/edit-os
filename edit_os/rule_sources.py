@@ -135,6 +135,8 @@ RULES: dict[str, Locator] = {
                    (r"page",), (r"page",), "page range repeated digits last page deleted"),
     "ref_initials": L("Author initials", "Initials without periods", (r"^journals?\s*\|",), (r"initial",),
                       "journals"),
+    "ref_author_case": L("Author surname case", "A surname in capitals as a name (\"ALIZADEH GJ\" -> \"Alizadeh GJ\")",
+                         (r"^journals?\s*\|",), (r"author",), "journals"),
     "ref_year": L("Year and volume", "Journal name, then year;volume", (r"^journals?\s*\|",), (), "journals"),
     "ref_issue": L("Issue number", "Issue numbers dropped", (r"^journals?\s*\|",), (r"issue",), "journals"),
     "ref_title_case": L("Reference title case", "Capital after a colon in the title", (r"^journals?\s*\|",),

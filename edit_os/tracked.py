@@ -619,6 +619,85 @@ def strip_highlighting(ms: Manuscript) -> int:
     return n
 
 
+# Child order inside <w:pPr> before <w:numPr> (CT_PPr).
+_BEFORE_NUMPR = tuple(qn(t) for t in ("w:pStyle", "w:keepNext", "w:keepLines", "w:pageBreakBefore", "w:framePr",
+                                      "w:widowControl"))
+
+
+def _numbering_part(doc_part):
+    """The document's numbering part, added (empty) when the file has none (python-docx cannot create one)."""
+    from docx.opc.constants import CONTENT_TYPE as CT, RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.oxml import parse_xml
+    from docx.parts.numbering import NumberingPart
+
+    try:
+        return doc_part.part_related_by(RT.NUMBERING)
+    except KeyError:
+        el = parse_xml('<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>')
+        part = NumberingPart(PackURI("/word/numbering.xml"), CT.WML_NUMBERING, el, doc_part.package)
+        doc_part.relate_to(part, RT.NUMBERING)
+        return part
+
+
+def _list_num_id(ms: Manuscript) -> str:
+    """A decimal "1." list of its own in the document's numbering (one per render): the reference list whose
+    typed labels became Word's automatic numbering starts at 1."""
+    num_id = getattr(ms, "_label_num_id", None)
+    if num_id:
+        return num_id
+    numbering = _numbering_part(ms.document.part).element
+    abstract = [int(x) for x in numbering.xpath("./w:abstractNum/@w:abstractNumId") if x.isdigit()]
+    nums = [int(x) for x in numbering.xpath("./w:num/@w:numId") if x.isdigit()]
+    a_id, num_id = str(max(abstract, default=-1) + 1), str(max(nums, default=0) + 1)
+    w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    a = etree.fromstring(
+        f'<w:abstractNum xmlns:w="{w}" w:abstractNumId="{a_id}"><w:multiLevelType w:val="singleLevel"/>'
+        '<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/>'
+        '<w:lvlJc w:val="left"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>')
+    first_num = numbering.find(qn("w:num"))
+    if first_num is not None:
+        first_num.addprevious(a)
+    else:
+        numbering.append(a)
+    numbering.append(etree.fromstring(
+        f'<w:num xmlns:w="{w}" w:numId="{num_id}"><w:abstractNumId w:val="{a_id}"/></w:num>'))
+    ms._label_num_id = num_id
+    return num_id
+
+
+def _number_paragraph(ms: Manuscript, p_el, tracked: bool, ids: _Ids, author: str, date: str) -> None:
+    """Make `p_el` an item of the document's own "1." list (a <w:pPrChange> keeps the old paragraph properties)."""
+    ppr = p_el.find(_PPR)
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        p_el.insert(0, ppr)
+    if ppr.find(qn("w:numPr")) is not None:
+        return
+    before = copy.deepcopy(ppr)
+    for el in list(before):
+        if el.tag in _PPR_TAIL:
+            before.remove(el)
+    num_pr = OxmlElement("w:numPr")
+    ilvl, nid = OxmlElement("w:ilvl"), OxmlElement("w:numId")
+    ilvl.set(qn("w:val"), "0")
+    nid.set(qn("w:val"), _list_num_id(ms))
+    num_pr.append(ilvl)
+    num_pr.append(nid)
+    lead = [c for c in ppr if c.tag in _BEFORE_NUMPR]
+    if lead:
+        lead[-1].addnext(num_pr)
+    else:
+        ppr.insert(0, num_pr)
+    if tracked and ppr.find(qn("w:pPrChange")) is None:
+        ch = OxmlElement("w:pPrChange")
+        ch.set(qn("w:id"), ids.next())
+        ch.set(qn("w:author"), author)
+        ch.set(qn("w:date"), date)
+        ch.append(before)
+        ppr.append(ch)
+
+
 def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=None,
            on_conflict=None) -> Manuscript:
     """Apply changes to the manuscript in place. Use a freshly loaded Manuscript per output.
@@ -652,5 +731,9 @@ def render(ms: Manuscript, changes: ChangeSet, tracked: bool = True, statuses=No
                 continue
         if whole:
             deleted[p.element] = next(c.author for c in cs if not c.format_only and c.end > c.start)
+        else:
+            numbered = next((c for c in cs if (c.format or {}).get("list_number")), None)
+            if numbered is not None:  # a typed label deleted: Word's automatic numbering instead
+                _number_paragraph(ms, p.element, tracked, ids, numbered.author, date)
     _delete_blocks(ms, deleted, tracked, ids, date)
     return ms

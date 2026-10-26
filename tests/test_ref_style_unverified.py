@@ -168,12 +168,13 @@ def test_rules_keep_the_query_and_mark_provenance(jehp, tmp_path):
     ms = docmodel.load(str(path))
     cs = rules.run_all(ms, jehp, only=["ref_lookup", "references"])
     mine = [c for c in cs.changes if c.reason == "ref_styled"]
-    assert mine and all(c.reason == "ref_styled" for c in cs.changes)  # the light cleanup does not run on it too
+    # the light cleanup does not run on it too (the typed label goes: JEHP numbers the list by Word)
+    assert mine and all(c.reason in ("ref_styled", "ref_label") for c in cs.changes)
     assert mine[0].provenance["label"] == refstyle.PROVENANCE_LABEL
     text = ms.paragraphs[-1].text
     for c in sorted(cs.changes, key=lambda c: c.start, reverse=True):
         text = text[:c.start] + c.new + text[c.end:]
-    assert text == ("1. Okoro A, Lindqvist B. Peer tutoring in rural nursing schools. Journal of Rural Nursing Practice "
+    assert text == ("Okoro A, Lindqvist B. Peer tutoring in rural nursing schools. Journal of Rural Nursing Practice "
                     "2019;12:140-8.")
     qs = queries.collect(ms, jehp)
     assert any(q.check == "references.not_found" for q in qs.queries)  # "not verified" stays

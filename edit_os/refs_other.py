@@ -295,8 +295,10 @@ def book_title_case(body: str, title: str = "") -> str:
         t = re.match(r"(.+?)(?=\.\s|$)", body[start:])
         after = body[start + t.end():] if t else ""
         if not t or not re.search(r"[A-Z][\w .()]*:\s*[A-Z]|\b\d+(?:st|nd|rd|th) ed\b|^\.\s+[A-Z][^.;:]{1,80};\s*(?:19|20)\d\d\b", after) \
-                or re.search(r"\bjournal\b|\bdoi\b", body, re.I):
-            return body  # no edition or publisher after it: not sure this is the book title
+                or re.search(r"\bjournal\b", body, re.I) or refengine.YEAR_VOL.search(body):
+            return body  # no edition or publisher after it, or a journal citation: not sure this is the book title
+            # (a DOI or a link the author labelled "DOI:" is no sign of a journal: "... Geneva: WHO; 2022. DOI: https://
+            # www.who.int/...", the DSM's "doi:10.1176/appi.books..."; the sheet's book examples are in Title Case)
         span = (start, start + t.end())
     return body[:span[0]] + title_case(body[span[0]:span[1]]) + body[span[1]:]
 

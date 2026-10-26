@@ -64,6 +64,7 @@ class Article:
     authors: list[str] = field(default_factory=list)  # "Surname Initials", or a group name
     et_al: bool = False
     authors_raw: str = ""   # the author block as written, when it could not be put in "Surname Initials"
+    full_names: bool = False  # the author wrote the names in full ("Atoosa Bonyani"): put as "Bonyani A", queried
     title: str = ""
     journal: str = ""
     year: str = ""
@@ -101,6 +102,31 @@ def vancouver_authors(head: str) -> tuple[list[str], bool, int] | None:
         if g and _GROUP.search(g.group(1)) and not re.search(r"\d", g.group(1)):
             return [g.group(1).strip()], False, g.end()
     return None
+
+
+_FULL_NAME = re.compile(r"\s*(?P<name>[A-Z][a-z'’]+(?:-[A-Z]?[a-z'’]+)?(?:\s+[A-Z][a-z'’]+(?:-[A-Z]?[a-z'’]+)?){1,2})"
+                        r"(?P<sep>\s*,\s*|\.\s+)")
+
+
+def full_name_authors(head: str) -> tuple[list[str], bool, int] | None:
+    """Names written in full, given name first ("Atoosa Bonyani, Leila Safaeian, Mojtaba Chehrazi. Title"):
+    (["Bonyani A", "Safaeian L", "Chehrazi M"], et al., where the title starts). Two names at least, each of
+    two or three capitalised words; the last word is taken as the surname (Vancouver: "Surname Initials")."""
+    names, pos = [], 0
+    while True:
+        e = _ET_AL.match(head, pos)
+        if e and names:
+            return (names, True, e.end()) if len(names) >= 2 else None
+        m = _FULL_NAME.match(head, pos)
+        if not m:
+            return None
+        words = m.group("name").split()
+        if any(w.lower() in refengine._MINOR_WORDS for w in words) or _GROUP.search(m.group("name")):
+            return None
+        names.append(f"{words[-1]} {''.join(w[0] for w in words[:-1])}")
+        pos = m.end()
+        if "," not in m.group("sep"):
+            return (names, False, pos) if len(names) >= 2 else None
 
 
 def _bad_surname(sur: str) -> bool:
@@ -347,8 +373,12 @@ def _split_vancouver(body: str, ai_title: str, ai) -> Article | None:
         head, a.year = s[:y.start("year")], y.group("year")
     head = head.rstrip()
     v = vancouver_authors(head)
+    full = None if v else full_name_authors(head)
     if v:
         a.authors, a.et_al, pos = v
+    elif full:  # "Atoosa Bonyani, Leila Safaeian" -> "Bonyani A, Safaeian L" (S: Vancouver "Elnaem MH, ..."), queried
+        a.authors, a.et_al, pos = full
+        a.full_names = True
     elif ai_title and refengine.fold(head).find(refengine.fold(ai_title)[:40]) > 0:
         k = _find_folded(head, ai_title)
         if k is None or k == 0:
@@ -445,6 +475,8 @@ def format_article(a: Article, style: JournalStyle, text: str) -> tuple[str, lis
     queries = []
     if a.authors_raw:
         queries.append(("references.author_style", {}))
+    if a.full_names:
+        queries.append(("references.author_names", {}))
     if not a.volume:
         queries.append(("references.no_volume", {}))
     elif not a.pages:

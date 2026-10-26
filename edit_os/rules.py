@@ -1019,6 +1019,8 @@ def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 # End of the author list: a period after an initial, followed by the start of the title.
 _AUTHORS_END = re.compile(r"(?<=[A-Z])\.\s+(?=[A-Z0-9\"“‘'(])|\bet al\.?\s+")
+# A surname in capitals followed by initials, as one name of the author list: "ALIZADEH GJ", "ABDEL-LATIF M".
+_CAPS_SURNAME = re.compile(r"(?:^|(?<=,\s)|(?<=,))\s*(?P<sur>[A-Z]{3,}(?:-[A-Z]{2,})*)\s+(?:[A-Z]{1,3})(?=\s*(?:,|\.?$|\.\s|\s+et al))")
 _INITIAL_PERIOD = re.compile(r"(?<=\b[A-Z])\.(?=\s*,|\s*[A-Z]\b)")
 _MON = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|"
         r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?")
@@ -1053,6 +1055,13 @@ def _reference_edits(text: str, style: JournalStyle) -> list[tuple[int, int, str
     if authors_end and style.get("references.initials_without_periods", True):
         for m in _INITIAL_PERIOD.finditer(text[:authors_end]):
             out.append((m.start(), m.end(), "", "ref_initials", None))
+
+    if authors_end:  # "ALIZADEH GJ" -> "Alizadeh GJ" (S: "Elnaem MH, Mohamed MH"); "WHO" and other groups stay
+        for m in _CAPS_SURNAME.finditer(text[:authors_end]):
+            name = m.group("sur")
+            out.append((m.start("sur"), m.end("sur"),
+                        " ".join("-".join(x.capitalize() for x in w.split("-")) for w in name.split()),
+                        "ref_author_case", None))
 
     max_authors = style.get("references.max_authors")
     if authors_end and max_authors and "et al" not in text[:authors_end + 8]:
@@ -1126,10 +1135,19 @@ _ET_AL_WORD = re.compile(r"\bet al\b")
 def _label_changes(p: Paragraph, ref: references.Reference, style: JournalStyle) -> list[Change]:
     """The typed label as "1. " (references.label_period): "1.Angus DC" -> "1. Angus DC", "1)" / "[1]" -> "1.";
     a tab after it stays."""
-    if not ref.label or not style.get("references.label_period"):
+    if not ref.label:
         return []
     m = re.match(r"(\s*)([\[(]?)(\d+)([\])]?\.?)(\s*)$", ref.label)
     if not m:
+        return []
+    if style.get("references.label_auto_number"):
+        # The typed label goes and the entry becomes an item of Word's automatic numbering ("1.<tab>Angus DC"
+        # -> "Angus DC" numbered 1.); the author's spaces before the label stay. A paragraph Word numbers already
+        # only loses the typed label.
+        c = _change(p, m.start(2), m.end(5), "", Layer.REFERENCES, "ref_label",
+                    None if p.numbered else {"list_number": True})
+        return [c]
+    if not style.get("references.label_period"):
         return []
     out = []
     if m.group(2):

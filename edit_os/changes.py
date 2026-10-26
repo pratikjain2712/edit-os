@@ -15,7 +15,10 @@ from enum import Enum
 # family ("Times New Roman") or clears it (False); "align" is the paragraph's alignment (left, center,
 # right, both), set on the whole paragraph by a formatting-only change.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
-                     "color", "size", "highlight", "font", "align")
+                     "color", "size", "highlight", "font", "align",
+                     "list_number")
+# "list_number": a paragraph-level property carried by a change that deletes a typed list label ("1.<tab>"): the
+# paragraph becomes an item of Word's automatic numbering instead (tracked.render; references.label_auto_number).
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
 # automatic colour over a coloured style), highlighting / coloured shading.
 CLEAR_ONLY = {"color": (False, "auto"), "highlight": (False,)}

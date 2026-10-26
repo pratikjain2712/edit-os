@@ -94,9 +94,19 @@ required_sections:
   - {heading: Conflicts of interest, default: "There are no conflicts of interest.",
      keep_labels: [Conflict of interest]}  # kept as written in 5 of 6 articles (the sheet is silent)
 
+references:
+  # Typed labels "1.<tab>" removed and the list numbered by Word (the sheet is silent): the JEHP editors (te and ce
+  # alike) in 13 of the 17 articles with typed labels (test 6 of 7: 1266, 1562, 1580, 1732, 1772, 1787, kept in 1874;
+  # training 7 of 10: 1153, 1209, 1280, 1402, 1559, 1588, 1683, kept in 924, 1039, 1793). One editor typed labels
+  # over Word's numbering (997): owner's list. IJO keeps them as "1. " (label_period).
+  label_auto_number: true
+
 # references.non_indexed_journal: full as base (S: "Use complete name of the journal for non-indexed journals"): a CrossRef
 # journal NLM does not list keeps its full title. The editors wrote an ISO-style abbreviation for 13 of 15 such
-# journals ("Interact Technol Smart Educ", "J Learn Sci"): owner's list.
+# journals ("Interact Technol Smart Educ", "J Learn Sci"): owner's list. "Indexed" is read as listed by NLM
+# (J_Medline): "MIS Q", "Cogent Educ", "Glob J Health Sci" are NLM's abbreviations and stay so, while the editors of
+# 1732 wrote "MIS Quarterly", "Cogent Education" (not MEDLINE-indexed): owner's question whether non-indexed means
+# "not in NLM's list" or "not indexed for MEDLINE".
 
 submission:
   copyright_notice_prefix: "Query: "  # JEHP editors write "Query: " before the copyright notice (7 of 9)
