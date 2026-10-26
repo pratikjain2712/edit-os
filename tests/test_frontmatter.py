@@ -510,3 +510,52 @@ def test_jehp_correspondence_prefix_from_the_xml(tmp_path):
     pl = fm.plan(ms, st, fm.Sources(meta=fm.parse_xml(ORDER_XML)))
     corr = [b.text for b in pl.blocks if b.role == "correspondence"]
     assert corr[0].startswith("Address for correspondence: Mrs. Asha Rao")  # G91-92: the XML's <title>
+
+
+def test_foreign_connectors_in_an_institution_stay_lowercase():
+    # Turkish "ve" (and): the title page's "Başakşehir Çam ve Sakura Şehir Hastanesi" is not recased to "Ve"
+    assert fm._clean_part("Başakşehir Çam ve Sakura Şehir Hastanesi") == "Başakşehir Çam ve Sakura Şehir Hastanesi"
+    assert fm._clean_part("Başakşehir Çam Ve Sakura Şehir Hastanesi") == "Başakşehir Çam ve Sakura Şehir Hastanesi"
+    assert fm._clean_part("universidade de são paulo") == "Universidade de São Paulo"
+    assert fm._clean_part("Universidade Do Porto") == "Universidade do Porto"
+    # place names, initials and a connector at the start are left alone
+    assert fm._clean_part("Hospital Universitario La Paz") == "Hospital Universitario La Paz"
+    assert fm._clean_part("University of Da Nang") == "University of Da Nang"
+    assert fm._clean_part("De Montfort University") == "De Montfort University"
+    assert fm._clean_part("Dr Y S R University") == "Dr Y S R University"
+    assert fm._clean_part("city eye hospital") == "City Eye Hospital"
+
+
+def test_short_title_line_below_the_title_is_deleted(tmp_path, monkeypatch):
+    # JEHP: "Running Title" on one line, "Marital Enrichment and Childbearing" on the next; both go (the running
+    # head carries the short title), as editors delete them
+    raw = claude_fields(para_ids=("M1", "M2", "M3", "M4"))
+    raw["running_title"] = "Valsalva and IOP"
+    raw["paragraphs"] = [{"id": "M1", "role": "title"}, {"id": "M2", "role": "label"},
+                         {"id": "M3", "role": "other_front_matter"}, {"id": "M4", "role": "authors"}]
+    monkeypatch.setattr(fm, "split", lambda text: raw)
+    path = make(tmp_path, ["Effect of Valsalva Maneuver on Intraocular Pressure in OCT Study.", "Running Title",
+                           "Valsalva and IOP", TITLE_PAGE[3], "Abstract", "Background: x.", "Introduction", "Text."])
+    ms = docmodel.load(path)
+    st = style.load("jehp")
+    st.settings["references"]["lookup"] = False
+    pl = fm.plan(ms, st, fm.Sources(meta=fm.parse_xml(PORTAL_XML)))
+    gone = {c.para_id for c in pl.changes if c.new == "" and c.start == 0 and c.end == len(c.old)}
+    for t in ("Running Title", "Valsalva and IOP"):
+        assert next(p for p in ms.paragraphs if p.text == t).id in gone
+    assert next(b.text for b in pl.blocks if b.role == "running_head").endswith(": Valsalva and IOP")
+
+
+def test_bare_running_title_label_after_the_title_page(tmp_path, monkeypatch, ijo):
+    raw = claude_fields(para_ids=("M1",))
+    raw["running_title"] = ""
+    raw["paragraphs"] = [{"id": "M1", "role": "title"}]
+    monkeypatch.setattr(fm, "split", lambda text: raw)
+    path = make(tmp_path, ["Effect of Valsalva Maneuver on Intraocular Pressure in OCT Study.", "Abstract Page",
+                           "Running title", "Valsalva and IOP", "Abstract", "Background: x.", "Introduction", "Text."])
+    ms = docmodel.load(path)
+    pl = fm.plan(ms, ijo, fm.Sources(first_page=TITLE_PAGE[3:], meta=fm.parse_xml(PORTAL_XML)))
+    assert next(b.text for b in pl.blocks if b.role == "running_head").endswith(": Valsalva and IOP")
+    gone = {c.para_id for c in pl.changes if c.new == ""}
+    for t in ("Running title", "Valsalva and IOP"):
+        assert next(p for p in ms.paragraphs if p.text == t).id in gone
