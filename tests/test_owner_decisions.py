@@ -112,7 +112,7 @@ def test_table_note_abbreviations_take_the_journals_form(tmp_path):
     assert note("ijo", "CI: confidence interval; OR: odds ratio") == "CI = confidence interval, OR = odds ratio"
 
 
-def test_affiliation_postal_code_kept():
+def test_affiliation_postal_code_read_back_where_a_journal_keeps_it():
     src = "1Department of Ophthalmology, Sankara Nethralaya, Chennai - 600006, Tamil Nadu, India\n" \
           "2Faculty of Nursing, Hamadan University of Medical Sciences, Hamadan 6517838736, Iran\n" \
           "Address for correspondence: Dr. A, Sankara Nethralaya, Chennai 600 001"
@@ -128,5 +128,16 @@ def test_affiliation_postal_code_kept():
     assert frontmatter.affiliation_text(f, 2, postal=True).startswith("Faculty of Nursing, Hamadan University")
     assert "6517838736" in frontmatter.affiliation_text(f, 2, postal=True)
     assert "600" not in frontmatter.affiliation_text(f, 1)  # journals without the setting: as before
+    # owner, 2026-10-27: IJO and JEHP follow the sheet's "delete pin/zip code" (affiliations and correspondence)
     for code in ("ijo", "jehp"):
-        assert style.load(code).get("front_matter.affiliation_postal_code") is True
+        st = style.load(code)
+        assert st.get("front_matter.affiliation_postal_code") is False
+        assert st.get("front_matter.delete_postal_codes") is True
+    assert frontmatter.drop_postal_codes("Fez, 30000, Morocco") == "Fez, Morocco"
+    assert frontmatter.drop_postal_codes("Hamadan, 6517838695") == "Hamadan"
+    assert frontmatter.drop_postal_codes("Rabat 10100") == "Rabat"
+    assert frontmatter.drop_postal_codes("Chennai - 600 006") == "Chennai"
+    assert frontmatter.drop_postal_codes("PO Box 1234, Riyadh") == "PO Box 1234, Riyadh"  # a street number stays
+    assert frontmatter.drop_postal_codes("Sector 12, Noida") == "Sector 12, Noida"
+    assert frontmatter.affiliation_text(f, 1, drop_postal=True) == \
+        "Department of Ophthalmology, Sankara Nethralaya, Chennai, Tamil Nadu, India"

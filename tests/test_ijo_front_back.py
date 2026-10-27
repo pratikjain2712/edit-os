@@ -116,7 +116,8 @@ def test_consent_after_the_funding_statements_moves_before_them(tmp_path):
                            "Patient Consent", CONSENT] + REFS)
     t, _, _ = run(path, BACK)
     assert t.index(CONSENT) < t.index("<H2>Financial support and sponsorship") < t.index("<H2>Conflicts of interest")
-    assert t[t.index(CONSENT) - 1] == "<H2>Patient consent"  # the author's heading, sentence case
+    # S388: the sheet's heading (owner, 2026-10-27: the author's own consent heading takes it)
+    assert t[t.index(CONSENT) - 1] == "<H2>Declaration of patient consent"
 
 
 def test_bare_consent_heading_renamed(tmp_path):

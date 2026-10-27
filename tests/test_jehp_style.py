@@ -58,9 +58,10 @@ def test_back_matter_statement_heads_tagged(tmp_path):
         ("Consent for publication",), "All participants agreed to the publication of the results.",
         ("Declarations",), "Not applicable here at all.",
         "References", "1. Lee K, Rao S. Back pain in adolescents. Spine 1997;22:1380-4."])
-    out = run(path, jehp(), ["heading_tags", "subheadings"])
-    assert "<H2>Data availability" in out and "<H2>Consent for publication" in out
-    assert "<H2>Conflicts of interest" in out and "Declarations" in out  # a container head is not tagged
+    out = run(path, jehp(), ["heading_tags", "subheadings", "sections_back_matter"])
+    # a bare "Data availability" label takes the journal's heading (back_matter.data_heading; editors 2 of 2)
+    assert "<H2>Data availability statement" in out and "<H2>Consent for publication" in out
+    assert "<H2>Conflicts of interest" in out and "<H2>Declarations" not in out  # a container head is not tagged
     assert not any(t.startswith("<H2><H2>") for t in out)
     base = style.load("base")
     base.settings["references"]["lookup"] = False

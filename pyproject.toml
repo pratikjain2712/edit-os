@@ -10,6 +10,7 @@ dependencies = [
     "rapidfuzz>=3",
     "anthropic>=1.16",
     "openpyxl>=3.1",
+    "olefile>=0.46",  # legacy .doc title pages ("FirstPage.doc"): the text read without LibreOffice
     "pillow>=10",  # figure files from the zip: TIFF / BMP / GIF -> PNG, oversized pictures scaled down
 ]
 

@@ -126,7 +126,8 @@ def plan(ms: Manuscript, style: JournalStyle, front: frontmatter.Plan | None) ->
     aff_id = next((i for i in author.affs if i in f.affiliations), None)
     if aff_id is None and len(f.affiliations) == 1:
         aff_id = next(iter(f.affiliations))
-    text = frontmatter.affiliation_text(f, aff_id) if aff_id is not None else ""
+    text = frontmatter.affiliation_text(f, aff_id, drop_postal=bool(fcfg.get("delete_postal_codes"))) \
+        if aff_id is not None else ""
     if not text:
         out.queries.append((anchor, "first_author.affiliation"))
         return out
