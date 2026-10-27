@@ -217,7 +217,7 @@ def _cover_letter(paras: list[Paragraph], i: int, used: set[int]) -> tuple[int, 
 def _reviewer_reply(paras: list[Paragraph], i: int, used: set[int]) -> tuple[int, int, str] | None:
     p = paras[i]
     t = p.text.strip()
-    table_start = p.in_table and _REPLY_TABLE.match(t)
+    table_start = p.in_table and (_REPLY_TABLE.match(t) or _late_reply_table(paras, i))
     if not table_start and not (not p.in_table and _REPLY_HEAD.match(t) and _heading_like(t)
                                 and not t.endswith(".")):
         return None
@@ -269,6 +269,29 @@ def _reviewer_reply(paras: list[Paragraph], i: int, used: set[int]) -> tuple[int
     if not tables and text_paras > 150:
         return (i, end + 1, "the reply is too long to be sure")
     return (i, end + 1, "")
+
+
+# The header cells of a reply table ("No | Reviewers comment | Authors Response | Line no / Page no")
+_REPLY_COMMENT_CELL = re.compile(r"(?i)^\W*(?:the\s+)?(?:reviewers?['’]?s?|referees?['’]?s?)\s+(?:comments?|queries|points?)\W*$")
+_REPLY_ANSWER_CELL = re.compile(r"(?i)^\W*(?:the\s+)?(?:authors?['’]?s?\s+)?(?:response|reply|replies|answers?)"
+                                r"(?:\s+(?:of|by|from)\s+(?:the\s+)?authors?)?\W*$")
+
+
+def _late_reply_table(paras: list[Paragraph], i: int) -> bool:
+    """Paragraph i is the first cell of a table whose header row reads as a reply to the reviewers (a "reviewer's
+    comment" cell and an "author's response" cell), standing after the references and the back matter: the reply
+    pasted at the end of the manuscript. A table in the body is never taken on its header alone."""
+    tbl = _table_of(paras[i])
+    if i and _table_of(paras[i - 1]) is tbl:
+        return False
+    cells = [q.text.strip() for q in paras[i:i + 8] if _table_of(q) is tbl]
+    if not (any(_REPLY_COMMENT_CELL.match(c) for c in cells) and any(_REPLY_ANSWER_CELL.match(c) for c in cells)):
+        return False
+    if not _after_references(paras, i):
+        return False
+    # nothing of the article after it: only empty paragraphs, tables or further reply text
+    return not any(_SECTION_HEAD.match(q.text) or _BODY.match(q.text) or _STOP.match(q.text.strip())
+                   for q in paras[i:] if not q.in_table and q.text.strip())
 
 
 _CAPTIONISH = re.compile(r"(?i)^\W*(?:figure|fig\.?|table|graph|chart|legends?)\s*\d*\s*[:.\-–]")
