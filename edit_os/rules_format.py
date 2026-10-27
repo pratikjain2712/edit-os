@@ -674,14 +674,28 @@ def paragraph_alignment(p: Paragraph, styles: _FontStyles) -> str:
     return "left"
 
 
+_KEYWORDS_LABEL = re.compile(r"^\s*(?:<H\d>)?\s*(?:key\s*-?\s*words?|index\s+terms)\b", re.I)
+
+
 def heading_levels(ms: Manuscript, style: JournalStyle) -> dict[str, int]:
     """{para id: level} of the paragraphs that are section headings of their own: tagged <H1> / <H2> / <H3> by
     the heading rules (or already tagged), else the first-level headings docview finds."""
     from . import docview
 
+    from . import rules_sections
+
     out = dict(_tagged_headings(ms, style))
+    # The structured abstract's labels ("Methods:", "Results:" on lines of their own) and the key words label are
+    # run-in labels at the text size, not first-level headings (only the Abstract heading takes 14 pt).
+    try:
+        lay = rules_sections.layout(ms)
+        not_heads = {p.id for p in lay.abstract} | ({lay.keywords.id} if lay.keywords is not None else set())
+    except Exception:  # noqa: BLE001 - no layout: no exclusions
+        not_heads = set()
     for d in docview.classify(ms):
         if d["id"] in out or d["kind"] != "heading" or d["front"] or d["cell"]:
+            continue
+        if d["id"] in not_heads or _KEYWORDS_LABEL.match(d["text"]):
             continue
         text = d["text"].strip()
         m = re.match(r"<H(\d)>", text)
@@ -819,7 +833,15 @@ def finish_fonts(ms: Manuscript, style: JournalStyle, kept: list[Change], replac
     if cfg is None:
         return kept
     out = []
+    fonts = [k for k in kept if k.reason == "fmt_font"]
     for c in kept:
+        if not c.format_only and c.start == c.end and c.new:
+            # Text inserted at or inside a span the font change covers ("Keywords" -> "Keywords:" and the key words
+            # put after it, in a Calibri 18 pt heading paragraph: IJO_661) takes its font and size too.
+            f = next((k for k in fonts if k.para_id == c.para_id and k.start <= c.start <= k.end), None)
+            if f is not None:
+                carry = {k: v for k, v in f.format.items() if k in ("size", "font")}
+                c.format = {**carry, **(c.format or {})}
         cover = next((t for t in replaced if c.format_only and t is not c and t.para_id == c.para_id
                       and t.start <= c.start and c.end <= t.end), None)
         if cover is None:

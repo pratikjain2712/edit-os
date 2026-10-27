@@ -534,6 +534,49 @@ def _set_caption(p_el, text: str, mk, bold_label: bool = True) -> None:
         p_el.append(r)
 
 
+def _normalise(el, mk, table_align: str | None, align: str | None) -> None:
+    """Give imported content the journal's font and size (`mk.run_format`, formatting.fonts) like every other run of
+    the article: the other file's fonts (Calibri 10 pt, Aptos) never reach the deliverable. Runs in a symbol font keep
+    it (their letters are Greek / dingbats) and take the size. Table cells take `fonts.table_align` (G193-194), other
+    paragraphs the journal's alignment."""
+    from .rules_format import _SYMBOL_FONT, _PLAIN_CHAR
+    from .tracked import _ppr_insert, apply_format
+
+    fmt = dict(getattr(mk, "run_format", None) or {})
+    if not fmt and not table_align and not align:
+        return
+    for p in el.iter(qn("w:p")):
+        in_cell = any(a.tag == qn("w:tc") for a in p.iterancestors())
+        want = table_align if in_cell else align
+        if want:
+            ppr = p.find(qn("w:pPr"))
+            if ppr is None:
+                ppr = OxmlElement("w:pPr")
+                p.insert(0, ppr)
+            jc = ppr.find(qn("w:jc"))
+            if jc is None:
+                jc = OxmlElement("w:jc")
+                _ppr_insert(ppr, jc)
+            jc.set(qn("w:val"), want)
+        if not fmt:
+            continue
+        ppr = p.find(qn("w:pPr"))
+        mark = ppr.find(qn("w:rPr")) if ppr is not None else None
+        if mark is not None:
+            apply_format(mark, fmt)
+        for r in p.iter(qn("w:r")):
+            rpr = r.find(qn("w:rPr"))
+            if rpr is None:
+                rpr = OxmlElement("w:rPr")
+                r.insert(0, rpr)
+            f = rpr.find(qn("w:rFonts"))
+            font = (f.get(qn("w:ascii")) or f.get(qn("w:hAnsi")) or "") if f is not None else ""
+            text = "".join(t.text or "" for t in r.iter(qn("w:t")))
+            symbol = bool(_SYMBOL_FONT.search(font)) and not (re.search(r"math", font, re.I) and text
+                                                               and all(_PLAIN_CHAR.match(c) for c in text))
+            apply_format(rpr, {k: v for k, v in fmt.items() if not (symbol and k == "font")})
+
+
 def _caption_into_row(tbl, cap_el, mk) -> None:
     from .legends import _grid_columns
 
@@ -600,6 +643,9 @@ def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, a
             place += els
         if not place:
             continue
+        cfg = (style.get("formatting.fonts") or {}) if style is not None and run_format else {}
+        for e in place:
+            _normalise(e, mk, cfg.get("table_align") or None, align)
         if tracked:
             for e in place:
                 if e.find(f"{qn('w:pPr')}/{qn('w:rPr')}/{qn('w:ins')}") is None:

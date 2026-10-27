@@ -1472,12 +1472,20 @@ def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
         for p in paras[start:] if start < len(paras) else []:
             if p.in_table or _CAPTION.match(p.text) or _LEGENDS_HEAD.match(p.text):
                 break
-            if p.text.strip():
+            if re.search(r"\w", p.text):
                 anchor = p
         if anchor is None:
             anchor = next((p for p in reversed(paras) if p.text.strip() and not p.in_table
                            and not _CAPTION.match(p.text)), None)
     return region, anchor
+
+
+def _said_already(ms: Manuscript, text: str) -> bool:
+    """The statement (read from the title page) stands in the manuscript already, word for word."""
+    want = " ".join(re.findall(r"\w+", text.lower()))
+    if len(want) < 20:
+        return False
+    return any(want in " ".join(re.findall(r"\w+", p.text.lower())) for p in ms.paragraphs)
 
 
 def _names_an_author(text: str, ms: Manuscript) -> bool:
@@ -1965,6 +1973,12 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     for kind, hs in hits.items():
         if len(hs) > 1 and any(not nil for _, nil in hs):
             nil_twice |= {q.id for q, nil in hs if nil}
+    # A nil statement under the journal's heading that goes (the real one stays) does not make the real one a second
+    # statement: "Funding: This research received no external funding ..." beside "Finance support and sponsorship:
+    # The authors received no financial support" (jehp_1580) is the section, under the journal's heading.
+    for kind in standard_at:
+        standard_at[kind] -= nil_twice
+    standard_at = {k: v for k, v in standard_at.items() if v}
     # a paragraph holding only spaces among the statements (a stray bold space left above "Acknowledge- None": jehp_924)
     for q in region:
         if q.text and not q.text.strip() and not q.in_table and q.id not in after_refs and not submission.has_media(q):
@@ -2389,6 +2403,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             continue  # "Not applicable.": nothing to state
         if kind == "ethics" and any(_ETHICS.match(t) for t in region_text):
             continue
+        if _said_already(ms, text):
+            continue  # the body states it already (the methods' "Ethical consideration": jehp_1153): not twice
         if kind == "data" and has_data_availability(ms):
             continue
         if kind == "ai" and any(ai_label(t) or _AI_TEXT.search(t) and re.search(r"(?i)\b(?:used|use|assist\w*)\b", t)
@@ -2458,13 +2474,14 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         else:
             # Before a heading line (heading_tags inserts its tag there): after the paragraph above it.
             j = ms.paragraphs.index(before.para)
-            above = next((q for q in reversed(ms.paragraphs[:j]) if q.text.strip() and not q.in_table
+            # (a stray "." line is a template leftover that goes whole, with whatever is put on it: jehp_1193)
+            above = next((q for q in reversed(ms.paragraphs[:j]) if re.search(r"\w", q.text) and not q.in_table
                           and q.id not in deleted), None)
             if above is None:
                 continue
             (targets.setdefault(("after", above.id), []).extend(new[kind]), target_kinds.setdefault(("after", above.id), []).append(kind))
     # a target paragraph this rule deletes ("after" the moved consent's old place): the nearest one above it that stays
-    alive = [q for q in ms.paragraphs if q.text.strip() and not q.in_table]
+    alive = [q for q in ms.paragraphs if re.search(r"\w", q.text) and not q.in_table]
     for key in [k for k in targets if k[0] == "after" and k[1] in deleted]:
         j = next(n for n, q in enumerate(alive) if q.id == key[1])
         keep = next((q for q in reversed(alive[:j]) if q.id not in deleted), None)

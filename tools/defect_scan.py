@@ -210,6 +210,7 @@ class Article:
     inserts: list
     qc: dict
     query_checks: collections.Counter
+    imported: list = None  # texts of the paragraphs taken in from the submission's other files (supplied.py)
 
     @classmethod
     def load(cls, od: str, name: str | None = None, journal: str | None = None) -> "Article":
@@ -227,7 +228,32 @@ class Article:
             qchecks = collections.Counter(d["check"] for d in json.load(f) if d.get("status") != "rejected")
         return cls(name or os.path.basename(od.rstrip("/")), j, style_mod.load(j), docmodel.load(paths["clean"]),
                    docmodel.load(pipeline.source_path(od)), z.read("word/document.xml"), comments,
-                   zc.read("word/document.xml"), zc.namelist(), list(cs.changes), list(ins), qc, qchecks)
+                   zc.read("word/document.xml"), zc.namelist(), list(cs.changes), list(ins), qc, qchecks,
+                   _imported_texts(od, ins))
+
+
+def _imported_texts(od: str, inserts) -> list[str]:
+    """Paragraph texts of the accepted imports of other Word files (tables with their notes, supplementary
+    material): two tables sent with the same notes ("p1: Comparison between ...") show them twice, as sent."""
+    from docx.oxml.ns import qn
+
+    from edit_os import docmodel, supplied
+    from edit_os.changes import Status
+
+    out = []
+    for n in inserts:
+        if not supplied.is_import(n) or n.status != Status.ACCEPTED:
+            continue
+        try:
+            kids = list(docmodel.load(os.path.join(od, n.file)).document.element.body)
+        except Exception:
+            continue
+        for block in n.blocks:
+            for i in block:
+                if i < len(kids):
+                    els = [kids[i]] if kids[i].tag == qn("w:p") else list(kids[i].iter(qn("w:p")))
+                    out += [docmodel.paragraph_text(e) for e in els]
+    return out
 
 
 # --- the checks -----------------------------------------------------------------------------------------------------
@@ -654,6 +680,7 @@ def check_content(a: Article, out: list):
         return " ".join(_words(re.sub(r"^\s*\[?\d+[.)\]]?\s*", "", t)))
 
     src_count = collections.Counter(wkey(p.text) for p in a.source.paragraphs)
+    src_count.update(wkey(t) for t in a.imported or [])
     from edit_os import legends
     refs_at, refs_last = _refs_start(a.clean), legends.refs_end(a.clean) or -1
     body = collections.defaultdict(list)
