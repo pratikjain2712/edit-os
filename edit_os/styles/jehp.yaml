@@ -69,8 +69,9 @@ guide_replace:
   # 23 closer / 1 further, unary_comparison 15 / 0, unary_minus (G300) 25 / 15 (1153 keeps the hyphen; 4 more
   # used an en dash), ampersand 2 / 2 (G293 asks for it), p_value_capital "p" heads 1646 ×3, ">=" 1787 ×2.
   table_rules: [range_dash, unary_minus, unary_comparison, p_value_capital, comparison_symbol, smart_quotes,
-                ampersand, operator_spacing]  # unary signs closed up in cells too (G300 / G301; owner, 2026-10-26);
-                                              # G7 "5.20± 1.30" -> "5.20 ± 1.30" in cells as in the text
+                ampersand, operator_spacing, double_space]  # unary signs closed up in cells too (G300 / G301; owner,
+                                              # 2026-10-26); G7 "5.20± 1.30" -> "5.20 ± 1.30" in cells as in the text;
+                                              # double spaces in cells: editors closed 3 of 3 (1646, 924; silent)
 
 
 # S: "The caption should end with a period": table and figure captions alike (owner, 2026-10-26: keep the sheet over

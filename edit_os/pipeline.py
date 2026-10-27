@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, rules_format, style as style_mod, submission, tracked
+from . import docmodel, revisions, rules_guide, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, rules_format, style as style_mod, submission, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -170,6 +170,17 @@ def paragraph_texts(docx_path: str) -> dict[str, str]:
 
 # --- running the stages --------------------------------------------------------------------
 
+def _accept_author_revisions(src: str) -> dict:
+    """Accept the author's own pending tracked changes in the source before anything reads it (revisions.py), so
+    offsets refer to the accepted text; the file as received is kept next to it as <name>.as_received.docx."""
+    keep = os.path.splitext(src)[0] + ".as_received.docx"
+    shutil.copyfile(src, keep)
+    counts = revisions.accept_revisions(src)
+    if not sum(counts.values()):
+        os.remove(keep)
+    return counts
+
+
 def _run_copyedit(ms, st, existing: list[Change], lt_client, only):
     """copyedit.run_all, passing only the options its signature takes (it is developed separately)."""
     from . import copyedit
@@ -227,6 +238,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
     else:
         raise ValueError("input must be a .docx manuscript or a submission .zip")
     stem = os.path.splitext(os.path.basename(src))[0]
+    src_revisions = _accept_author_revisions(src)
 
     ms = docmodel.load(src)
     ms.front_sources = front_src
@@ -235,7 +247,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
     qs = queries.QuerySet()
     stage_info: dict[str, dict] = {}
     warnings: list[dict] = []
-    notes: list[str] = []
+    notes: list[str] = [revisions.note(src_revisions)] if sum(src_revisions.values()) else []
 
     if "style" in stages:
         say("style rules and front matter")
@@ -289,6 +301,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
 
     # a cover letter or reply to the reviewers that is deleted gets no heading tags or copy edits
     changes.changes = submission.drop_inside_deleted(changes.changes)
+    changes.changes += rules_guide.collapse_double_spaces(ms, st, changes.changes)  # none left by other changes
     _unique_ids(changes.changes)
     qs.number(ms)
     if accept_all:
@@ -301,7 +314,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         "version": 1, "created_at": _now(), "input_name": os.path.basename(input_path),
         "source": os.path.relpath(src, outdir), "stem": stem, "journal": st.code, "journal_name": st.name,
         "stages": list(stages), "stage_info": stage_info, "warnings": warnings, "notes": notes,
-        "header": head_info, "editor": editor or "",
+        "header": head_info, "editor": editor or "", "source_revisions_accepted": src_revisions,
     }
     with open(os.path.join(outdir, MANIFEST), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
@@ -378,6 +391,7 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
                       run_format=run_fmt, align=run_align)
         if kind == "clean":
             tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
+            revisions.strip_comments(ms)  # nor the comments that came with the manuscript (kept in the tracked copy)
         return ms
 
     render("tracked", True, tracked_statuses, True).save(paths["tracked"])
@@ -395,7 +409,7 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         qc_doc = docmodel.load(paths["clean"])
     # compared with the manuscript as received too: the projected output holds every deletion the clean copy has
     report = qc.check(qc_doc, st, source=base, changes=changes, inserts=inserts,
-                      statuses=pending if n_pending else (Status.ACCEPTED,))
+                      statuses=pending if n_pending else (Status.ACCEPTED,), queries=qs.queries)
 
     summary = build_report(dict(man, notes=man.get("notes", []) + head_notes), changes, inserts, qdicts, report,
                            conflicts, n_pending)

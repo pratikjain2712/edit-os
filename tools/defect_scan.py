@@ -584,6 +584,18 @@ class Coverage:
         return best
 
 
+def _nil_ethics(a: "Article", text: str) -> bool:
+    """An inline nil ethics statement the journal's settings delete (rules_sections, back_matter.delete_nil_ethics)."""
+    from edit_os import rules_sections as rs
+
+    m = rs._ETHICS.match(text)
+    if not (rs._on(a.style, "back_matter.delete_nil_ethics") and m):
+        return False
+    content = text[m.end():]
+    return bool(rs._BARE_NIL.match(content)) if rs._cfg(a.style, "back_matter.nil_ethics_bare_only") \
+        else bool(rs._ETHICS_NIL.match(content))
+
+
 def _source_body(ms) -> tuple[int, int]:
     from edit_os import references
 
@@ -622,6 +634,8 @@ def check_content(a: Article, out: list):
             continue
         elif all(r.startswith("sections_back_matter") for r in reasons) and _STANDARD_SECTION.search(p.text[:80]):
             continue  # a funding / conflicts statement the journal's standard wording replaces
+        elif all(r.startswith("sections_back_matter") for r in reasons) and _nil_ethics(a, p.text):
+            continue  # "Ethics: Not required ...": the journal deletes it (back_matter.delete_nil_ethics; editors 7 of 7)
         elif not after.strip():
             kind, sev = "content.para_deleted", ERROR
         elif len(after.strip()) < 0.5 * len(p.text.strip()):
