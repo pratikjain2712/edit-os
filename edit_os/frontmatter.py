@@ -2005,6 +2005,14 @@ def _tokens_with_format(runs: list[Run]) -> list[tuple[str, dict]]:
     return out
 
 
+def _explicit_bold(text: str, fmt: dict | None) -> dict | None:
+    """The format of text the rewrite inserts, its weight stated: inserted text otherwise takes the run it follows, and
+    " Dr." after a bold "Address for correspondence:" came out bold (G87: only the label in bold; jehp_1755)."""
+    if not text.strip():
+        return fmt or None
+    return {"bold": bool((fmt or {}).get("bold")), **(fmt or {})}
+
+
 def _rewrite(p: Paragraph, runs: list[Run], layer: Layer) -> list[Change] | None:
     """Changes that turn paragraph `p` into `runs`: word-level text changes (inserted text carries
     its format) plus tracked formatting on kept text. None when that cannot be expressed without two
@@ -2061,9 +2069,9 @@ def _rewrite(p: Paragraph, runs: list[Run], layer: Layer) -> list[Change] | None
         for k, (t, f) in enumerate(segs):
             lo = i1 + k if len(segs) > 1 else i1
             hi = lo + 1 if k < len(segs) - 1 else i2
-            mk(starts[lo], starts[hi], t, f or None)
+            mk(starts[lo], starts[hi], t, _explicit_bold(t, f))
         if extra is not None:
-            mk(starts[i2], starts[i2], extra[0], extra[1] or None)
+            mk(starts[i2], starts[i2], extra[0], _explicit_bold(extra[0], extra[1]))
     return out
 
 

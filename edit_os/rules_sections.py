@@ -161,7 +161,8 @@ _SUBHEADS = ("purpose|aims?|aims? and objectives?|background(?: and aims?| and o
              "patients? and methods?|statistical analysis(?: used)?|interventions?|main outcome measures?|"
              "observations?|case(?: presentation| description| report| summary)?|results?|findings|"
              "discussion|conclusions?(?: and relevance)?|clinical relevance|significance")
-_SUB_INLINE = re.compile(r"^(\s*)(" + _SUBHEADS + r")(\s*:\s*)(?=\S)", re.I)
+# "Purpose: To ...", or with a dash ("Purpose–To report ...", "Design-Retrospective ...": IJO_2733) before a capital
+_SUB_INLINE = re.compile(r"^(\s*)(" + _SUBHEADS + r")(\s*:\s*|\s*[-–—]\s*(?=(?-i:[A-Z])))(?=\S)", re.I)
 _SUB_ALONE = re.compile(r"^(\s*)(" + _SUBHEADS + r")(\s*:?\s*)$", re.I)
 
 
@@ -448,8 +449,10 @@ def _back_matter_head(p: Paragraph, after: list[Paragraph], max_words: int, min_
     nxt = next((q for q in after if q.text.strip()), None)
     if nxt is None or nxt.in_table or len(nxt.text.strip()) < 15 or _all_fmt(nxt, "bold"):
         return False
-    # A plain line needs running text after it, as a plain sub-heading in the body does.
-    return _all_fmt(p, "bold") or (p.style or "").lower().startswith("heading") or len(nxt.text) >= min_next
+    # A plain line needs running text after it, as a plain sub-heading in the body does; a statement's label on a line
+    # of its own does not ("Use of Artificial Intelligence:" over its statement, 1683).
+    return _all_fmt(p, "bold") or (p.style or "").lower().startswith("heading") or len(nxt.text) >= min_next \
+        or text.endswith(":") and bool(_STATEMENT_WORDS.search(text))
 
 
 def _emph(p: Paragraph, prop: str, s: int = 0, e: int | None = None) -> bool:
@@ -482,6 +485,9 @@ _METHODS_SECTION = re.compile(r"(?:statistical|data)\s+analys[ie]s|study\s+(?:de
                               r"data\s+collection(?:\s+(?:tools?|procedure|methods?))?|ethical\s+considerations?|"
                               r"inclusion\s+(?:and\s+exclusion\s+)?criteria|exclusion\s+criteria|study\s+procedure")
 _SUB_NUMBER1 = re.compile(r"^(\d+)\.\s+(?=[A-Z])")  # "1. Demographic Characteristics" (nested: bold / styled only)
+_SUB_LETTER = re.compile(r"^([a-h])\.\s+(?=[A-Z])")  # "d.    Synthesis of Results" (nested: bold / styled only; 997)
+# A run-in identifier label ("Study/Project ID:", "Registration No.:") is a statement, not a heading (1153: editors keep it)
+_ID_LABEL = re.compile(r"/|\bID\b|\bNo\.?$|\bnumbers?\b|\bcodes?\b", re.I)
 _CASE_HEAD = re.compile(r"[Cc]ase\s*\d+\b|[Cc]ase\s+(?:[IVX]+|[A-Z])\b")  # "Case 1", "Case II": one of a series' cases
 _RUN_IN_HEAD = re.compile(r"^(\s*)([A-Z][^:.;?!]{1,60}?)(\s*:\s+)(?=[A-Z(\d])")
 
@@ -499,6 +505,21 @@ class _Sub:
     styled: int | None = None
     back: bool = False        # a back-matter statement head: always <H2>
     run_in: bool = False      # "Study Design: Eligible ..." split into heading + text
+    num_id: str | None = None  # Word's automatic numbering list the head is an item of
+    strip_period: bool = False  # "Outcome Expectancy and ... skills." among sibling heads: the period goes
+    promote: bool = False     # a main section the author added (<H1>)
+
+
+def _all_caps(text: str) -> bool:
+    letters = [c for c in _TAG.sub("", text) if c.isalpha()]
+    return len(letters) >= 4 and all(c.isupper() for c in letters)
+
+
+def _num_id(p: Paragraph) -> str | None:
+    from docx.oxml.ns import qn
+
+    el = p.element.find(f"{qn('w:pPr')}/{qn('w:numPr')}/{qn('w:numId')}")
+    return el.get(qn("w:val")) if el is not None else None
 
 
 def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
@@ -523,9 +544,9 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     paras = ms.paragraphs[:ref_i] if ref_i is not None else ms.paragraphs
     skip = abstract_ids(ms) | {p.id for p in [layout(ms).abstract_head, layout(ms).keywords] if p}
 
-    def shape(p: Paragraph, text: str, emph: bool) -> bool:
+    def shape(p: Paragraph, text: str, emph: bool, words: int | None = None) -> bool:
         """A heading's shape: short, no final period, capital (or numbered) start, not a statement / legend / ABBR."""
-        if text.endswith((".", ",", ";")) or len(text.split()) > max_words \
+        if text.endswith((".", ",", ";")) or len(text.split()) > (words or max_words) \
                 or (_SUB_SKIP_NESTED if nested else _SUB_SKIP).match(text) \
                 or _ABBR_LINE.match(text) or rules_figures.caption_match(p) is not None:
             return False
@@ -537,7 +558,9 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             question = text.endswith("?") and 1 <= len(before) <= 4 and len(after) >= 2 and after[0][:1].isupper()
             if not (question or nested and emph and len(before) >= 2 and len(after) >= 2 and after[0][:1].isupper()):
                 return False
-        return bool(text[:1].isupper() or _SUB_NUMBER.match(text) or nested and emph and _SUB_NUMBER1.match(text))
+        # nested: a bold / italic head typed in lower case ("study participants and sampling": 1039) is one too
+        return bool(text[:1].isupper() or _SUB_NUMBER.match(text) or nested and emph and (
+            _SUB_NUMBER1.match(text) or _SUB_LETTER.match(text) or text[:1].islower()))
 
     def emphasis(p: Paragraph, e: int) -> tuple[bool, bool, int | None]:
         return _emph(p, "bold", 0, e), _emph(p, "italic", 0, e), _style_level(p) if nested else None
@@ -550,14 +573,22 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         b, it, sl = emphasis(q, len(q.text))
         return (b or it or sl is not None) and shape(q, t, b or it or sl is not None)
 
+    # A section of its own that the author added to the main ones (a review's "OCULAR MICROBIOME IN DISEASES", "The Role
+    # of Systemic Factors in Ocular Microbiome Research" after bold italic heads, IJO_2623: editors <H1>): a bold head
+    # over another head, in capitals like the main headings, or (one level of sub-heads) bold roman like them after
+    # bold italic heads.
+    first_keys = {n.lower() for n in style.get("headings.h1", [])} | {"materials and methods", "methods"}
+    mains = [q for q in paras if _key(q.text) in first_keys and q.text.strip() and not q.in_table]
+    caps_main = bool(mains) and 2 * sum(_all_caps(q.text) for q in mains) > len(mains)
+    roman_main = bool(mains) and all(_emph(q, "bold") and not _emph(q, "italic") for q in mains)
     found: list[_Sub] = []
+    near_miss: list[_Sub] = []
     in_body = in_back = False
     back_tagged = None
     section = 0
     section_key: dict[int, str] = {}  # section -> its main heading's key ("methods")
     run_in: dict[int, int] = {}  # section -> paragraphs opening with a run-in label ("Histopathology: The ...")
     run_in_bold: dict[int, list] = {}  # nested: section -> bold run-in labels (split off when alone)
-    first_keys = {n.lower() for n in style.get("headings.h1", [])} | {"materials and methods", "methods"}
     last_first = ""
     for i, p in enumerate(paras):
         text = p.text.strip()
@@ -598,23 +629,44 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     and not _emph(p, "bold", m.end(), len(p.text)) \
                     and not _SUB_SKIP.match(m.group(2)) and _key(m.group(2)) not in known | main:
                 bold_label = _emph(p, "bold", m.start(2), m.end(2))
-                # (one word, "Intervention:", "Outcomes:", is a PICOS list item)
+                # (one word, "Intervention:", "Outcomes:", is a PICOS list item). A plain label stays run in ("Intervention
+                # Group (n=28):" beside its plain "Control Group (n=33):", 1039; "Inclusion and exclusion criteria:",
+                # 1559: editors 4 of 4), as does an identifier ("Study/Project ID:", 1153).
                 methods = _METHODS_LABEL.search(m.group(2)) and 2 <= len(m.group(2).split()) <= 5
-                if bold_label or methods:
+                if bold_label and not _ID_LABEL.search(m.group(2)):
                     run_in_bold.setdefault(section, []).append(
                         _Sub(p, bold_label, False, None, section, m.end(2), (m.end(2), m.end()), run_in=bool(methods)))
             continue
         bold, italic, styled = emphasis(p, end)
         emph = bold or italic or styled is not None
+        num_id = None
         if nested and p.numbered and styled is None:
-            continue  # an item of a numbered list ("1. Family and Dyadic Based Partnership Care" + its text)
+            # An item of a numbered list ("1. Family and Dyadic Based Partnership Care" over its indented text, 1580);
+            # a bold item over running text of its own is a head in Word's numbering (997: editors tag 22 of 22).
+            nxt0 = next((q for q in paras[i + 1:] if q.text.strip()), None)
+            if not bold or nxt0 is None or nxt0.numbered or (nxt0.style or "") == (p.style or "") or len(nxt0.text) < 100:
+                continue
+            num_id = _num_id(p)
+        near = strip_period = False
         if not shape(p, text, emph):
-            continue
-        num = _SUB_NUMBER.match(text) or (nested and emph and _SUB_NUMBER1.match(text)) or None
+            # A near miss, a head only if a sibling head in its section is set the same way: a longer one ("Distribution
+            # of Ocular Microbiome Studies by Disease and Sample Size", IJO_2623) or one ending in a period ("Outcome
+            # Expectancy and outcome value associated with poor communication skills.", 1153).
+            alt = text[:-1].rstrip() if text.endswith(".") and text.count(".") == 1 else text
+            if not (emph and brk is None and shape(p, alt, emph, 14)):
+                continue
+            near, strip_period = True, alt != text
+        num = _SUB_NUMBER.match(text) or (nested and emph and (_SUB_NUMBER1.match(text) or _SUB_LETTER.match(text))) \
+            or None
         if brk is None:
             later = [q for q in paras[i + 1:] if q.text.strip()]
             nxt = later[0] if later else None
             parent = False
+            if bold and nxt is not None and (caps_main and _all_caps(text) and head_like(nxt) or (
+                    not nested and roman_main and not italic and sum(
+                        1 for g in found if g.section == section and g.bold and g.italic and not g.back) >= 2)):
+                found.append(_Sub(p, bold, italic, num, section, end, None, True, styled, promote=True))
+                continue
             if nested and emph and nxt is not None and head_like(nxt):
                 parent = True  # "Publication Performance and Growth Trends" over "Research Performance Overview"
             elif nested and emph and nxt is not None and not nxt.in_table and rules_figures.caption_match(nxt) is not None:
@@ -636,7 +688,8 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if not (bold or italic or styled is not None or methods_head) \
                     and (text.endswith(":") or len(nxt.text) < min_next):
                 continue
-            found.append(_Sub(p, bold, italic, num, section, end, None, parent, styled))
+            sub = _Sub(p, bold, italic, num, section, end, None, parent, styled, num_id=num_id, strip_period=strip_period)
+            (near_miss if near else found).append(sub)
         else:
             found.append(_Sub(p, bold, italic, num, section, end, brk, False, styled))
     split_sections = set()
@@ -650,10 +703,12 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 f.run_in = True
                 found.append(f)
                 split_sections.add(sec)
+    for f in near_miss:  # a sibling in the same section set the same way
+        if any(g.section == f.section and not g.back and not g.run_in and (g.bold, g.italic) == (f.bold, f.italic)
+               for g in found):
+            found.append(f)
     order = {p.id: k for k, p in enumerate(ms.paragraphs)}
     found.sort(key=lambda f: order[f.p.id])
-    has_bold_all = any(f.bold and not f.back for f in found)
-    has_bold = {f.section for f in found if f.bold and not f.back}
     # A case report's Methods section holds a statement or two (ethics, consent), not sub-sections: the first own-line
     # head in it that is not one of the cases opens a section of its own (<H1>), as the case report's other sections
     # are first level (IJO G139); the heads after it ("Case 1", "Summary of Previously Reported Cases") are its <H2>s.
@@ -668,20 +723,42 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if "method" in section_key.get(f.section, "") and not _CASE_HEAD.match(f.p.text[:f.end].strip()):
                 first_level.add(f.p.id)
     head_case = _cfg(style, "headings.case", "keep")
+    pos = {p.id: k for k, p in enumerate(paras)}
+
+    def heads_run_ins(f: _Sub) -> bool:
+        """"Strengths and Limitations:" over "Strengths: First ..." (1683): the head of the run-in labels after it."""
+        nxt = next((q for q in paras[pos[f.p.id] + 1:] if q.text.strip()), None)
+        m = _RUN_IN_HEAD.match(nxt.text) if nxt is not None else None
+        return bool(m) and m.group(2).split()[0].lower() in f.p.text[:f.end].lower().split()
+
     out = []
     parent: _Sub | None = None
     last_sec = None
+    before: dict[int, list[_Sub]] = {}  # section -> the heads tagged before this one
     for f in found:
         p = f.p
         if f.section != last_sec:
             parent, last_sec = None, f.section
         if p.text[:f.end].rstrip().endswith(":") and run_in.get(f.section, 0) >= 2 and not f.run_in \
-                and f.section not in split_sections:
+                and f.section not in split_sections and not heads_run_ins(f):
             continue  # "Staging and Treatment:" among run-in labels ("Ocular examination: The ...") is one of them
-        # Italic heads under bold ones, and "2.1.1"-numbered heads, are third level.
-        under_bold = (f.section in has_bold) if nested else has_bold_all
+        prev = before.setdefault(f.section, [])
+        # Italic heads under bold ones (earlier in their section: an italic head right under the main heading is
+        # second level, IJO_2623), and "2.1.1"-numbered heads, are third level.
+        under_bold = any(g.bold for g in prev if not g.back)
         deep = f.num is not None and f.num.re is _SUB_NUMBER and f.num.group(1).count(".") >= 2
         level = "H3" if (f.italic and not f.bold and under_bold) or deep else "H2"
+        if nested and not f.back:
+            if f.bold and f.italic and any(g.bold and not g.italic and not g.run_in and not g.back for g in prev):
+                level = "H3"  # bold italic heads under a bold roman one (1209)
+            elif f.num_id and any(g.num_id and g.num_id != f.num_id for g in prev):
+                level = "H3"  # a second numbered list of heads under the first one's last (997)
+            elif f.run_in and any(not g.run_in and not g.back for g in prev) \
+                    and not _METHODS_LABEL.search(p.text[:f.end]):
+                level = "H3"  # a run-in label split off under the section's own-line heads ("Community engagement", 1153)
+        promote = f.promote
+        if not f.back:
+            prev.append(f)
         if nested and not f.back:
             numbered = f.num is not None and f.num.re is _SUB_NUMBER1
             if f.parent or numbered:
@@ -692,7 +769,7 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     parent = None  # a sibling in the parent's own heading style
                 else:
                     level = "H3"
-        if p.id in first_level:
+        if p.id in first_level or promote:
             level = "H1"
         lead = len(p.text) - len(p.text.lstrip())  # the tag goes at the very start: leading spaces go
         if f.num and _on(style, "headings.strip_sub_numbering"):
@@ -700,6 +777,9 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             out.append(_change(p, 0, lead + f.num.end(), f"<{level}>", Layer.STRUCTURE, "subheadings"))
         else:
             out.append(_change(p, 0, lead, f"<{level}>", Layer.STRUCTURE, "subheadings"))
+        first_at = lead + (f.num.end() if f.num else 0)
+        if p.text[first_at:first_at + 1].islower() and level != "H1":
+            out.append(_change(p, first_at, first_at + 1, p.text[first_at].upper(), Layer.STRUCTURE, "subheadings"))
         if level == "H1":
             core = p.text[lead:f.end]
             cased = _cased(core, head_case) if head_case != "keep" else core
@@ -708,11 +788,12 @@ def rule_subheadings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         elif style.get("headings.subheading_case", "keep") == "sentence":
             out += sentence_case_changes(ms, p, "subheadings",
                                          hyphen_parts=style.get("headings.sentence_case_hyphen_parts", False),
-                                         end=f.end, brackets=style.get("headings.sentence_case_brackets", False))
+                                         end=f.end, brackets=style.get("headings.sentence_case_brackets", False),
+                                         start=first_at if f.num and f.num.re is _SUB_LETTER else 0)
         if f.brk is not None:  # the text after the heading line (or run-in label) becomes its own paragraph
             out.append(_change(p, f.brk[0], f.brk[1], BR, Layer.STRUCTURE, "subheadings"))
             continue
-        if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":"):
+        if style.get("headings.strip_trailing_colon", True) and p.text.rstrip().endswith(":") or f.strip_period:
             k = len(p.text.rstrip()) - 1  # with the spaces after it
             out.append(_change(p, k, len(p.text), "", Layer.STRUCTURE, "subheadings"))
         elif p.text != p.text.rstrip() and lead < len(p.text.rstrip()):  # the colon stays (G137), the spaces go
@@ -891,7 +972,7 @@ def rule_abstract(ms: Manuscript, style: JournalStyle) -> list[Change]:
             want = ": "
             if alone and sep != want:
                 out.append(_change(p, m.end(2), m.end(3), want, Layer.STRUCTURE, "sections_abstract"))
-            elif not alone and sep != want and sep.strip() == ":":
+            elif not alone and sep != want and sep.strip() in (":", "-", "–", "—"):
                 out.append(_change(p, m.end(2), m.end(3), want, Layer.STRUCTURE, "sections_abstract"))
         if _on(style, "abstract.subheading_bold") and new == label and label == m.group(2):
             out.append(_change(p, m.start(2), m.end(2), label, Layer.STRUCTURE, "sections_abstract", {"bold": True}))
@@ -2526,11 +2607,29 @@ def _split_run_in(style: JournalStyle, nonempty: list[Paragraph], std: dict, lev
             else:
                 name = _sentence_label(label)
             level = levels.get(name.lower(), "H2")
+            if name.isupper() and level != "H1" and style.get("headings.subheading_case", "keep") == "sentence":
+                name = caps_sentence(name, " ".join(q.text for q in nonempty))  # S: "H2 | Sentence Case"
             head = (f"<{level}>" if tag else "") + name
             if ws == 0:
                 out.append(_change(p, 0, cs, head + BR, Layer.STRUCTURE, "sections_back_matter"))
             else:
                 out.append(_change(p, ws, cs, BR + head + BR, Layer.STRUCTURE, "sections_back_matter"))
+
+
+def caps_sentence(text: str, body: str) -> str:
+    """An all-capitals heading in sentence case: "COMPLIANCE WITH JEHP AI POLICY STATEMENT" -> "Compliance with JEHP AI
+    policy statement"; a word the text writes in capitals elsewhere (an acronym, "JEHP", "AI") keeps them."""
+    words = text.split(" ")
+    out = []
+    for i, w in enumerate(words):
+        core = re.sub(r"\W", "", w)
+        if core and re.search(rf"(?<![\w-]){re.escape(core)}(?![\w-])", body.replace(text, " ")):
+            out.append(w)
+        elif i == 0:
+            out.append(w[:1] + w[1:].lower())
+        else:
+            out.append(w.lower())
+    return " ".join(out)
 
 
 def _move_consent(ms: Manuscript, style: JournalStyle, sections: list[_Section], nonempty: list[Paragraph],

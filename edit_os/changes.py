@@ -16,14 +16,19 @@ from enum import Enum
 # right, both), set on the whole paragraph by a formatting-only change.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
                      "color", "size", "highlight", "font", "align",
-                     "list_number", "symbol", "indent")
+                     "list_number", "symbol", "indent", "para_style")
 # "symbol": the one character the change covers becomes Word's Symbol-font symbol (<w:sym>; formatting.symbol_font).
-# "list_number": a paragraph-level property carried by a change that deletes a typed list label ("1.<tab>"): the
+# "list_number": False on a formatting-only change takes the paragraph out of Word's automatic numbering (a heading the
+# author numbered as a list item, rules_format.finish_headings). True: a paragraph-level property carried by a change
+# that deletes a typed list label ("1.<tab>"): the
 # paragraph becomes an item of Word's automatic numbering instead (tracked.render; references.label_auto_number).
+# "para_style": a paragraph property: the paragraph's style id (the journal's body style, "Normal", for running text an
+# author typed in a "Heading 1" style that would show in Word's navigation pane), tracked as a paragraph property change.
 # "indent": a paragraph property, cleared only (False): the paragraph's direct left and first-line indentation set to
 # zero (tracked as a paragraph property change), as for a table cell whose indentation becomes typed spaces (G208).
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
 # automatic colour over a coloured style), highlighting / coloured shading.
+PARAGRAPH_PROPERTIES = ("align", "para_style")  # set on the paragraph, not its runs
 CLEAR_ONLY = {"color": (False, "auto"), "highlight": (False,), "indent": (False,)}
 ALIGNMENTS = ("left", "center", "right", "both")
 
@@ -37,6 +42,8 @@ def _valid(k: str, v) -> bool:
         return v is False or (isinstance(v, str) and bool(v.strip()))
     if k == "align":
         return v in ALIGNMENTS
+    if k == "para_style":
+        return isinstance(v, str) and bool(v.strip())
     return True  # the toggles: set (true) or clear (false)
 
 
@@ -120,6 +127,18 @@ class Change:
             at += n
         if text[at:]:
             out.append((text[at:], self.format))
+        return out
+
+    def paragraph_props(self, i: int) -> dict:
+        """Paragraph properties ("align", "para_style") of the paragraph that segment `i` of the inserted text opens
+        (from its segment format, or the first of its pieces that names them)."""
+        over = (self.segment_format or [])[i] if i < len(self.segment_format or []) else None
+        fmts = [f for _, f in over] if isinstance(over, list) else [over]
+        out = {}
+        for f in fmts:
+            for k in PARAGRAPH_PROPERTIES:
+                if (f or {}).get(k) and k not in out:
+                    out[k] = f[k]
         return out
 
     @property

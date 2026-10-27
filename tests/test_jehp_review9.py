@@ -145,8 +145,8 @@ def test_headings_the_tool_writes_are_bold(tmp_path):
     assert methods and methods[0].format == {"bold": True}
     ms = docmodel.load(path)
     demo = next(p for p in ms.paragraphs if p.text.startswith("Demographic"))
-    bold = [c for c in cs.changes if c.para_id == demo.id and c.reason == "fmt_heading_bold"]
-    assert bold and bold[0].start == 0 and bold[0].end == len("Demographic Questionnaire")
+    # a plain run-in label stays run in (editors 4 of 4: 1039, 1153, 1559); only a bold one is split off
+    assert not any(c.para_id == demo.id and "<H" in c.new for c in cs.changes)
     stat = next(p for p in ms.paragraphs if p.text.startswith("Statistical"))
     assert any(c.para_id == stat.id and c.new == "<H2>" for c in cs.changes)
     assert any(c.para_id == stat.id and c.reason == "fmt_heading_bold" for c in cs.changes)
@@ -205,8 +205,10 @@ def test_hyphen_prefix_heading_in_sentence_case_and_duplicate_heading_query(tmp_
     for t in ["Introduction", BODY, "Materials and Methods"]:
         doc.add_paragraph(t)
     doc.add_paragraph().add_run("Sleep Habits Questionnaire:").bold = True
-    for t in ["Sleep habits Questionnaire: " + BODY, "Results"]:
-        doc.add_paragraph(t)
+    p = doc.add_paragraph()  # a bold run-in label is split off (a plain one stays run in: 1039, 1153, 1559)
+    p.add_run("Sleep habits Questionnaire:").bold = True
+    p.add_run(" " + BODY)
+    doc.add_paragraph("Results")
     doc.add_paragraph().add_run("Inter-Group Post-Intervention Evaluations").bold = True
     for t in [BODY, "Discussion", BODY] + _refs("A A. One. J T 2020;1:1-2."):
         doc.add_paragraph(t)

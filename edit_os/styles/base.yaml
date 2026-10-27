@@ -172,6 +172,8 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   label_bold: true             # "Table 1:", "Figure 1:", "Video 1:" and bold_labels ("Keywords:") in bold
   table_caption_bold: false    # true: the whole table caption in bold, label and text (G199 '"Table<space>#:<space>"
                                # followed by caption content in bold style'), also in a table's caption row
+  figure_caption_plain: false  # true: a figure caption's text after the bold "Figure 1:" label not bold, nor italic when
+                               # the whole caption is (G260)
   bold_labels: [Keywords, Key words, Key word, Key messages, Key message]
   heading_bold: true           # first-level section headings (Introduction, Methods, ...) in bold
   heading_bold_tagged: false   # every heading the tool tags <H1> / <H2> / <H3> (a line of its own) in bold
