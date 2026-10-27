@@ -11,7 +11,9 @@ headings:
        case presentation, review of literature, case description, case history, case summary,
        treatment and outcome, treatment and outcomes,
        acknowledgment, acknowledgments, acknowledgement, acknowledgements,
-       commentary]
+       commentary, background]
+  # "Background" opening a case report's text (IJO_2538: the editors tag it <H1>; the sheet's "H1 | Caps, Bold"). Untagged
+  # it would stand at the heading size with no tag.
   # "Commentary": a commentary's own section heading under its article type (IJO_2904: the editors tag it <H1>; the
   # sheet is silent). The title page's "Article type: Commentary" is front matter, never tagged.
   # Acknowledgement heading first level (owner, 2026-10-26; G146 / G133: "The heading 'Acknowledgement' should be

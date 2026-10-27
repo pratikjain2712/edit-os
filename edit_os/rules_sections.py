@@ -1374,7 +1374,7 @@ _NIL_TOPIC = re.compile(r"conflict|competing|\binterests?\b|funding|\bfunds?\b|f
 
 # "Declarations" / "Statements and declarations": a container heading over the author statements; editors
 # delete it (13 of 14 in the training files) as the statements become the journal's own sections.
-_DECLARATIONS = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?(?:(?:ethical\s+|authors?[’'`]?s?[’'`]?\s+)?declarations|statements?\s+and\s+declarations"
+_DECLARATIONS = re.compile(r"^\s*(?:<H\d>)?\s*(?:\d+\.?\s*)?(?:(?:ethical\s+|authors?[’'`]?s?[’'`]?\s+)?declarations?|statements?\s+and\s+declarations"
                            r"|declarations?\s+and\s+statements?|compliance\s+with\s+ethical\s+standards)\s*:?\s*$", re.I)
 # Ethics / consent statements that say nothing ("Ethics: Not required for single case report.", "Consent for
 # publication: Not applicable"): editors delete them (7 of 7).
@@ -1478,6 +1478,12 @@ def _back_region(ms: Manuscript) -> tuple[list[Paragraph], Paragraph | None]:
             anchor = next((p for p in reversed(paras) if p.text.strip() and not p.in_table
                            and not _CAPTION.match(p.text)), None)
     return region, anchor
+
+
+def _any_label(text: str) -> bool:
+    """A back-matter statement label (funding, conflicts, ethics, consent, data, contributions, AI)."""
+    return any(r.match(text) for r in (_LABEL, _ETHICS, _CONSENT_HEAD, _DATA_HEAD)) or _section_contrib_label(text) \
+        or bool(ai_label(text))
 
 
 def _said_already(ms: Manuscript, text: str) -> bool:
@@ -1983,6 +1989,15 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
     for q in region:
         if q.text and not q.text.strip() and not q.in_table and q.id not in after_refs and not submission.has_media(q):
             out.append(_change(q, 0, len(q.text), "", Layer.STRUCTURE, "sections_back_matter"))
+    # A label typed twice, once bare and then with its statement ("Ethics approval and consent to participate: " /
+    # "Ethics approval and consent to participate: Ethical approval ...": jehp_392): the bare line goes.
+    for q, nq in zip(nonempty, nonempty[1:]):
+        bare = re.sub(r"\s+", " ", q.text).strip().rstrip(":.-–— ").strip().lower()
+        if q.id in deleted or q.in_table or not bare or _words(bare) > 10 or q.id in after_refs:
+            continue
+        rest = re.sub(r"\s+", " ", nq.text).strip()
+        if rest.lower().startswith(bare) and re.match(r"\s*[:.\-–—]\s*\S", rest[len(bare):]) and _any_label(q.text):
+            delete(q)
     for i, p in enumerate(nonempty):
         if p.id in deleted or p.id in consumed:
             continue

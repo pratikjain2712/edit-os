@@ -692,10 +692,19 @@ def heading_levels(ms: Manuscript, style: JournalStyle) -> dict[str, int]:
         not_heads = {p.id for p in lay.abstract} | ({lay.keywords.id} if lay.keywords is not None else set())
     except Exception:  # noqa: BLE001 - no layout: no exclusions
         not_heads = set()
+    tagging = bool(style.get("headings.tag"))
+    # (a heading the journal names -- its H1 list, renamings, the ones it drops -- keeps the heading size)
+    known = rules_sections.main_heading_keys(style) | {k.lower() for k in (
+        style.get("sections.headings.drop") or [])} if tagging else set()
     for d in docview.classify(ms):
         if d["id"] in out or d["kind"] != "heading" or d["front"] or d["cell"]:
             continue
         if d["id"] in not_heads or _KEYWORDS_LABEL.match(d["text"]):
+            continue
+        if tagging and not re.match(r"\s*<H\d>", d["text"]) and rules_sections._key(d["text"]) not in known:
+            # A journal that tags its headings: a first-level heading is one the heading rules tag. A line they leave
+            # untagged ("Figures", "Tables", "Plain Language Summary", "Summary of MMAT criteria:") is at the text
+            # size (the JEHP / IJO editors: the legends and tables headings at 12 pt).
             continue
         text = d["text"].strip()
         m = re.match(r"<H(\d)>", text)

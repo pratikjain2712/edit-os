@@ -207,6 +207,14 @@ def keep_anchors_live(ms: Manuscript, qs: QuerySet, changes, inserts=()) -> int:
     paras = ms.paragraphs
     index = {p.id: i for i, p in enumerate(paras)}
     moved = 0
+    # A query on material the tool takes out as not the article's (a reply to the reviewers, a template leftover)
+    # asks nothing the author has to answer: it goes with the material.
+    discarded = {c.para_id for c in changes or () if c.para_id in gone
+                 and (c.reason.startswith("submission_reviewer_reply") or c.reason == "template_leftovers")}
+    drop = {k for k, q in enumerate(qs.queries) if not q.insert_id and q.para_id in discarded}
+    moved += _off_replaced_spans(ms, qs, changes or (), skip=drop)
+    if drop:
+        qs.queries[:] = [q for k, q in enumerate(qs.queries) if k not in drop]
     for k, q in enumerate(qs.queries):
         if q.insert_id or q.para_id not in index:
             continue
@@ -224,6 +232,48 @@ def keep_anchors_live(ms: Manuscript, qs: QuerySet, changes, inserts=()) -> int:
         if nxt is not None:
             qs.queries[k] = Query(nxt.id, 0, 0, q.text, q.check, q.id)
             moved += 1
+    return moved
+
+
+def _off_replaced_spans(ms: Manuscript, qs: QuerySet, changes, skip=frozenset()) -> int:
+    """A query on text a change deletes or rewrites (the citation "(Saini et al., 2024)" renumbered, "Nur5" -> "Nur", a
+    caption part run on to the legend above) would sit on struck-through text only: it moves to where the text goes
+    (the paragraph a change writes it into), else it takes in the word next to the change that stays."""
+    edits = [c for c in changes if not c.format_only and c.old and c.reason != "renumber"]
+    moved = 0
+    for k, q in enumerate(qs.queries):
+        if k in skip or q.insert_id or q.end <= q.start:
+            continue
+        c = next((c for c in edits if c.para_id == q.para_id and c.start <= q.start and q.end <= c.end), None)
+        if c is None:
+            continue
+        try:
+            p = ms.by_id(q.para_id)
+        except KeyError:
+            continue
+        quote = p.text[q.start:q.end]
+        if not c.new.strip() and quote.strip():
+            # the text written into another paragraph (a run-on caption part): the query goes with it
+            to = next((x for x in changes if x is not c and x.para_id != c.para_id and not x.format_only
+                       and quote in x.new), None)
+            if to is not None:
+                qs.queries[k] = Query(to.para_id, 0, 0, q.text, q.check, q.id)
+                moved += 1
+                continue
+        before = re.search(r"(\S+\s*)$", p.text[:c.start])
+        after = re.match(r"\s*\S+", p.text[c.end:])
+        if before:
+            start, end = before.start(1), c.end
+        elif after:
+            start, end = c.start, c.end + after.end()
+        else:
+            start = end = 0  # the whole paragraph rewritten: on the paragraph
+        # (the neighbour word must not be another change's deleted text either)
+        if any(x is not c and x.para_id == c.para_id and x.old and x.start <= start < x.end for x in edits) \
+                and after:
+            start, end = c.start, c.end + after.end()
+        qs.queries[k] = Query(q.para_id, start, end, q.text, q.check, q.id)
+        moved += 1
     return moved
 
 

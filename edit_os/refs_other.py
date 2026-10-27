@@ -657,6 +657,20 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
         if not refstyle.invented(again.text, text, " ".join(refstyle.TEMPLATE_WORDS)):
             fixed = again
     res = refengine.Resolution(refengine.NOT_JOURNAL, p)
+    if not restyled and kind in (OTHER, CONFERENCE) and not fixed.url and not re.search(
+            r"(?:^|[.,]\s*)In\b\s*:?\s*[A-Z]", text) and not re.search(
+            r"proceedings|conference|symposium|workshop|congress|meeting", text, re.I):
+        # An entry written as a journal article whose source no journal list knows ("Advances in Neural Information
+        # Processing Systems, 28, 505-513" in APA order: jehp_1209): styled from the author's own fields like any
+        # unverified article (authors cut to six with "et al.", the guide's order), nothing added; still queried.
+        res = refstyle.style_unverified(res, text, style)
+        if res.formatted:
+            res.status = OTHER_FIXED
+            res.message = f"{kind}: styled as an article from the author's fields (not verified)"
+            if cfg("query_unverified") and not any(k == "references.unverified" for k, _ in res.queries):
+                res.queries.append(("references.unverified", {}))
+            return res
+        res = refengine.Resolution(refengine.NOT_JOURNAL, p)
     broken = not fixed.url and re.search(r"https?://\s|\bwww\.\s", text, re.I)
     if not broken and not restyled and ((kind == OTHER and not fixed.url) or not (fixed.url or re.search(r"\b(?:19|20)\d\d\b", text))):
         res.message = "Not a recognisable reference type; left as written"

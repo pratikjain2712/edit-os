@@ -454,6 +454,22 @@ def comment_texts(comments_xml: bytes | None) -> dict[str, str]:
     return out
 
 
+def _foreign_comments(comments_xml: bytes | None) -> set[str]:
+    """Ids of the comments not written by Edit OS (no "AQn:" query number, another author)."""
+    from lxml import etree
+
+    from edit_os import queries
+
+    if not comments_xml:
+        return set()
+    out = set()
+    for c in etree.fromstring(comments_xml).iter(W + "comment"):
+        text = "".join(t.text or "" for t in c.iter(W + "t"))
+        if c.get(W + "author") != queries.AUTHOR and not re.match(r"\s*AQ\d+\s*:", text):
+            out.add(c.get(W + "id"))
+    return out
+
+
 _BAD_QUERY = re.compile(r"\?\?\?|\bNone\b|\bnan\b|\{[a-z_]*\}|\[\]|''|\"\"|\(\s*\)")
 
 
@@ -461,8 +477,11 @@ _BAD_QUERY = re.compile(r"\?\?\?|\bNone\b|\bnan\b|\{[a-z_]*\}|\[\]|''|\"\"|\(\s*
 def check_queries(a: Article, out: list):
     """Author queries: on an empty paragraph, on deleted text, duplicated, or with a broken text."""
     anchors, texts = comment_anchors(a.tracked_xml), comment_texts(a.comments_xml)
+    theirs = _foreign_comments(a.comments_xml)
     seen: dict[tuple, int] = {}
     for cid, text in texts.items():
+        if cid in theirs:
+            continue  # a comment the submission came with (the journal office's "Provided"): not a query of ours
         body = re.sub(r"^AQ\d+:\s*", "", text.strip())
         d = anchors.get(cid)
         if not body.strip():
@@ -622,6 +641,15 @@ def _nil_ethics(a: "Article", text: str) -> bool:
         else bool(rs._ETHICS_NIL.match(content))
 
 
+def _nil_statement(a: "Article", text: str) -> bool:
+    """A funding / conflicts / data statement that says there is nothing to state, which the journal deletes."""
+    from edit_os import rules_sections as rs
+
+    if not rs._on(a.style, "back_matter.delete_nil_statements"):
+        return False
+    return bool(rs._NO_DATA.match(text)) or bool(rs._NIL_TOPIC.search(text) and rs._nil(text))
+
+
 def _source_body(ms) -> tuple[int, int]:
     from edit_os import references
 
@@ -662,6 +690,9 @@ def check_content(a: Article, out: list):
             continue  # a funding / conflicts statement the journal's standard wording replaces
         elif all(r.startswith("sections_back_matter") for r in reasons) and _nil_ethics(a, p.text):
             continue  # "Ethics: Not required ...": the journal deletes it (back_matter.delete_nil_ethics; editors 7 of 7)
+        elif all(r.startswith("sections_back_matter") for r in reasons) and _nil_statement(a, p.text):
+            continue  # "There were no specific funds allocated ...", "No new datasets were generated ...": a nil
+            # statement the journal deletes / words its own way (back_matter.delete_nil_statements; IJO_2904 editors)
         elif not after.strip():
             kind, sev = "content.para_deleted", ERROR
         elif len(after.strip()) < 0.5 * len(p.text.strip()):
@@ -843,7 +874,11 @@ def check_figures_tables(a: Article, out: list):
             if _all_bold(p, styles) < 1:
                 out.append(Finding(a.name, "figtab.caption_not_bold", WARNING, idx[id(cap_el)], snippet(p.text, 5)))
         if to_end and ref_pos is not None and k < ref_pos and cap_el is not None:
-            out.append(Finding(a.name, "figtab.table_not_at_end", ERROR, None, f"table {k}: " + snippet(first, 5)))
+            # Renumbered tables are left in place on purpose (legends._plan_tables: the renumbering and the move
+            # are not done together), with a note telling the editor to move them: expected, counted (info).
+            sev = INFO if any(str(n).startswith("Tables renumbered: left where they are")
+                              for n in a.qc.get("notes") or []) else ERROR
+            out.append(Finding(a.name, "figtab.table_not_at_end", sev, None, f"table {k}: " + snippet(first, 5)))
 
 
 # --- references --------------------------------------------------------------------------------------------------------

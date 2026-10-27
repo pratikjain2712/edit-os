@@ -1570,6 +1570,10 @@ def _label_changes(p: Paragraph, ref: references.Reference, style: JournalStyle)
         c = _change(p, m.start(1), m.end(5), "", Layer.REFERENCES, "ref_label",
                     None if p.numbered else {"list_number": True})
         return [c]
+    if p.numbered:
+        # Word numbers the entry already: a label typed as well shows twice ("10. 10. Ghasemi R": IJO_2202), so
+        # the typed one goes.
+        return [_change(p, m.start(1), m.end(5), "", Layer.REFERENCES, "ref_label")]
     if not style.get("references.label_period"):
         return []
     out = []

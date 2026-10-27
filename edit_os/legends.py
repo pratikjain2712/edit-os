@@ -257,7 +257,7 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
             break
         if el.tag != qn("w:tbl") or el not in by_el:
             continue
-        cap, side, title = None, "", None
+        cap, side, title, between = None, "", None, None
         for s_, step in (("above", -1), ("below", 1)):
             j = k + step
             while 0 <= j < len(kids) and kids[j].tag == qn("w:p") and _empty(kids[j]):
@@ -271,12 +271,24 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
                 if m is not None and m.group("word").lower().startswith("tab") or _BARE_TABLE_LABEL.match(q.text):
                     cap, side = q, s_  # (a bare "Table 1" over its table, the title missing, is its caption too)
                     break
+                if s_ == "above" and m is None and len(q.text) < 400:
+                    # one line between the caption and its table ("Table 1. Summary of the protocol" / "Session
+                    # content was adapted from ..." / the table: jehp_1764): the caption above it, the line with it
+                    i = j - 1
+                    while 0 <= i < len(kids) and kids[i].tag == qn("w:p") and _empty(kids[i]):
+                        i -= 1
+                    if 0 <= i < len(kids) and kids[i].tag == qn("w:p") and kids[i] in by_el:
+                        c2 = by_el[kids[i]][0]
+                        m2 = rules_figures.caption_match(c2)
+                        if m2 is not None and m2.group("word").lower().startswith("tab"):
+                            cap, side, between = c2, s_, q
+                            break
         tr = el.find(qn("w:tr"))
         in_row = tr is not None and _CAPTION_START.match(_row_text(tr))
         if cap is None and not in_row:
             continue
         ids = ([cap.id] if cap is not None and side == "above" else []) + ([title.id] if title is not None else []) \
-            + [by_el[el][0].id]
+            + ([between.id] if between is not None else []) + [by_el[el][0].id]
         if cap is not None and side == "below":
             ids.append(cap.id)
         last = kids.index(cap.element) if cap is not None and side == "below" else k
