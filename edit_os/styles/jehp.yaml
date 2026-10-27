@@ -69,9 +69,18 @@ guide_replace:
   # 23 closer / 1 further, unary_comparison 15 / 0, unary_minus (G300) 25 / 15 (1153 keeps the hyphen; 4 more
   # used an en dash), ampersand 2 / 2 (G293 asks for it), p_value_capital "p" heads 1646 ×3, ">=" 1787 ×2.
   table_rules: [range_dash, unary_minus, unary_comparison, p_value_capital, comparison_symbol, smart_quotes,
-                ampersand, operator_spacing, double_space]  # unary signs closed up in cells too (G300 / G301; owner,
-                                              # 2026-10-26); G7 "5.20± 1.30" -> "5.20 ± 1.30" in cells as in the text;
-                                              # double spaces in cells: editors closed 3 of 3 (1646, 924; silent)
+                ampersand, operator_spacing,  # unary signs closed up in cells too (G300 / G301; owner, 2026-10-26);
+                                              # G7 "5.20± 1.30" -> "5.20 ± 1.30" in cells as in the text, and
+                                              # "(n=28)" -> "(n = 28)" (G297; rules.rule_statistics)
+                double_space,                 # double spaces in cells: editors closed 3 of 3 (1646, 924; silent)
+                percent_space,                # G299 "28 (100 %)" -> "28 (100%)" in cells (1039)
+                leading_zero, thousands_comma, stat_italic]
+  # Owner, 2026-10-27 (sheet and guide silent): statistical symbols F, t, d, r, R², β, η, α, Z, k, χ² in italics as the
+  # editors set them, in text and tables; ".413" -> "0.413" (editors 28 added, 16 left; never for P: 8 of 8 ".05"
+  # kept, so P values keep theirs); "1,260" -> "1260", five digits and more keep the comma (editors 2 of 2).
+  stat_italic: true
+  leading_zero: true
+  thousands_comma: true
 
 
 # S: "The caption should end with a period": table and figure captions alike (owner, 2026-10-26: keep the sheet over
@@ -201,6 +210,8 @@ references:
   # alike) in 13 of the 17 articles with typed labels (test 6 of 7: 1266, 1562, 1580, 1732, 1772, 1787, kept in 1874;
   # training 7 of 10: 1153, 1209, 1280, 1402, 1559, 1588, 1683, kept in 924, 1039, 1793). One editor typed labels
   # over Word's numbering (997): owner's list. IJO keeps them as "1. " (label_period).
+  clear_formatting: true      # Vancouver sets no italic or bold in an entry: the author's EndNote / APA italics and
+                               # bold volumes go (JEHP 1153, 1576: 35 entries; et al. italic stays per formatting)
   label_auto_number: true
   # At most two initials per author: "Chandrasena PPCM" -> "Chandrasena PP" (the editors 6 of 8; owner, 2026-10-26)
   max_initials: 2
@@ -220,6 +231,8 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   heading_bold_tagged: true  # S: "H1 | Title case, Bold", "H2 | Sentence Case, Bold", "H3 | ... Bold, italics": every
                              # tagged heading in bold (editors bold the plain ones, tools/eval_format.py bold+)
   remove_font_color: false  # editors removed the author's colours in 2 of 17 articles (tool precision 31%)
+  et_al_italic_references: true  # guide S&R row 1: "et al." in italics, the reference list included; the JEHP
+                                 # editors italicise it there (6 of 6)
   heading_italic_levels: [3]   # S: "H3 | Sentence Case, Bold, italics"
   heading_roman_levels: [1, 2]  # S: "H1 | Title case, Bold, Roman", "H2 | Sentence Case, Bold, Roman"
   # Guide: 12 pt throughout, 14 pt for the article type, title, abstract heading, H1 and Acknowledgement heading,

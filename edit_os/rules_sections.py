@@ -2834,7 +2834,7 @@ def abstract_heading_deviations(lay: Layout, style: JournalStyle, allowed: list[
 
 def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     """Author queries for the abstract, key words and back matter (see queries.collect)."""
-    from .rules import _ROUND, _SQUARE, superscript_citations
+    from .rules import _ROUND, _SQUARE, enumeration_markers, superscript_citations
 
     if not _cfg(style, "enabled", True):
         return
@@ -2846,8 +2846,9 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         if _on(style, "abstract.citation_query"):
             for p in lay.abstract:
                 spans = [m.span() for m in _SQUARE.finditer(p.text)]
-                spans += [m.span() for m in _ROUND.finditer(p.text)
-                          if re.search(r"[A-Za-z]\s*$", p.text[:m.start()]) and int(re.findall(r"\d+", m.group(2))[0]) < 200]
+                listed = enumeration_markers(p.text)  # "(1) relational ...; and (4) boundary-spanning" (997)
+                spans += [m.span() for m in _ROUND.finditer(p.text) if m.start() not in listed
+                          and re.search(r"[A-Za-z]\s*$", p.text[:m.start()]) and int(re.findall(r"\d+", m.group(2))[0]) < 200]
                 spans += [(s, e) for s, e, _ in superscript_citations(p) if s]
                 if spans:
                     s, e = min(spans)

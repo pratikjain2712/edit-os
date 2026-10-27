@@ -21,6 +21,9 @@ _RPR = qn("w:rPr")
 _FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
 _NOT_OWN = {qn("w:del"), qn("w:p"), _FALLBACK}
 _SYM = qn("w:sym")
+# Word's non-breaking hyphen (Ctrl+Shift+-): a character of its own, read as "-" so "GBL‑WSQ" stays one word in the
+# text view (1039). One element, one character: offsets and run splitting treat it as they treat a <w:sym>.
+_NB_HYPHEN = qn("w:noBreakHyphen")
 
 # Characters Word inserts from the Symbol font (Insert > Symbol: <w:sym w:font="Symbol" w:char="F0B1"/>), by their
 # Symbol code: the Greek letters, ±, ≤, ≥ and the minus sign (owner, 2026-10-26: these, never ×, ®, ©, µ). The text
@@ -90,6 +93,8 @@ def run_text(run) -> str:
             out.append("\n")
         elif child.tag == _SYM:
             out.append(sym_char(child))
+        elif child.tag == _NB_HYPHEN:
+            out.append("-")
     return "".join(out)
 
 

@@ -43,6 +43,7 @@ def _key(text: str) -> str:
 
 def expand(inner: str) -> list[int] | None:
     out: list[int] = []
+    inner = re.sub(r"(?<=\d)\s+(?=\d)", ",", inner)  # "[34 35]": a space for the comma
     for part in re.split(r"\s*,\s*", inner.strip()):
         r = re.fullmatch(r"(\d+)\s*[-–—]\s*(\d+)", part)
         if r:
@@ -195,6 +196,8 @@ class Occurrence:
     old: str  # text in the paragraph
     new: str  # after the citation rule (bracketed, punctuation placed), before renumbering
     numbers: list[int]
+    format: dict | None = None  # the citation rule's formatting for it (superscript): the renumbered one keeps it
+    segment_format: list | None = None  # ... and its full stop on the line (".[11-13]" inserted: rules.split_citations)
 
 
 @dataclass
@@ -254,7 +257,7 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
                 continue
             m = re.search(r"\[([^\]]*)\]", c.new)
             if m and (nums := expand(m.group(1))):
-                found.append(Occurrence(p.id, c.start, c.end, c.old, c.new, nums))
+                found.append(Occurrence(p.id, c.start, c.end, c.old, c.new, nums, c.format, c.segment_format))
         for m in rules._SQUARE.finditer(p.text):
             if any(c.start < m.end() and m.start() < c.end for c in mine):
                 continue
@@ -264,6 +267,15 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
             if nums and min(nums) > 0:
                 found.append(Occurrence(p.id, m.start(), m.end(), m.group(0), m.group(0), nums))
         out += found
+    # "Sorte et al. (2025)" read as reference 4 (S320, rules.author_year_mentions): it cites the reference, which is
+    # not "uncited" (1683). It counts in the order only for a reference no number cites: the editors renumber by the
+    # numbers and write the name's number after (1580: "Peimani et al. (2018)" stays reference 29).
+    numbered = {n for o in out for n in o.numbers}
+    for a in rules.author_year_mentions(ms, style):
+        if a.number is not None and a.number not in numbered:
+            p = ms.by_id(a.para_id)
+            out.append(Occurrence(a.para_id, a.start, a.end, p.text[a.start:a.end],
+                                  a.new.replace("{n}", f"[{a.number}]"), [a.number]))
     # Tables and their notes count where they are first called out (`reading_keys`).
     return sorted(out, key=lambda o: citation_key(ms, o.para_id, o.start))
 
@@ -352,7 +364,9 @@ def _formatted_entries(ms: Manuscript, style: JournalStyle) -> dict[str, str]:
     for r in references.extract(ms):
         text = ms.by_id(r.para_id).text
         # (the label's own edits stay with the position: only the entry moves)
-        mine = (c for c in cs.changes if c.para_id == r.para_id and c.start >= r.offset and c.reason != "ref_label")
+        # (formatting-only changes write no text: applying one over a span another edit already changed would garble it)
+        mine = (c for c in cs.changes if c.para_id == r.para_id and c.start >= r.offset and c.reason != "ref_label"
+                and not c.format_only)
         for c in sorted(mine, key=lambda c: c.start, reverse=True):
             text = text[:c.start] + c.new + text[c.end:]
         out[r.para_id] = text
@@ -374,7 +388,10 @@ def rule_renumber(ms: Manuscript, style: JournalStyle) -> list[Change]:
         new = re.sub(r"\[[^\]]*\]", lambda m: f"[{compress(mapped, style)}]", o.new, count=1)
         if new != o.old:
             p = ms.by_id(o.para_id)
-            c = rules._change(p, o.start, o.end, new, Layer.REFERENCES, "renumber")
+            # " [30]." -> ".[28]": the number keeps the citation rule's superscript (1576)
+            c = rules._change(p, o.start, o.end, new, Layer.REFERENCES, "renumber", o.format)
+            if o.segment_format and o.new.find("[") == new.find("["):  # the pieces before the bracket stay put
+                c.segment_format = [[list(x) for x in o.segment_format[0][:1]]] if o.new.find("[") else None
             olds = ",".join(str(n) for n in o.numbers)
             news = compress(mapped, style)
             c.provenance = provenance.make("renumber", f"Citation {olds} → {news}", _why(pl),

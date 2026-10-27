@@ -151,14 +151,13 @@ def test_joined_entry_is_written_as_one_paragraph_in_the_guide_form(tmp_path):
 
 # --- 3-5. "et al." italic (IJO), labels, "Pt 1" -------------------------------------------------------
 
-def test_et_al_italic_in_the_ijo_list_only(tmp_path):
+def test_et_al_italic_in_the_ijo_and_jehp_lists(tmp_path):
+    # JEHP too: guide S&R row 1, the JEHP editors 6 of 6 (formatting.et_al_italic_references)
     path = _load(tmp_path, ["References", "1. Okoro A, Lindqvist B, et al. Virtual reality. J Test 2020;12:40-6."])
-    italic = [c for c in rules.run_all(docmodel.load(path), _style(), only=["references"]).changes
-              if c.format and c.format.get("italic")]
-    assert [c.old for c in italic] == ["et al"]
-    italic = [c for c in rules.run_all(docmodel.load(path), _style("jehp"), only=["references"]).changes
-              if c.format and c.format.get("italic")]
-    assert not italic
+    for journal in ("ijo", "jehp"):
+        italic = [c for c in rules.run_all(docmodel.load(path), _style(journal), only=["references"]).changes
+                  if c.format and c.format.get("italic")]
+        assert [c.old for c in italic] == ["et al"]
 
 
 def test_et_al_cut_to_six_authors_is_italic(tmp_path):
