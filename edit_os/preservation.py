@@ -292,6 +292,9 @@ def check_sections(source: Manuscript, output: Manuscript, changes: list[Change]
             if k in dropped and by_sections or k in _BACK and who and by_sections \
                     and _section_words(source, p) <= NIL_WORDS:
                 continue
+            if who == ["template_leftovers"] and any(
+                    q is not p and q not in gone and _norm(q.text) == _norm(p.text) for q in ps):
+                continue  # a heading typed twice (leftovers.py): its other copy stays
             by = f" (deleted by {', '.join(who)})" if who else ""
             out.append(Finding(ERROR, "content.sections",
                                f"Section '{_label(k)}' of the original manuscript is missing from the output{by}: "

@@ -5,7 +5,9 @@ end of document after figure captions"; the stylesheets: "Image should be presen
 caption" (a picture moves with its legend). The back of the article then reads: references, the First author block
 (first_author.py), the "Figure Legends" heading and the legends, the tables.
 
-  - Legends in the body (or after the tables) move there: one `BlockMove` record the editor accepts or rejects. In the
+  - Legends in the body (or after the tables) move there, each with the paragraphs that continue it (a line broken
+    mid-phrase, a "Note. ..." under it, its prose after the references: rules_figures.legends): one `BlockMove` record
+    the editor accepts or rejects. In the
     tracked copy each legend is deleted where it was and inserted, as edited, at the end (header.move_blocks does the
     same for renumbered tables); in the clean copy it is moved. A heading over the legends moves with them; with none,
     the move adds one.
@@ -16,7 +18,9 @@ caption" (a picture moves with its legend). The back of the article then reads: 
     form in every article with tables (8 of 8); the sheet is silent on where the caption sits.
 
   - Captioned tables in the body move to the end, after the legends, with their captions and notes, under a
-    "Tables" heading (`figures.tables_to_end`, `figures.tables_heading`; the JEHP editors in every such article).
+    "Tables" heading (`figures.tables_to_end`, `figures.tables_heading`; the JEHP editors in every such article). A caption
+    typed as "Table 1." over its title line is one caption (rules_figures.split_table_captions); a note right under a
+    table that no footnote pattern knows ("Cells show ...") goes with it too.
     Tables already at the end stay; a moved one goes before the first of them with a higher number. Uncaptioned
     tables stay where they are; renumbered tables are left (a note) since header.move_blocks reorders them.
 
@@ -163,7 +167,7 @@ def _first_table_after(ms: Manuscript, end: int) -> int:
 
 
 # A heading over the tables at the end: "Tables", "TABLES:", "Table Legends".
-_TABLES_HEADING = re.compile(r"^\s*(?:<H\d>)?\s*tables?(?:\s+(?:legends?|captions?))?\s*:?\s*$", re.I)
+_TABLES_HEADING = re.compile(r"^\s*(?:<H\d>)?\s*tables?(?:\s+(?:legends?|captions?))?\s*[:.\-–—]*\s*$", re.I)
 # "Figure 1", "Fig. 2:", "Figure 1 presents ...": a figure legend after the reference list, whatever its style.
 _LEGEND_START = re.compile(r"^\s*(?:<H\d>)?\s*fig(?:ure)?s?\.?\s*\d{1,2}(?!\d)", re.I)
 
@@ -245,6 +249,7 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
     for p in paras:
         by_el.setdefault(_top(p.element, body), []).append(p)
     note_ids = {q.id for block in rules_figures.table_notes(ms) for q in block}
+    split_title = {t.element: lab for lab, t in rules_figures.split_table_captions(ms)}  # "Table 1." / its title
     kids = list(body)
     blocks, numbers = [], []
     for k, el in enumerate(kids):
@@ -252,7 +257,7 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
             break
         if el.tag != qn("w:tbl") or el not in by_el:
             continue
-        cap, side = None, ""
+        cap, side, title = None, "", None
         for s_, step in (("above", -1), ("below", 1)):
             j = k + step
             while 0 <= j < len(kids) and kids[j].tag == qn("w:p") and _empty(kids[j]):
@@ -260,6 +265,9 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
             if 0 <= j < len(kids) and kids[j].tag == qn("w:p") and kids[j] in by_el:
                 q = by_el[kids[j]][0]
                 m = rules_figures.caption_match(q)
+                if s_ == "above" and kids[j] in split_title:  # "Table 1." / "Baseline ..." over it: one caption
+                    cap, side, title = split_title[kids[j]], s_, q
+                    break
                 if m is not None and m.group("word").lower().startswith("tab") or _BARE_TABLE_LABEL.match(q.text):
                     cap, side = q, s_  # (a bare "Table 1" over its table, the title missing, is its caption too)
                     break
@@ -267,7 +275,8 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
         in_row = tr is not None and _CAPTION_START.match(_row_text(tr))
         if cap is None and not in_row:
             continue
-        ids = ([cap.id] if cap is not None and side == "above" else []) + [by_el[el][0].id]
+        ids = ([cap.id] if cap is not None and side == "above" else []) + ([title.id] if title is not None else []) \
+            + [by_el[el][0].id]
         if cap is not None and side == "below":
             ids.append(cap.id)
         last = kids.index(cap.element) if cap is not None and side == "below" else k
@@ -278,8 +287,8 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
             q = by_el[x][0]
             if _empty(x):
                 continue
-            if q.id in note_ids:
-                ids.append(q.id)
+            if q.id in note_ids or j == last + 1 and rules_figures.loose_table_note(q.text):
+                ids.append(q.id)  # (a note right under the table that no footnote pattern knows: jehp_1402)
                 continue
             break
         blocks.append(ids)
@@ -321,7 +330,7 @@ def _plan_legends(ms: Manuscript, style: JournalStyle, figure_inserts, notes: li
     if legs and not in_place:
         heads = sorted({x for x in (legend_heading(ms, s) for s in starts) if x is not None})
         blocks = [[paras[j].id for j in heads]] if heads else []
-        blocks += [[leg.para.id] for leg in legs]
+        blocks += [[q.id for q in leg.paragraphs] for leg in legs]  # with its notes and the lines that continue it
         slot = back_slot(ms)
         anchor, where = slot if slot else (paras[-1].id, "after")
         what = ", ".join(f"Figure {leg.number}" for leg in legs)
@@ -350,10 +359,24 @@ def _plan_table_captions(ms: Manuscript, split: list[str] = ()) -> list[NewParag
     """A table caption right above its table (or right below it, notes aside) goes into a merged first row."""
     out = []
     body = ms.document.element.body
-    side = _side(ms)
+    side = _side(ms) or ("above" if rules_figures.split_table_captions(ms) else None)
     if side is None:
         return out
     claimed: list = []  # (elements, not id(): lxml proxies are not stable)
+    for lab, title in rules_figures.split_table_captions(ms):  # "Table 1." / "Baseline ...": the label goes in, joined
+        tbl = title.element.getnext()
+        while tbl is not None and _empty(tbl):
+            tbl = tbl.getnext()
+        if tbl is None or tbl.tag != qn("w:tbl") or lab.element.getparent() is not body:
+            continue
+        claimed.append(tbl)
+        num = re.search(r"[\dIVX]+\s*[.:\-–—]?\s*$", lab.text)
+        prov = provenance.make("journal_style", "Journal practice", "Table caption in a merged first row of the table "
+                               "(the editors' form; the sheet is silent)", rule=MOVE_TABLE_CAPTION)
+        out.append(BlockMove(id=f"tcap{len(out) + 1}", anchor=lab.id, where="before",
+                             runs=[(f"[{lab.text.strip().rstrip('.:')} caption moved into the table's first row]", {})],
+                             role="move", reason=MOVE_TABLE_CAPTION, provenance=prov, layer=Layer.TABLES_FIGURES,
+                             kind="table_caption", blocks=[[lab.id]], side="above", notes=list(split)))
     for cap in rules_figures.captions(ms):
         if cap.kind != rules_figures.TABLE:
             continue
@@ -520,12 +543,15 @@ def _move_legends(ms: Manuscript, n: BlockMove, mk) -> list[str]:
     groups = []
     for block in n.blocks:
         els = []
-        for pid in block:
+        for k, pid in enumerate(block):
             el = ms.by_id(pid).element
             if el.getparent() is not body:
                 return [f"{n.text}: not done (a legend is not a paragraph of its own)"]
-            els += _picture_above(el) + [el]
-        groups.append(els)
+            if k and (_is_deleted(el) or any(el is r for r in ms.removed)):
+                continue  # a line joined to the legend (run on): its deleted paragraph stays where it was
+            els += (_picture_above(el) if not k else []) + [el]
+        if els:
+            groups.append(els)
     dest = _dest(ms, n.refs_end)
     place = []
     if n.heading:

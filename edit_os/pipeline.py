@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, revisions, rules_guide, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, rules_format, style as style_mod, submission, tracked
+from . import docmodel, revisions, rules_guide, figures_insert, first_author, frontmatter, header, legends, leftovers, qc, queries, rules, rules_format, style as style_mod, submission, supplied, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -79,11 +79,37 @@ def manuscript_member(z: zipfile.ZipFile) -> str | None:
             and not frontmatter._FIRST_PAGE.search(os.path.basename(n))]
     if not docs:
         return None
+    declared = _declared_article(z)  # the submission XML's <articlefile> (IJO_1130: "Manuscript.docx")
+    hit = [n for n in docs if os.path.basename(n) == declared]
+    if hit:
+        return hit[0]
     named = [n for n in docs if "manuscript" in os.path.basename(n).lower()]
     # "Figure of manuscript file.docx", "Table of manuscript.docx" sit next to "Manuscript.docx": the file
-    # named for a part of the manuscript comes after the one that is the manuscript.
-    named.sort(key=lambda n: bool(_PART_OF_MANUSCRIPT.search(os.path.basename(n))))
-    return (named or sorted(docs, key=lambda n: -z.getinfo(n).file_size))[0]
+    # named for a part of the manuscript comes after the one that is the manuscript; so does a copy with the
+    # changes marked ("Manuscript-track changes.docx", "... highlighted", "... marked copy").
+    named.sort(key=lambda n: (bool(_PART_OF_MANUSCRIPT.search(os.path.basename(n))),
+                              bool(_MARKED_COPY.search(os.path.basename(n)))))
+    if not named:
+        docs = sorted(docs, key=lambda n: (bool(_MARKED_COPY.search(os.path.basename(n))), -z.getinfo(n).file_size))
+    return (named or docs)[0]
+
+
+# A copy of the manuscript showing the revisions: not the manuscript when the clean one is there too.
+_MARKED_COPY = re.compile(r"(?i)track(?:ed)?[\s_-]*changes?|\btracked\b|\bmarked\b|highlight\w*|with[\s_-]*changes|"
+                          r"show(?:ing)?[\s_-]*changes|redline")
+
+
+def _declared_article(z: zipfile.ZipFile) -> str:
+    """The manuscript file the submission XML names (<articlefile>), or ""."""
+    for n in z.namelist():
+        if n.lower().endswith(".xml") and not n.startswith("__MACOSX"):
+            try:
+                m = re.search(rb"<articlefile>\s*([^<]+?)\s*</articlefile>", z.read(n))
+            except (KeyError, zipfile.BadZipFile):
+                continue
+            if m:
+                return m.group(1).decode("utf-8", "replace")
+    return ""
 
 
 _PART_OF_MANUSCRIPT = re.compile(r"(?i)\b(?:figures?|fig|tables?|supplement\w*|appendix|rebuttal|response|cover|"
@@ -120,6 +146,10 @@ def insert_from_dict(d: dict) -> frontmatter.NewParagraph:
         return figures_insert.FigureInsert.from_dict(d)
     if "move" in d:  # legends to the end, a table caption into its table (legends.py)
         return legends.BlockMove.from_dict(d)
+    if "delete_objects" in d:  # template text boxes, repeated pictures (leftovers.py)
+        return leftovers.BlockDelete.from_dict(d)
+    if "import_file" in d:  # tables / figures / material from another file of the submission (supplied.py)
+        return supplied.DocImport.from_dict(d)
     return frontmatter.NewParagraph(
         id=d["id"], anchor=d["anchor"], where=d["where"], runs=[(t, f) for t, f in d["runs"]], role=d["role"],
         status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
@@ -263,11 +293,17 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         changes.changes += style_changes.changes
         qs.queries += style_q.queries
         warnings += submission.warnings(ms, st)  # submission material not certain enough to delete
-        figs = figures_insert.plan(ms, st, zip_path, outdir)  # figures sent as separate files
+        # figures sent as separate files (pictures, or a Word file of figures with their captions)
+        figs = figures_insert.plan(ms, st, zip_path, outdir, os.path.basename(src))
         inserts += figs.inserts
         warnings += figs.warnings
         for pid, key, fmt in figs.queries:  # a supplied figure with no legend in the manuscript
             qs.add(pid, key, **fmt)
+        sup = supplied.plan(ms, st, zip_path, outdir, os.path.basename(src))  # tables / material in other Word files
+        inserts += sup.inserts
+        warnings += sup.warnings
+        qs.queries += sup.queries
+        inserts += leftovers.plan(ms, st)  # template text boxes, pictures repeated after the references
         if "front_matter" in ran:  # the "First author" block after the references, from the front matter
             fa = first_author.plan(ms, st, front)
             inserts += fa.inserts
@@ -372,7 +408,8 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
 
     def render(kind: str, is_tracked: bool, statuses, comments: bool) -> docmodel.Manuscript:
         ms = docmodel.load(src)
-        plain = [n for n in inserts if not figures_insert.is_figure_insert(n) and not legends.is_move(n)]
+        plain = [n for n in inserts if not figures_insert.is_figure_insert(n) and not legends.is_move(n)
+                 and not leftovers.is_delete(n) and not supplied.is_import(n)]
         if comments:  # a query on a front-matter paragraph inserted goes on that paragraph once it is in
             queries.write_comments(ms, qs, deferred={n.id for n in plain if n.status in statuses})
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
@@ -386,9 +423,13 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
                               align=st.get("figures.insert.align", "center"), run_format=run_fmt,
                               legend_align=run_align)
         author = editor or header.AUTHOR
+        notes = leftovers.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date)
+        # material from the submission's other files (tables at the end, a supplementary file): before the moves
+        notes += supplied.render(ms, inserts, outdir, statuses, tracked=is_tracked, author=author, date=rev_date,
+                                 run_format=run_fmt, align=run_align, style=st)
         # legends to the end and table captions into their tables first: renumbered tables then move with their caption
-        notes = legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date,
-                               run_format=run_fmt, align=run_align)
+        notes += legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date,
+                                run_format=run_fmt, align=run_align)
         notes += header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
         if kind == "clean":
             head_notes.extend(notes)

@@ -331,7 +331,8 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
             return _change(p, base + s, base + e, new, Layer.STRUCTURE, "sections_headings", fmt)
 
         key = _key(text)
-        if whole and p.id == ref_id and key != ref_name.lower() and re.fullmatch(r"references?|bibliography|reference list", key):
+        if whole and p.id == ref_id and key != ref_name.lower() and (
+                re.fullmatch(r"references?|bibliography|reference list", key) or references.is_heading(text)):
             rename = {**rename, key: ref_name}
         elif key not in known:
             continue
@@ -341,6 +342,10 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         core_start = lead + (num.end() if num else 0)
         core = text[core_start:].rstrip()
         core = core[:-1].rstrip() if core.endswith(":") else core
+        if p.id == ref_id and whole and core.rstrip(":.-–—_ ") != core:
+            # "References-", "REFERENCES." (IJO 2733): the reference list's heading loses its trailing marks
+            core = core.rstrip(":.-–—_ ")
+            out.append(ch(core_start + len(core), len(text), ""))
         core_end = core_start + len(core)
         if key in drop and key not in levels:
             if whole:
