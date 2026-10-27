@@ -192,6 +192,8 @@ def scopes(ms: Manuscript) -> list[list[Paragraph]]:
     ab = next((i for i, p in enumerate(paras) if _ABSTRACT.match(p.text)), None)
     lo = 0 if ab is None else ab + 1
     kw = next((i for i in range(lo, len(paras)) if _KEYWORDS.match(paras[i].text)), None) if ab is not None else None
+    if kw is not None and paras[kw].id in _keyword_lists(paras):
+        kw += 1  # a bare "Keywords" heading: the list on the line below is the key words, not the main text
     # A structured abstract may have its own "Background" / "Methods" lines: look after the key words.
     lo = kw + 1 if kw is not None else lo
     main = next((i for i in range(lo, len(paras)) if _main_heading(paras[i])), None)
@@ -204,6 +206,18 @@ def scopes(ms: Manuscript) -> list[list[Paragraph]]:
     if kw is not None and kw + 1 < main:
         return [paras[ab:kw + 1], paras[kw + 1:main], paras[main:]]
     return [paras[ab:main], paras[main:]]
+
+
+def _keyword_lists(paras: list[Paragraph]) -> dict[str, str]:
+    """The paragraph holding the key words after a bare "Keywords" heading line (IJO_1432: "Keywords" over
+    "Toxic Anterior Segment Syndrome, Implantable Phakic Contact Lens (IPCL), ..."): heading id -> list id."""
+    out = {}
+    for p, q in zip(paras, paras[1:]):
+        m = _KEYWORDS.match(p.text)
+        if m and not p.text[m.end():].strip(" :.-–\t") and q.text.strip() and not _main_heading(q) \
+                and not q.text.lstrip().startswith("<H") and len(q.text) < 400 and re.search(r"[,;]", q.text):
+            out[p.id] = q.id
+    return out
 
 
 def _before_references(paras: list[Paragraph]) -> list[Paragraph]:
@@ -510,10 +524,11 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
             for m in _NAMED_IN_BRACKETS.finditer(p.text):
                 if (k := _abbr_key(m.group(1))):
                     known.add(k)
+    kw_lists = set(_keyword_lists([p for p in ms.paragraphs if p.text.strip() and not p.in_table]).values())
     for n_scope, scope in enumerate(all_scopes):
         defs: dict[str, list[Definition]] = {}
         for p in scope:
-            if p.id in lists or _KEYWORDS.match(p.text):
+            if p.id in lists or _KEYWORDS.match(p.text) or p.id in kw_lists:
                 continue  # "Abbreviations: Reproductive Tract Infections (RTI), ...", "Keywords: ... (RTI)"
             for d in definitions(p):
                 defs.setdefault(d.short, []).append(d)
@@ -532,7 +547,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                     n_uses[key] = n_uses.get(key, 0) + 1
                 if key in allow or key.upper() in allow_upper:
                     continue
-                if _KEYWORDS.match(p.text) or _title_like(p) or lenient and p.id in lists:
+                if _KEYWORDS.match(p.text) or p.id in kw_lists or _title_like(p) or lenient and p.id in lists:
                     continue  # key words, titles; with `defined_in_article` the list itself ("CFI, Comparative Fit
                     # Index; GFI, ..."; other journals' copy editors expand such list items in the text)
                 first_use.setdefault(key, (p, s, e))
@@ -556,6 +571,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         for key, ds in defs.items():
             if key in unused and unused_mode != "off":
                 continue  # its definitions lose "(ABBR)" instead
+            fu = first_use.get(key)
+            if fu and (order[fu[0].id], fu[1]) < first_def[key] and cfg.get("query_before_definition", True) \
+                    and not cfg.get("move_definition"):
+                continue  # used before it is expanded: "Kindly expand the abbreviation at first use" asks for it
             for d in ds[1:]:
                 p = ms.by_id(d.para_id)
                 if p.text[d.paren_start:d.end] != f"({key})" or _is_heading(p) or _repeats_heading(ms, p, d.end):

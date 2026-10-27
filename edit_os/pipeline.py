@@ -110,7 +110,8 @@ def query_to_dict(q: queries.Query, key: str, status: str = Status.SUGGESTED.val
 
 
 def query_from_dict(d: dict) -> tuple[queries.Query, str, str]:
-    q = queries.Query(d["para_id"], d["start"], d["end"], d["text"], d["check"], d.get("id", ""))
+    q = queries.Query(d["para_id"], d["start"], d["end"], d["text"], d["check"], d.get("id", ""),
+                      d.get("insert_id", ""), d.get("quote", ""))
     return q, d["key"], d.get("status", Status.SUGGESTED.value)
 
 
@@ -290,6 +291,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
     # a cover letter or reply to the reviewers that is deleted gets no heading tags or copy edits
     changes.changes = submission.drop_inside_deleted(changes.changes)
     _unique_ids(changes.changes)
+    queries.keep_anchors_live(ms, qs, changes.changes, inserts)  # never on a paragraph emptied or deleted
     qs.number(ms)
     if accept_all:
         for c in changes.changes:
@@ -356,13 +358,16 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
 
     def render(kind: str, is_tracked: bool, statuses, comments: bool) -> docmodel.Manuscript:
         ms = docmodel.load(src)
-        if comments:
-            queries.write_comments(ms, qs)
+        plain = [n for n in inserts if not figures_insert.is_figure_insert(n) and not legends.is_move(n)]
+        if comments:  # a query on a front-matter paragraph inserted goes on that paragraph once it is in
+            queries.write_comments(ms, qs, deferred={n.id for n in plain if n.status in statuses})
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
-        frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)
-                                        and not legends.is_move(n)], tracked=is_tracked, statuses=statuses,
+        elements: dict = {}
+        frontmatter.render_inserts(ms, plain, tracked=is_tracked, statuses=statuses,
                                    run_format=lambda role: rules_format.insert_format(st, role),
-                                   align=lambda role: rules_format.insert_align(st, role))
+                                   align=lambda role: rules_format.insert_align(st, role), elements=elements)
+        if comments:
+            queries.write_insert_comments(ms, qs, elements)
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
                               align=st.get("figures.insert.align", "center"), run_format=run_fmt,
                               legend_align=run_align)
