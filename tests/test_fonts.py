@@ -160,7 +160,8 @@ def test_run_all_sizes_inserted_headings_and_carries_font_onto_replacements(tmp_
     x = next(c for c in cs.changes if c.id == "x1")
     assert x.format == {"size": 12, "font": "Times New Roman"}  # the moot font change, carried over
     assert x.segment_format[1] == {"size": 14, "font": "Times New Roman", "bold": True}  # G146: 14 pt
-    assert x.segment_format[2] == {"size": 12, "font": "Times New Roman"}
+    # the statement under the inserted heading: body size, not bold (rules_format.finish_headings)
+    assert x.segment_format[2] == {"size": 12, "font": "Times New Roman", "bold": False}
     assert any(c.reason == "fmt_align" or "align" in (c.format or {}) for c in cs.changes
                if c.para_id == x.para_id) is False  # Normal style: already left
     for c in cs.changes:

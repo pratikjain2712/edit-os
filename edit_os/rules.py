@@ -1504,6 +1504,8 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     kept = rules_format.finish_fonts(ms, style, kept, replaced)
     kept = [c for c in kept if c.reason == "fmt_align" or not (c.format_only and any(
         t.para_id == c.para_id and t.start <= c.start and c.end <= t.end for t in replaced))]
+    if not only or {"format_cleanup", "format_fonts"} & set(only):
+        kept = rules_format.finish_headings(ms, style, kept)  # every heading as it comes out: bold, its size, font
     kept = rules_format.finish_symbols(style, kept)  # the symbols in text a kept change writes
     if not only or "references" in only or "ref_lookup" in only:
         _reference_provenance(ms, style, kept)

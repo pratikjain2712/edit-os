@@ -401,6 +401,15 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
         caption_bold = table_caption_ids(ms)
     else:
         caption_bold = set()
+    # G260: 'The label should be "Figure<space>#:<space>" in 12 points font size bold style followed by caption': the
+    # figure caption's text plain, not bold (the editors take the author's bold out: 6 of 6), nor italic when the author
+    # set the whole caption in italics (an italic name inside it stays)
+    fig_plain = {}
+    if _on(style, "figure_caption_plain"):
+        from . import rules_figures
+        for cap in rules_figures.captions(ms):
+            if cap.kind == rules_figures.FIG and not ms.by_id(cap.para_id).in_table:
+                fig_plain[cap.para_id] = cap.match.start("rest")
     out: list[Change] = []
 
     def emit(p, spans, fmt, rule, layer=Layer.HOUSE_STYLE):
@@ -460,6 +469,17 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 lambda i: bool(f[s + i].get("bold")))]
             # A bold label with a roman colon looks the same: leave lone punctuation alone.
             emit(p, [(a, b) for a, b in spans if any(ch.isalnum() for ch in text[a:b])], {"bold": True}, "fmt_label")
+
+        if p.id in fig_plain and not front:
+            at = fig_plain[p.id]
+            spans = _regions(text[at:], lambda i: not text[at + i].isspace() and bool(f[at + i].get("bold")),
+                             lambda i: not f[at + i].get("bold"))
+            emit(p, [(a + at, b + at) for a, b in spans if any(ch.isalnum() for ch in text[a + at:b + at])],
+                 {"bold": False}, "fmt_figure_caption", Layer.TABLES_FIGURES)
+            letters = [i for i, ch in enumerate(text) if ch.isalnum()]
+            if letters and all(f[i].get("italic") for i in letters):
+                lead = len(text) - len(text.lstrip())
+                emit(p, [(lead, len(text.rstrip()))], {"italic": False}, "fmt_figure_caption", Layer.TABLES_FIGURES)
 
         if p.id in levels and not front and not label and levels[p.id] in italic_levels | roman_levels:
             italic = levels[p.id] in italic_levels
@@ -768,12 +788,33 @@ def rule_fonts(ms: Manuscript, style: JournalStyle) -> list[Change]:
     return out
 
 
+def _merge_replaced(kept: list[Change], replaced: list[Change]) -> None:
+    """Formatting merges, it does not replace: a formatting-only change over all of the text that a kept change
+    replaces ("Case report" bold, the case change "Case Report") gives its formatting to the replacement, under the
+    replacement's own (the font and size are carried by finish_fonts)."""
+    for c in kept:
+        if not c.format_only or c.reason in ("fmt_font", "fmt_align"):
+            continue
+        for t in replaced:
+            if t is c or t.para_id != c.para_id or not (t.start <= c.start and c.end <= t.end):
+                continue
+            lead = len(t.old) - len(t.old.lstrip())
+            if c.start <= t.start + lead and c.end >= t.start + len(t.old.rstrip()) and t.new.strip():
+                carry = {k: v for k, v in c.format.items() if k not in _PARA_KEYS}
+                t.format = {**carry, **(t.format or {})}
+            break
+
+
+_PARA_KEYS = ("align", "indent", "para_style", "symbol", "list_number")
+
+
 def finish_fonts(ms: Manuscript, style: JournalStyle, kept: list[Change], replaced: list[Change]) -> list[Change]:
     """After the overlap check (rules.run_all): text that a kept change replaces takes the font and size of the
     formatting change it makes moot, and the alignment stays (the paragraph does); new paragraphs a change
     opens get the journal's font and size (the heading size for <H1>, "Abstract", "Acknowledgements")."""
     from .tracked import PARAGRAPH_BREAK
 
+    _merge_replaced(kept, replaced)
     cfg = fonts_settings(style)
     if cfg is None:
         return kept
@@ -781,8 +822,11 @@ def finish_fonts(ms: Manuscript, style: JournalStyle, kept: list[Change], replac
     for c in kept:
         cover = next((t for t in replaced if c.format_only and t is not c and t.para_id == c.para_id
                       and t.start <= c.start and c.end <= t.end), None)
-        if cover is None or c.reason not in ("fmt_font", "fmt_align"):
+        if cover is None:
             out.append(c)
+            continue
+        if c.reason not in ("fmt_font", "fmt_align"):
+            out.append(c)  # dropped as moot by run_all (its formatting merged into the replacement)
             continue
         carry = {k: v for k, v in c.format.items() if k in ("size", "font")}
         if carry:
@@ -891,3 +935,405 @@ def finish_symbols(style: JournalStyle, kept: list[Change]) -> list[Change]:
             sf[k] = pieces
         c.segment_format = sf
     return kept
+
+
+# --- headings as they come out -------------------------------------------------------------------------
+#
+# Pre-editing guide: a first-level heading "14 points font size in bold style" (G133), a second-level one "12 points
+# font size in bold" (G135), the abstract heading and "Acknowledgement" 14 pt bold (G110, G146). Every paragraph the
+# rules leave starting with a heading tag -- tagged in place, renamed, split off a paragraph after a soft line break
+# ("... STEMI.\nMaterials and Methods"), inserted as a back-matter heading -- comes out bold, at its level's size and
+# in the journal's font, whatever runs and styles the author's text had and whichever rule wrote it: the pass below
+# works on the paragraphs as rendered (the kept changes applied), after the overlap check. Text that a split leaves
+# as running text, and statements inserted under a heading ("Nil."), are not bold. Running text the author typed in a
+# "Heading 1" / "Heading 2" paragraph style (shown in Word's navigation pane) goes to the body style.
+
+_HEAD_LINE = re.compile(r"^\s*<H(\d)>")
+_HEADING_NAME = re.compile(r"^heading\s*\d$", re.I)
+
+
+def _outline_style(styles: _Styles, sid: str | None) -> bool:
+    """A paragraph style that is a heading in Word's navigation pane (Heading 1-9, or a style with an outline level,
+    directly or through the style it is based on)."""
+    for _ in range(10):
+        if not sid or sid not in styles.by_id:
+            return False
+        s = styles.by_id[sid]
+        name = s.find(qn("w:name"))
+        if _HEADING_NAME.match(sid) or (name is not None and _HEADING_NAME.match(name.get(qn("w:val")) or "")):
+            return True
+        ol = s.find(f"{qn('w:pPr')}/{qn('w:outlineLvl')}")
+        if ol is not None:
+            v = ol.get(qn("w:val")) or "9"
+            return v.isdigit() and int(v) < 9
+        b = s.find(qn("w:basedOn"))
+        sid = b.get(qn("w:val")) if b is not None else None
+    return False
+
+
+def _list_style(styles: _Styles, sid: str | None) -> bool:
+    """Word's "List Paragraph" style (or one based on it)."""
+    for _ in range(10):
+        if not sid or sid not in styles.by_id:
+            return False
+        s = styles.by_id[sid]
+        name = s.find(qn("w:name"))
+        if re.fullmatch(r"list\s*paragraph", sid, re.I) or (
+                name is not None and re.fullmatch(r"list\s*paragraph", name.get(qn("w:val")) or "", re.I)):
+            return True
+        b = s.find(qn("w:basedOn"))
+        sid = b.get(qn("w:val")) if b is not None else None
+    return False
+
+
+def _output_paragraphs(text: str, edits: list[Change]) -> list[dict]:
+    """The paragraph as `tracked.render` builds it from its text changes: one entry per resulting paragraph, with its
+    atoms (("o", start, end) original text, ("i", change, segment, text) inserted text) and the (change, segment)
+    that opened it (None for the paragraph itself)."""
+    from .tracked import PARAGRAPH_BREAK
+
+    outs = [{"atoms": [], "opener": None}]
+    pos = 0
+    for c in sorted(edits, key=lambda c: (c.start, c.end, c.new.startswith(PARAGRAPH_BREAK))):
+        if c.start > pos:
+            outs[-1]["atoms"].append(("o", pos, c.start))
+        for k, seg in enumerate(c.new.split(PARAGRAPH_BREAK)):
+            if k:
+                outs.append({"atoms": [], "opener": (c, k)})
+            if seg:
+                outs[-1]["atoms"].append(("i", c, k, seg))
+        pos = max(pos, c.end)
+    if pos < len(text):
+        outs[-1]["atoms"].append(("o", pos, len(text)))
+    for o in outs:
+        o["text"] = "".join(a[3] if a[0] == "i" else text[a[1]:a[2]] for a in o["atoms"])
+    return outs
+
+
+def _set_segment(c: Change, k: int, props: dict, force: bool | str = True) -> None:
+    """Lay `props` over the format of segment `k` of `c`'s inserted text. `force` False: only where the format does
+    not set the property already; "own": only where the segment's own format (not the change's) does not."""
+    from .tracked import PARAGRAPH_BREAK
+
+    segs = c.new.split(PARAGRAPH_BREAK)
+    sf = list(c.segment_format or [None])
+    sf += [None] * (len(segs) - len(sf))
+    base = {} if force == "own" else (c.format or {})
+
+    def add(have: dict) -> dict:
+        return dict(props) if force is True else {kk: v for kk, v in props.items() if kk not in have}
+
+    cur = sf[k]
+    if isinstance(cur, list):
+        pieces = [[n, {**(f or {}), **add({**base, **(f or {})})}] for n, f in cur]
+        rest = len(segs[k]) - sum(n for n, _ in cur)
+        if rest > 0:
+            pieces.append([rest, add(base)])
+        sf[k] = pieces
+    else:
+        extra = add({**base, **(cur or {})})
+        if not extra:
+            return
+        sf[k] = {**(cur or {}), **extra}
+    c.segment_format = sf
+
+
+def _split_change(c: Change, p: Paragraph, s: int, e: int, over: dict) -> list[Change]:
+    """A formatting-only change cut at `s` and `e`: the part inside takes `over` on top of its format; paragraph
+    properties stay with the first part."""
+    from .changes import PARAGRAPH_PROPERTIES
+
+    cuts = sorted({c.start, max(c.start, s), min(c.end, e), c.end})
+    out = []
+    for n, (a, b) in enumerate(zip(cuts, cuts[1:])):
+        if b <= a:
+            continue
+        fmt = dict(c.format)
+        if out:
+            fmt = {k: v for k, v in fmt.items() if k not in PARAGRAPH_PROPERTIES}
+        if s <= a and b <= e:
+            fmt.update(over)
+        if not fmt:
+            continue
+        part = Change(id=f"{c.id}h{n}", para_id=c.para_id, start=a, end=b, old=p.text[a:b], new=p.text[a:b],
+                      layer=c.layer, source=c.source, reason=c.reason, status=c.status, author=c.author,
+                      format=fmt, provenance=c.provenance)
+        out.append(part)
+    return out
+
+
+class _ParaFormat:
+    """Effective formatting of a paragraph's characters, with the kept formatting-only changes laid over it."""
+
+    def __init__(self, p: Paragraph, styles: _FontStyles, para_style: str | None = None):
+        self.p = p
+        self.fonts = _font_chars_as(p, styles, para_style)
+        props = run_props(p, styles)
+        weak = char_style_bold(p, styles)
+        n = len(p.text)
+        self.ok = len(self.fonts) == n and len(props) == n
+        self.bold = [bool(f.get("bold")) for f in props] if self.ok else []
+        self.strong = [b and not (weak[i] if len(weak) == n else False) for i, b in enumerate(self.bold)]
+
+    def eff(self, prop: str, i: int, want):
+        if prop == "bold":
+            return self.strong[i] if want else self.bold[i]
+        return self.fonts[i].get(prop)
+
+
+def _font_chars_as(p: Paragraph, styles: _FontStyles, para_style: str | None) -> list[dict]:
+    """font_chars of `p` as it reads in paragraph style `para_style` (None: its own style)."""
+    if para_style is None:
+        return font_chars(p, styles)
+    ppr = p.element.find(qn("w:pPr"))
+    ps = ppr.find(qn("w:pStyle")) if ppr is not None else None
+    old = ps.get(qn("w:val")) if ps is not None else None
+    if ps is None:
+        return font_chars(_StyledAs(p, para_style), styles)
+    ps.set(qn("w:val"), para_style)
+    try:
+        return font_chars(p, styles)
+    finally:
+        ps.set(qn("w:val"), old)
+
+
+class _StyledAs:
+    """A paragraph with no style of its own read as if it had `para_style` (font_chars takes the default style)."""
+
+    def __init__(self, p: Paragraph, sid: str):
+        import copy
+        self.element = copy.deepcopy(p.element)
+        ppr = self.element.find(qn("w:pPr"))
+        if ppr is None:
+            from docx.oxml import OxmlElement
+            ppr = OxmlElement("w:pPr")
+            self.element.insert(0, ppr)
+        from docx.oxml import OxmlElement
+        ps = OxmlElement("w:pStyle")
+        ps.set(qn("w:val"), sid)
+        ppr.insert(0, ps)
+
+
+def _force(p: Paragraph, s: int, e: int, wants: dict, pf: _ParaFormat, mine: list[Change],
+           layer: Layer) -> list[Change]:
+    """Formatting-only changes so that every character of p.text[s:e] ends up with `wants` ({"bold": True, "size":
+    14, "font": ...}): kept changes that set a property otherwise are cut and corrected (in `mine`, in place), the
+    characters no change covers get a change where their own formatting differs. Returns the new changes."""
+    if e <= s or not wants or not pf.ok:
+        return []
+    for c in list(mine):
+        if not c.format_only or not (c.start < e and s < c.end):
+            continue
+        over = {k: v for k, v in wants.items() if k in c.format and c.format[k] != v}
+        if over:
+            at = mine.index(c)
+            mine[at:at + 1] = _split_change(c, p, s, e, over)
+    text = p.text
+    covered = [set() for _ in range(e - s)]
+    for c in mine:
+        if c.format_only and c.start < e and s < c.end:
+            for i in range(max(c.start, s), min(c.end, e)):
+                covered[i - s].update(k for k in wants if k in c.format)
+    need, free = [], []
+    for i in range(s, e):
+        keep_font = "font" in wants and _keeps_font(pf.fonts[i].get("font") or "", text[i])
+        fr = {k for k in wants if k not in covered[i - s] and not (k == "font" and keep_font)}
+        nd = {}
+        for k in fr:
+            have = pf.eff(k, i, wants[k])
+            if k == "size":
+                differs = have is None or abs(float(have) - float(wants[k])) > 0.01
+            else:
+                differs = have != wants[k]
+            if differs and not (k == "bold" and text[i].isspace()):
+                nd[k] = wants[k]
+        need.append(nd)
+        free.append(fr)
+    out: list[Change] = []
+    region = None  # [start, end, props]
+
+    def close():
+        if region is None:
+            return
+        a, b, props = region
+        while b > a and text[b - 1].isspace():
+            b -= 1
+        while a < b and text[a].isspace():
+            a += 1
+        if b > a:
+            rule = "fmt_heading_bold" if "bold" in props else "fmt_font"
+            out.append(_fmt(p, a, b, text[a:b], props, layer, rule))
+
+    for i in range(s, e):
+        nd, fr = need[i - s], free[i - s]
+        if region is not None and (nd == region[2] or (set(nd) <= set(region[2]) and set(region[2]) <= fr)):
+            region[1] = i + 1
+            continue
+        close()
+        region = [i, i + 1, nd] if nd else None
+    close()
+    return out
+
+
+def _all_bold(p: Paragraph, atoms: list, pf: _ParaFormat, mine: list[Change]) -> bool:
+    """Every letter of the original text `atoms` comes out bold (the kept formatting changes laid over the runs)."""
+    seen = False
+    for _, s, e in atoms:
+        for i in range(s, e):
+            if not p.text[i].isalnum():
+                continue
+            seen = True
+            val = next((c.format["bold"] for c in mine if c.format_only and "bold" in c.format
+                        and c.start <= i < c.end), None)
+            if not (pf.bold[i] if val is None else val):
+                return False
+    return seen
+
+
+def finish_headings(ms: Manuscript, style: JournalStyle, kept: list[Change]) -> list[Change]:
+    """After the overlap check (rules.run_all): every paragraph that comes out as a heading (<H1>, <H2>, <H3>, the
+    abstract and Acknowledgement headings) bold at its level's size in the journal's font; text split off a heading or
+    inserted under one, not bold; running text out of the "Heading N" paragraph styles; new paragraphs aligned."""
+    from . import docview
+
+    cfg = fonts_settings(style)
+    bold_on = _on(style, "heading_bold_tagged")
+    if cfg is None and not bold_on:
+        return kept
+    bold_levels = set(style.get("formatting.heading_bold_levels", [1, 2, 3]) or [])
+    unbold_levels = set(style.get("formatting.heading_unbold_levels", []) or [])
+    family = (cfg or {}).get("family") or None
+    styles = _FontStyles(ms)
+    body_style = styles.default_para or "Normal"
+    restyle_on = bool(style.get("formatting.body_style_from_headings", True))
+    by_para: dict[str, list[Change]] = defaultdict(list)
+    for c in kept:
+        by_para[c.para_id].append(c)
+    try:
+        info = {d["id"]: d for d in docview.classify(ms)}
+    except Exception:  # noqa: BLE001 - a document docview cannot read: headings only
+        info = {}
+    added: list[Change] = []
+    replaced: dict[str, list[Change]] = {}
+
+    def wants_for(level: int) -> dict:
+        w = {}
+        if bold_on and level in unbold_levels:
+            w["bold"] = False
+        elif bold_on and level in bold_levels:
+            w["bold"] = True
+        if cfg is not None:
+            w["size"] = cfg.get("heading_size", 14) if level == 1 else cfg.get("size", 12)
+            if family:
+                w["font"] = family
+        return w
+
+    for p in ms.paragraphs:
+        cs = by_para.get(p.id, [])
+        text = p.text
+        d = info.get(p.id, {})
+        outline = restyle_on and not p.in_table and not d.get("front") and _outline_style(styles, p.style or None)
+        if not text.strip() and not cs:
+            continue
+        edits = [c for c in cs if not c.format_only]
+        if not edits and not outline and not _HEAD_LINE.match(text) and not heading_size_text(text):
+            continue
+        outs = _output_paragraphs(text, edits)
+        mine = list(cs)
+        pf = None
+        new: list[Change] = []
+        heads = []
+        for o in outs:
+            m = _HEAD_LINE.match(o["text"])
+            level = int(m.group(1)) if m else (1 if not p.in_table and heading_size_text(o["text"]) else None)
+            heads.append(level)
+        has_head = any(h is not None for h in heads)
+        restyled = False
+        head_style = None  # the style a heading paragraph is read in: the body style it goes to, else its own
+        for j, o in enumerate(outs):
+            if not o["text"].strip():
+                continue
+            level = heads[j]
+            if level is not None:
+                wants = wants_for(level)
+                if restyled and o["opener"] is not None:  # the paragraph it was split from goes to the body style
+                    _set_segment(o["opener"][0], o["opener"][1], {"para_style": p.style})
+                orig = [a for a in o["atoms"] if a[0] == "o"]
+                if j == 0 and orig and not p.in_table and (_list_style(styles, p.style) or p.numbered):
+                    # a heading the author set as a list item ("List Paragraph", Word's numbering: 997, 1559) is a
+                    # paragraph of the body style, its automatic number gone as a typed one is (strip_sub_numbering)
+                    strip = style.get("sections.headings.strip_numbering" if level == 1
+                                      else "sections.headings.strip_sub_numbering", False)
+                    para = {"para_style": body_style} if _list_style(styles, p.style) else {}
+                    if p.numbered and strip:
+                        para["list_number"] = False
+                    if p.numbered and not strip:
+                        para = {}
+                    if para:
+                        new.append(_fmt(p, orig[0][1], orig[0][2], text[orig[0][1]:orig[0][2]], para,
+                                        Layer.STRUCTURE, "fmt_heading_style"))
+                        if "para_style" in para:
+                            head_style = body_style
+                if not wants:
+                    continue
+                for a in o["atoms"]:
+                    if a[0] == "i":
+                        _set_segment(a[1], a[2], wants)
+                    else:
+                        pf = pf or _ParaFormat(p, styles, head_style)
+                        new += _force(p, a[1], a[2], wants, pf, mine, Layer.STRUCTURE)
+                continue
+            # running text: inserted under a heading, not bold; out of a heading paragraph style
+            if bold_on and has_head:
+                for a in o["atoms"]:
+                    if a[0] == "i" and a[2] > 0:
+                        _set_segment(a[1], a[2], {"bold": False}, force="own")
+            short_head = len(o["text"].strip()) <= 80 and not o["text"].rstrip().endswith((".", ":")) and \
+                d.get("kind") == "heading" and j == 0 and len(outs) == 1
+            orig = [a for a in o["atoms"] if a[0] == "o"]
+            restyle = outline and not short_head
+            if restyle:
+                if o["opener"] is not None:
+                    _set_segment(o["opener"][0], o["opener"][1], {"para_style": body_style})
+                elif orig:
+                    restyled = True
+                    new.append(_fmt(p, orig[0][1], orig[0][2], text[orig[0][1]:orig[0][2]],
+                                    {"para_style": body_style}, Layer.HOUSE_STYLE, "fmt_body_style"))
+            w = {}
+            if cfg is not None and (restyle or has_head):
+                w = {"size": cfg.get("size", 12), **({"font": family} if family else {})}
+            if restyle and w:
+                for a in o["atoms"]:
+                    if a[0] == "i":
+                        _set_segment(a[1], a[2], w, force=False)
+            pfx = _ParaFormat(p, styles, body_style if restyle else None) if (w or has_head) and orig else None
+            if bold_on and has_head and pfx is not None and pfx.ok and _all_bold(p, orig, pfx, mine):
+                # the statement a heading was split from, bold with it ("Conflicts of interest -Nil", 924): plain
+                w = {**w, "bold": False}
+            for a in orig:
+                new += _force(p, a[1], a[2], w, pfx, mine, Layer.HOUSE_STYLE)
+        # new paragraphs: the journal's alignment (they copy the paragraph's properties, which may be justified)
+        align = (cfg or {}).get("table_align") if p.in_table else (cfg or {}).get("align")
+        if align and len(outs) > 1:
+            set_to = next((c.format["align"] for c in mine if c.format_only and "align" in c.format), None)
+            have = set_to or paragraph_alignment(p, styles)
+            for o in outs[1:]:
+                c, k = o["opener"]
+                target = cfg.get("running_head_align", "center") if o["text"].lstrip().startswith("<RH>") else align
+                if target != have:
+                    _set_segment(c, k, {"align": target})
+        if new or mine != cs:
+            replaced[p.id] = mine
+            added += new
+    if not replaced:
+        return kept
+    out = []
+    done = set()
+    for c in kept:
+        if c.para_id in replaced:
+            if c.para_id not in done:
+                out += replaced[c.para_id]
+                done.add(c.para_id)
+            continue
+        out.append(c)
+    return out + added

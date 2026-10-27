@@ -10,7 +10,10 @@ headings:
        results, discussion, conclusion, conclusions, references, case report, case reports,
        case presentation, review of literature, case description, case history, case summary,
        treatment and outcome, treatment and outcomes,
-       acknowledgment, acknowledgments, acknowledgement, acknowledgements]
+       acknowledgment, acknowledgments, acknowledgement, acknowledgements,
+       commentary]
+  # "Commentary": a commentary's own section heading under its article type (IJO_2904: the editors tag it <H1>; the
+  # sheet is silent). The title page's "Article type: Commentary" is front matter, never tagged.
   # Acknowledgement heading first level (owner, 2026-10-26; G146 / G133: "The heading 'Acknowledgement' should be
   # 14 points font size bold style", the first level's size).
   # as base, with "Diagnosis" under a case description (IJO_1016) and an "Ethics" statement head (IJO_2891)
@@ -58,6 +61,8 @@ formatting:
   # (owner, 2026-10-26)
   symbol_font: {enabled: true}
   table_caption_bold: true     # owner, 2026-10-27: follow the guide (G199): label and caption content in bold
+  figure_caption_plain: true   # G260: "Figure #:" bold, the caption after it plain (editors 6 of 6; the author's
+                               # bold and an all-italic caption go)
 
 citations:
   # Owner, 2026-10-26: "follow the editors" on where a citation sits. The IJO editors move it next to the study's

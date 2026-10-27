@@ -148,7 +148,7 @@ def apply_format(rpr, fmt: dict) -> None:
                 f.attrib.pop(qn(attr), None)
             for attr in ("w:ascii", "w:hAnsi", "w:cs"):
                 f.set(qn(attr), on)
-        elif prop in ("align", "symbol", "indent"):
+        elif prop in ("align", "symbol", "indent", "para_style", "list_number"):
             continue  # paragraph properties (`_align`, `_clear_indent`); the Symbol font character (`_new_run`, `_to_symbol`)
         elif prop in _CLEARED:
             for tag in _CLEARED[prop]:
@@ -282,12 +282,16 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
             _align(p_el, c.format["align"], tracked, ids, c.author, date)
         if "indent" in c.format:
             _clear_indent(p_el, tracked, ids, c.author, date)
+        if "para_style" in c.format:
+            _para_style(p_el, c.format["para_style"], tracked, ids, c.author, date)
         if c.format.get("symbol"):
             for r, s, e in _spans(p_el):
                 if s >= c.start and e <= c.end and e > s:
                     _to_symbol(r, tracked, ids, c.author, date)
             continue
-        if not set(c.format) - {"align", "indent"}:
+        if c.format.get("list_number") is False:
+            _unnumber(p_el, tracked, ids, c.author, date)
+        if not set(c.format) - {"align", "indent", "para_style", "list_number"}:
             continue
         for r, s, e in _spans(p_el):
             if s >= c.start and e <= c.end and e > s:
@@ -382,6 +386,42 @@ def _align(p_el, value: str, tracked: bool, ids: "_Ids", author: str, date: str)
         _ppr_insert(ppr, jc)
     jc.set(qn("w:val"), value)
     _track_ppr(ppr, before, tracked, ids, author, date)
+
+
+def _para_style(p_el, value: str, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """Set the paragraph's style (<w:pStyle>); tracked as a paragraph property change (<w:pPrChange>)."""
+    ppr = _ppr_of(p_el)
+    ps = ppr.find(qn("w:pStyle"))
+    if ps is not None and ps.get(qn("w:val")) == value:
+        return
+    before = _ppr_snapshot(ppr)
+    if ps is None:
+        ps = OxmlElement("w:pStyle")
+        _ppr_insert(ppr, ps)
+    ps.set(qn("w:val"), value)
+    _track_ppr(ppr, before, tracked, ids, author, date)
+
+
+def _new_paragraph_props(p_el, props: dict, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """Paragraph properties a change gives a paragraph it opens (`Change.paragraph_props`): alignment and style."""
+    if props.get("align"):
+        _align(p_el, props["align"], tracked, ids, author, date)
+    if props.get("para_style"):
+        _para_style(p_el, props["para_style"], tracked, ids, author, date)
+
+
+def _unnumber(p_el, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """Take the paragraph out of Word's automatic numbering (a heading the author numbered with a list); tracked as a
+    paragraph property change."""
+    ppr = _ppr_of(p_el)
+    num = ppr.find(qn("w:numPr"))
+    if num is None:
+        return
+    before = _ppr_snapshot(ppr)
+    ppr.remove(num)
+    _track_ppr(ppr, before, tracked, ids, author, date)
+
+
 def _ppr_snapshot(ppr):
     """CT_PPrBase copy of a <w:pPr>: its properties without rPr / sectPr / pPrChange (a pPrChange's content)."""
     before = OxmlElement("w:pPr")
@@ -485,6 +525,9 @@ def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, i
         if last:
             for el in tail:
                 p.append(el)
+        props = c.paragraph_props(i + 1)
+        if props:  # a new paragraph's own properties are part of its insertion; the last one holds the old mark
+            _new_paragraph_props(p, props, tracked and last and bool(tail), ids, c.author, date)
         new_paras.append(p)
     # The original paragraph mark now ends the last part: the first part's mark, and every
     # mark but the last, are new.

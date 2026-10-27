@@ -225,6 +225,8 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   # (owner, 2026-10-26)
   symbol_font: {enabled: true}
   table_caption_bold: true     # owner, 2026-10-27: follow the guide (G199): label and caption content in bold
+  figure_caption_plain: true   # G260: "Figure #:" bold, the caption after it plain (editors 6 of 6; the author's
+                               # bold and an all-italic caption go)
   # S: "fourth level ... underlined" (owner, 2026-10-26: H4 underlined): the tool tags three levels only, so there
   # is no H4 to underline yet (heading_underline_levels to add once fourth-level detection exists)
 
