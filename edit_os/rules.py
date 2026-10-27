@@ -1053,6 +1053,8 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
     in_abstract = rules_sections.abstract_ids(ms)  # "Results" there is an abstract sub-heading
     front = _front_matter_ids(ms, style)  # "Case Report" as the article type on the title page is no heading
     mains = rules_sections.main_heading_keys(style)
+    ref_i = references.find_heading(ms)
+    ref_id = ms.paragraphs[ref_i].id if ref_i is not None else None
     for p in ms.paragraphs:
         text = p.text
         if p.in_table or text.lstrip().startswith("<H") or p.id in in_abstract or p.id in front \
@@ -1077,6 +1079,8 @@ def rule_heading_tags(ms: Manuscript, style: JournalStyle) -> list[Change]:
         core = _NUMBERING.sub("", text).strip()
         key = core.rstrip(":").strip().lower()
         level = levels.get(key)
+        if not level and p.id == ref_id:  # "References-" (IJO 2733): the reference list's heading
+            level = levels.get(core.rstrip(":.-–—_ ").strip().lower())
         if not level:
             continue
         lead = len(text) - len(text.lstrip())  # the tag goes at the very start: leading spaces go
@@ -1437,7 +1441,10 @@ RULES = {
 
 # Front matter runs first: it rewrites whole title-page paragraphs (edit_os/frontmatter.py).
 from . import frontmatter  # noqa: E402  (frontmatter imports nothing from this module)
-RULES = {"front_matter": frontmatter.rule_front_matter, **RULES}
+from . import leftovers  # noqa: E402
+# Template leftovers ("Abstract Page", the title typed again, "Bottom of Form"): right after the front matter, which
+# owns the title page; no later rule's edit stays on a paragraph they delete (run_all).
+RULES = {"front_matter": frontmatter.rule_front_matter, "leftovers": leftovers.rule_leftovers, **RULES}
 RULES = {"submission": frontmatter.submission.rule_submission, **RULES}  # cover letter, reply to reviewers: first
 
 
@@ -1497,6 +1504,9 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     # Changes that only make sense together (a legend part run on: the text added to the legend and its own
     # paragraph deleted) go together: when one of them lost an overlap, all of them go.
     kept = [c for c in kept if getattr(c, "_group", None) not in dropped_groups]
+    # A template leftover deleted whole (leftovers.py): no other edit stays on its paragraph.
+    gone = {c.para_id for c in kept if c.reason == leftovers.REASON}
+    kept = [c for c in kept if c.para_id not in gone or c.reason == leftovers.REASON]
     # Formatting on text that a kept change replaces is moot (the replacement carries its own
     # format), and showing it would split one edit into two suggestions.
     replaced = [k for k in kept if not k.format_only and k.end > k.start]

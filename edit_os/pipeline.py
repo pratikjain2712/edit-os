@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, first_author, frontmatter, header, legends, qc, queries, rules, rules_format, style as style_mod, submission, tracked
+from . import docmodel, figures_insert, first_author, frontmatter, header, legends, leftovers, qc, queries, rules, rules_format, style as style_mod, submission, supplied, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -119,6 +119,10 @@ def insert_from_dict(d: dict) -> frontmatter.NewParagraph:
         return figures_insert.FigureInsert.from_dict(d)
     if "move" in d:  # legends to the end, a table caption into its table (legends.py)
         return legends.BlockMove.from_dict(d)
+    if "delete_objects" in d:  # template text boxes, repeated pictures (leftovers.py)
+        return leftovers.BlockDelete.from_dict(d)
+    if "import_file" in d:  # tables / figures / material from another file of the submission (supplied.py)
+        return supplied.DocImport.from_dict(d)
     return frontmatter.NewParagraph(
         id=d["id"], anchor=d["anchor"], where=d["where"], runs=[(t, f) for t, f in d["runs"]], role=d["role"],
         status=Status(d.get("status", "suggested")), source=Source(d.get("source", "rule")),
@@ -249,11 +253,17 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         changes.changes += style_changes.changes
         qs.queries += style_q.queries
         warnings += submission.warnings(ms, st)  # submission material not certain enough to delete
-        figs = figures_insert.plan(ms, st, zip_path, outdir)  # figures sent as separate files
+        # figures sent as separate files (pictures, or a Word file of figures with their captions)
+        figs = figures_insert.plan(ms, st, zip_path, outdir, os.path.basename(src))
         inserts += figs.inserts
         warnings += figs.warnings
         for pid, key, fmt in figs.queries:  # a supplied figure with no legend in the manuscript
             qs.add(pid, key, **fmt)
+        sup = supplied.plan(ms, st, zip_path, outdir, os.path.basename(src))  # tables / material in other Word files
+        inserts += sup.inserts
+        warnings += sup.warnings
+        qs.queries += sup.queries
+        inserts += leftovers.plan(ms, st)  # template text boxes, pictures repeated after the references
         if "front_matter" in ran:  # the "First author" block after the references, from the front matter
             fa = first_author.plan(ms, st, front)
             inserts += fa.inserts
@@ -360,16 +370,21 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
             queries.write_comments(ms, qs)
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
         frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)
-                                        and not legends.is_move(n)], tracked=is_tracked, statuses=statuses,
+                                        and not legends.is_move(n) and not leftovers.is_delete(n)
+                                        and not supplied.is_import(n)], tracked=is_tracked, statuses=statuses,
                                    run_format=lambda role: rules_format.insert_format(st, role),
                                    align=lambda role: rules_format.insert_align(st, role))
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
                               align=st.get("figures.insert.align", "center"), run_format=run_fmt,
                               legend_align=run_align)
         author = editor or header.AUTHOR
+        notes = leftovers.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date)
+        # material from the submission's other files (tables at the end, a supplementary file): before the moves
+        notes += supplied.render(ms, inserts, outdir, statuses, tracked=is_tracked, author=author, date=rev_date,
+                                 run_format=run_fmt, align=run_align, style=st)
         # legends to the end and table captions into their tables first: renumbered tables then move with their caption
-        notes = legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date,
-                               run_format=run_fmt, align=run_align)
+        notes += legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date,
+                                run_format=run_fmt, align=run_align)
         notes += header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
         if kind == "clean":
             head_notes.extend(notes)

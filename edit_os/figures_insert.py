@@ -19,6 +19,9 @@ Anything else -- no number in the file name, several candidates, a number with n
 supplementary figure, PowerPoint / PDF / Word / vector files -- becomes an editor warning naming
 the file. Pictures already in the manuscript are never touched.
 
+Figures sent in a Word file with their captions ("Revised Figures.docx") are read as such files too (`docx_figures`):
+each picture numbered from its caption, the caption standing in for the legend when the manuscript has none.
+
 Settings live under `figures.insert:` in the style files. The picture files go into the output
 folder (`source/figures/`) so later renders (after the editor's decisions) find them.
 
@@ -80,6 +83,7 @@ class FigureFile:
     number: int | None
     part: str = ""
     problem: str = ""  # why it cannot be placed by number ("" when it can)
+    data: bytes | None = None  # a picture taken out of a Word file of the submission (docx_figures)
 
     @property
     def base(self) -> str:
@@ -177,12 +181,86 @@ def supplied_files(zip_path: str) -> list[FigureFile]:
     return out
 
 
+# --- figures in a Word file of the submission ("Revised Figures.docx") ----------------------------
+
+_CONTENT_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/tiff": ".tiff", "image/gif": ".gif",
+                "image/bmp": ".bmp", "image/x-emf": ".emf", "image/x-wmf": ".wmf", "image/emf": ".emf", "image/wmf": ".wmf"}
+
+
+def docx_figures(zip_path: str, style: JournalStyle, manuscript_name: str = "") -> tuple[list[FigureFile],
+                                                                                         dict[int, tuple[str, str]], set[str]]:
+    """Figures sent in a Word file of the submission with their captions ("Revised Figures.docx": IJO_1347; "Revised
+    Figure,Table .docx": jehp_1683): (one FigureFile per picture, numbered from its caption -- several pictures under
+    one caption are its parts a, b, ...; figure number -> (legend text, file name); the files read). A caption goes
+    with the pictures on its side: the file either puts each picture above its caption or each caption above its
+    picture, as its first figure shows. A file whose pictures and captions do not pair up gives nothing."""
+    from . import supplied
+
+    files: list[FigureFile] = []
+    legends: dict[int, tuple[str, str]] = {}
+    used: set[str] = set()
+    for name in supplied.docx_members(zip_path, manuscript_name):
+        got = supplied.load_member(zip_path, name, None)
+        if got is None:
+            continue
+        sms = got[0]
+        base = os.path.basename(name)
+        caps = {c.para_id: c for c in rules_figures.captions(sms) if c.kind in (rules_figures.FIG, rules_figures.GRAPH)}
+        seq = []  # ("P", paragraph) | ("C", number)
+        for p in sms.paragraphs:
+            if p.in_table or rules_figures.in_textbox(p):
+                continue
+            if p.id in caps:
+                seq.append(("C", caps[p.id].number))
+            elif has_picture(p.element) and not p.text.strip():
+                seq.append(("P", p))
+        if not any(k == "C" for k, _ in seq) or not any(k == "P" for k, _ in seq):
+            continue
+        groups: dict[int, list] = {}
+        if seq[0][0] == "P":  # pictures, then their caption
+            pending = []
+            for k, x in seq:
+                if k == "P":
+                    pending.append(x)
+                elif pending and x not in groups:
+                    groups[x], pending = pending, []
+        else:  # a caption, then its pictures
+            cur = None
+            for k, x in seq:
+                if k == "C":
+                    cur = x if x not in groups else None
+                    if cur is not None:
+                        groups[cur] = []
+                elif cur is not None:
+                    groups[cur].append(x)
+        groups = {n: ps for n, ps in groups.items() if ps}
+        if not groups:
+            continue
+        used.add(name)
+        part_rel = sms.document.part.related_parts
+        for num, ps in sorted(groups.items()):
+            blips = [(p, b) for p in ps for b in p.element.iter("{http://schemas.openxmlformats.org/drawingml/2006/main}blip")]
+            for k, (p, b) in enumerate(blips):
+                try:
+                    img = part_rel[b.get(qn("r:embed"))]
+                except KeyError:
+                    continue
+                ext = _CONTENT_EXT.get(getattr(img, "content_type", ""), os.path.splitext(img.partname)[1].lower())
+                part = "abcdefghijkl"[k] if len(blips) > 1 and k < 12 else ""
+                problem = "" if ext in DIRECT or ext in CONVERT else f"{ext[1:].upper()} picture: cannot be placed"
+                files.append(FigureFile(f"{base}#Figure {num}{part}", ext, num, part, problem, data=img.blob))
+        for num, text in rules_figures.legend_texts(sms, style).items():
+            legends.setdefault(num, (text, base))
+    return files, legends, used
+
+
 # --- legends sent outside the manuscript -------------------------------------------------------
 
 _LEGENDS_FILE = re.compile(r"legend|caption", re.I)
 
 
-def supplied_legends(zip_path: str, style: JournalStyle) -> dict[int, tuple[str, str]]:
+def supplied_legends(zip_path: str, style: JournalStyle,
+                     extra: dict[int, tuple[str, str]] | None = None) -> dict[int, tuple[str, str]]:
     """Figure number -> (legend text after "Figure N: ", where it came from), for figures the manuscript has no legend
     for: a separate legends file in the zip ("LEGENDS.docx", "Figures Legends.docx"), else the submission XML's
     <image><legend> for the figure's file (the IJO editor of 2449: "Followed XML file for Figure captions")."""
@@ -212,6 +290,8 @@ def supplied_legends(zip_path: str, style: JournalStyle) -> dict[int, tuple[str,
                 found = {}
         for num, text in found.items():
             out.setdefault(num, (text, base))
+    for num, got in (extra or {}).items():  # the captions of a figures file ("Revised Figures.docx")
+        out.setdefault(num, got)
     xmls = [n for n in names if n.lower().endswith(".xml")]
     for n in xmls:
         try:
@@ -336,7 +416,8 @@ def _warn(para_id: str, message: str) -> dict:
     return {"para_id": para_id, "rule": "figures.insert", "message": message}
 
 
-def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str | None) -> Plan:
+def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str | None,
+         manuscript_name: str = "") -> Plan:
     """Figure inserts for the legends that have no picture, from the zip's figure files.
 
     The picture files are written to OUTDIR/source/figures (OUTDIR None: not written; the plan is
@@ -345,7 +426,11 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
     out = Plan()
     if not cfg.get("enabled") or not zip_path or not zipfile.is_zipfile(zip_path):
         return out
-    files = out.files = supplied_files(zip_path)
+    files = supplied_files(zip_path)
+    extra, docx_legends, used_docx = docx_figures(zip_path, style, manuscript_name)
+    numbered = {f.number for f in files if f.number is not None and not f.problem}
+    files = [f for f in files if f.name not in used_docx] + [f for f in extra if f.number not in numbered]
+    out.files = files
     if not files:
         return out
     legends = _legends(ms)
@@ -390,7 +475,7 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
                                   f"no figure legend accounts for ({pids}), so which figures are missing is unclear."))
         return out
 
-    supplied = supplied_legends(zip_path, style) if any(n not in legends for n in by_num) else {}
+    supplied = supplied_legends(zip_path, style, docx_legends) if any(n not in legends for n in by_num) else {}
     max_w, max_h = _text_area(ms)
     max_h = int(max_h * float(cfg.get("max_height", 0.85)))
     per_row = max(1, int(cfg.get("parts_per_row", 2)))
@@ -412,7 +497,7 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
             continue
         prepared = []
         for f in parts:
-            got = _prepare(z.read(f.name), f.ext, max_px)
+            got = _prepare(f.data if f.data is not None else z.read(f.name), f.ext, max_px)
             if got is None:
                 break
             prepared.append((f, *got))

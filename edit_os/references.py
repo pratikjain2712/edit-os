@@ -18,9 +18,40 @@ from dataclasses import dataclass, field
 from .docmodel import Manuscript
 
 _HEADING = re.compile(
-    r"^\s*(?:<H\d>)?\s*(references?|reference list|bibliography|literature cited|works cited|cited literature)\s*:?\s*$",
+    r"^\s*(?:<H\d>)?\s*(?:(?:\d{1,2}|[IVX]{1,4})\s*[.)]\s*)?"
+    r"(references?|reference list|bibliography|literature cited|works cited|cited literature)\s*[:.\-–—_]*\s*$",
     re.I,
 )
+# A misspelt heading ("REFERNCES", "Refrences", "Bibliograpy"): one word within two edits of these.
+_HEADING_WORDS = ("references", "reference", "bibliography")
+_HEADING_WORD = re.compile(r"^\s*(?:<H\d>)?\s*(?:(?:\d{1,2}|[IVX]{1,4})\s*[.)]\s*)?([A-Za-z]{7,14})\s*[:.\-–—_]*\s*$")
+
+
+def _edits(a: str, b: str) -> int:
+    """Edit distance (a swap of two neighbouring letters counts as one edit)."""
+    d = [[i + j if not i * j else 0 for j in range(len(b) + 1)] for i in range(len(a) + 1)]
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[-1][-1]
+
+
+def is_heading(text: str) -> bool:
+    """Whether a paragraph's text is a reference-list heading: "References", "REFERENCES:", "References-",
+    "7. References", or a misspelling of it ("REFERNCES": IJO 505) -- one word, same first letter, within one edit
+    of "reference(s)" / "bibliography" (two when it starts as they do: "Refrences", "Bibliograpy")."""
+    if _HEADING.match(text):
+        return True
+    m = _HEADING_WORD.match(text)
+    if not m:
+        return False
+    w = m.group(1).lower()
+    if w in ("reverence", "reverences", "referee", "referees", "referral", "referrals", "inference", "inferences"):
+        return False  # words of their own
+    return any(w[0] == k[0] and _edits(w, k) <= (2 if len(k) >= 10 and len(w) >= 9 and w[:3] == k[:3] else 1)
+               for k in _HEADING_WORDS)
 # Sections that commonly follow the reference list.
 _STOP = re.compile(
     r"^\s*(tables?\b|table\s+\d|figures?\b|figure\s+\d|fig\.?\s*\d|figure legends?|legends?\b"
@@ -116,7 +147,7 @@ def ends_list(raw: str, refs: list[Reference]) -> bool:
 
 def find_heading(ms: Manuscript) -> int | None:
     """Index of the reference-list heading; the last match wins (skips contents pages)."""
-    hits = [i for i, p in enumerate(ms.paragraphs) if not p.in_table and _HEADING.match(p.text)]
+    hits = [i for i, p in enumerate(ms.paragraphs) if not p.in_table and is_heading(p.text)]
     return hits[-1] if hits else None
 
 
