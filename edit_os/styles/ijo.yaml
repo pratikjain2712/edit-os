@@ -133,9 +133,15 @@ front_matter:
   # should be used"). Not before a home address (flat, society, quarters).
   correspondence_add_institution: true
   initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
-  # S: "All the affiliations should be complete": the postal code the title page gives after the city stays
-  # ("Chennai - 600 006"); "Faculty of ..." units stay as written (owner, 2026-10-26)
-  affiliation_postal_code: true
+  # S: 'Country name must be added at the end if it is not present; delete pin/zip code': the postal codes go from
+  # the affiliations and (the editors delete them there too) the correspondence. This reverses the 2026-10-26
+  # read-back of the title page's postal code (owner, 2026-10-27: follow the sheet). "Faculty of ..." units stay as
+  # written (owner, 2026-10-26).
+  affiliation_postal_code: false
+  delete_postal_codes: true
+  # The first affiliation is numbered from 1 like the others: the written rule ("link the unlinked affiliations and
+  # renumber the links") wins over the sheet's example, which leaves the first unnumbered (owner, 2026-10-27).
+  affiliation_first_unnumbered: false
 
 sections:
   letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
@@ -169,6 +175,10 @@ sections:
                              # 3 of 3 articles whose XML has them) instead of the query
   back_matter:  # IJO editors (19 + 2 articles): consent, contributions, financial support, conflicts
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+    # A declaration found only on the title page (or a declaration file) -- funding, conflicts, ethics, data
+    # availability, AI use -- is used in the back matter (owner, 2026-10-27; G283)
+    statements_from_sources: [funding, conflict, ethics, data, ai]
+    split_ethics: true  # "Ethical approval: All procedures ..." -> H2 heading + statement (IJO_1745; S: H2 headings)
     acknowledgement_from_sources: true  # S382 "Acknowledgments | This section is not mandatory. Retain if given"
     acknowledgement_heading: Acknowledgement  # G146 (UK spelling), first level (owner, 2026-10-26)
     heading_bold: true  # S: "H2 | Sentence Case, Bold": the section headings added, renamed or split off are bold
@@ -176,9 +186,10 @@ sections:
       # S392: 'Placement is before the "Financial support and sponsorship" section': a consent section after the
       # references / legends or after the funding and conflicts statements is moved there (the editors in 6 of 6).
       move: true
-    # consent heading: as base, S 'Declaration of Patient Consent | “Declaration of patient consent” should be present'
-    # (the IJO editors' "Author’s declaration statement of patient consent" is not the sheet's); authors' own
-    # headings are kept as written (rename_heading off: the sheet is silent).
+      # S388 'Declaration of Patient Consent | “Declaration of patient consent” should be present': the author's own
+      # consent heading ("Author’s Declaration statement-", "Authors’ Declaration", "Patient consent") takes the
+      # sheet's (the IJO editors 2 of 2: 1432, 1347; owner, 2026-10-27: keep the guide / sheet)
+      rename_heading: true
     contributions:
       heading: "Authors’ contributions"  # 7 of 12 editor-final headings (the sheet is silent)
       from_sources: true             # title page / contribution form: the editors have it in all 11 articles whose

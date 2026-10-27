@@ -390,6 +390,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     add_missing: true            # required_sections not stated -> heading + default before references
     split_run_in: false          # "Acknowledgement: The authors ...", several statements run on in one paragraph -> a
                                  # heading and its statement each (per journal: JEHP)
+    split_ethics: false          # an ethics statement run in after its label ("Ethical approval: All procedures ...") ->
+                                 # heading + statement (a label typed before it with spaces only is always split)
     data_heading: null           # with split_run_in: the heading a "Data availability:" label takes (null: as written)
     delete_declarations_heading: true  # a bare "Declarations" / "Statements and declarations" heading over the
                                        # statements goes (editors: 13 of 14)
@@ -400,13 +402,22 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     acknowledgement_heading: singular  # S (41 sheets): 'If heading "Acknowledgements" is present, then please delete
                                        # "s"' (singular: drop the final s; a string: that heading; null: as typed).
                                        # Editors changed 0 of 17: owner's list
+    acknowledgement_first: true  # G148 "The content Conflict of Interest, Author Contribution ..., Funding Information ...
+                                 # should be added in Acknowledgement section": an acknowledgement the author put after
+                                 # the statements moves before them (jehp_1588; owner, 2026-10-27)
     acknowledgement_from_sources: false  # an acknowledgement given only on the title page is added before the
                                          # financial support (per journal: IJO S382 "Retain if given")
     supplementary_heading: null  # G151: supporting information retained as it is; the 19 sheets that ask for the
                                  # “Supplementary Material” heading set it (no editor added it: 0 of 6 articles)
     patient_consent_query: true  # case report with no consent statement anywhere: "Kindly confirm whether consent
                                  # form obtained or not?" (the pre-editing query in all 8 such case reports)
-    order: [consent, contributions, funding, conflict]  # where added sections go among those already there
+    order: [consent, contributions, ethics, funding, conflict, data, ai]  # where added sections go among those
+                                 # already there (ethics, data availability, AI use: statements from the submission)
+    # Statements the submission gives outside the manuscript (title page, declaration files) used for the back matter
+    # (owner, 2026-10-27, G283 "In case, information of SoS/CoI is not provided in first page, please keep both as
+    # Source of support: Nil": never the default "Nil." when the submission states it). funding / conflict: the
+    # stated text instead of the default; ethics / data / ai: the section added when the manuscript has none.
+    statements_from_sources: [funding, conflict]
     heading_bold: false          # the section headings added, renamed or split off in bold (per journal: IJO H2)
     consent:  # "Declaration of patient consent" (every stylesheet but JOS, KJO, IJNMR, JDRNTRUHS)
       enabled: true
@@ -487,7 +498,9 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   affiliation_country_each: true   # the country after every affiliation ("complete"); KJO, IJA, SJG follow the guide
   correspondence_one_line: false   # the address on the "Address for correspondence:" line after the name
   affiliation_postal_code: false   # the postal code the title page gives after an affiliation's city is printed
-                                   # ("Chennai - 600 006"; per journal: IJO, JEHP)
+                                   # ("Chennai - 600 006")
+  delete_postal_codes: false       # postal codes written into an affiliation or the correspondence address go
+                                   # ("Fez, 30000", "Rabat 10100"; per journal: IJO, JEHP "delete pin/zip code")
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
   correspondence_drop_street: false  # street / building / office parts dropped when the address names the institution

@@ -244,6 +244,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         front = frontmatter.plan(ms, st) if "front_matter" in ran else frontmatter.Plan()
         inserts = list(front.inserts)
         notes += front.notes
+        warnings += front.warnings
         say("author queries")
         style_q = front.add_queries(queries.collect(ms, st), ms) if "front_matter" in ran else queries.collect(ms, st)
         changes.changes += style_changes.changes

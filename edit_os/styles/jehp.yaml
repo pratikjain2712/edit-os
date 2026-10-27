@@ -160,6 +160,17 @@ sections:
     heading_case: true  # S: 'The word "Abstract" should be added as heading': "ABSTRACT" -> "Abstract" (editors 2 of 2)
   back_matter:
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
+    # A declaration found only on the title page (or a declaration file) -- funding, conflicts, ethics, data
+    # availability, AI use -- is used in the back matter (owner, 2026-10-27; G283)
+    statements_from_sources: [funding, conflict, ethics, data, ai]
+    consent:
+      # S: "Declaration of patient consent" should be present: the author's own consent heading takes the sheet's
+      # (owner, 2026-10-27: keep the guide / sheet)
+      rename_heading: true
+    contributions:
+      # the authors' contributions given on the title page / contribution form (owner, 2026-10-27: a statement given
+      # anywhere in the submission is used; the JEHP editors add them: 1153, 1738)
+      from_sources: true
     heading_bold: true  # S: "H2 | Sentence Case, Bold": the statement headings added, renamed or split off are bold
     # The sheet and guide say nothing on nil statements: the editors' habit.
     delete_nil_statements: false  # the author's "The authors declare no conflict of interest." stays (10 of 13
@@ -262,9 +273,15 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
   # S90: the correspondence run on, the address on the name line (owner, 2026-10-26; the editors split 9 / 8, and
   # front-matter similarity fell 82.8% -> 78.2% when it was first tried)
   correspondence_one_line: true
-  # S: "All the affiliations should be complete": the postal code the title page gives after the city stays;
-  # "Faculty of ..." units stay as written (owner, 2026-10-26)
-  affiliation_postal_code: true
+  # S: 'Country name must be added at the end if it is not present; delete pin/zip code': the postal codes go from
+  # the affiliations and (the editors delete them there too: "Fez, 30000", "Rabat, 10100", "Hamadan, 6517838695") the
+  # correspondence. This reverses the 2026-10-26 read-back of the title page's postal code (owner, 2026-10-27: follow
+  # the sheet). "Faculty of ..." units stay as written (owner, 2026-10-26).
+  affiliation_postal_code: false
+  delete_postal_codes: true
+  # The first affiliation is numbered from 1 like the others: the written rule ("link the unlinked affiliations and
+  # renumber the links") wins over the sheet's example, which leaves the first unnumbered (owner, 2026-10-27).
+  affiliation_first_unnumbered: false
   # G91-92: "Suffix and/or prefix like "Dr." ... can be present. Please retain/add period" (the sheet is silent):
   # the editors add the XML's <title> to the correspondence name -- Mrs. 3 of 4 (1266, 944, 1738), Mr. in 1209 but
   # not 1874 (1401: the XML's Mr, the editor wrote Dr.), Dr. / Prof. as before. Ms. is left out: added in 1 of 5

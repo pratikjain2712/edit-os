@@ -144,12 +144,14 @@ def test_front_matter_in_the_manuscript(tmp_path, monkeypatch, ijo):
     assert text["running_head"] == "<RH>Kumar, et al.: Valsalva and IOP"
     assert text["article_type"] == "Original Article"
     assert text["title"] == "Effect of Valsalva maneuver on intraocular pressure in OCT study"
-    assert text["authors"] == "Asha Kumar, Ravi S Rao, Jan van der Berg1"  # IJO: middle initial, no period
-    assert text["affiliations"] == ("Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
-                                    "1Department of Physiology, Erasmus University, Rotterdam, Netherlands")
+    # IJO: middle initial, no period; the first affiliation numbered from 1 too (owner, 2026-10-27)
+    assert text["authors"] == "Asha Kumar1, Ravi S Rao1, Jan van der Berg2"
+    assert text["affiliations"] == ("1Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
+                                    "2Department of Physiology, Erasmus University, Rotterdam, Netherlands")
     corr = [b.text for b in pl.blocks if b.role == "correspondence"]
+    # the PIN goes (S "delete pin/zip code"; owner, 2026-10-27)
     assert corr == ["Correspondence to: Dr. Asha Kumar,",
-                    "Department of Ophthalmology, City Eye Hospital, 12 Main Road, Chennai - 600 006, Tamil Nadu, India.",
+                    "Department of Ophthalmology, City Eye Hospital, 12 Main Road, Chennai, Tamil Nadu, India.",
                     "E-mail: asha@example.org"]
     assert text["dates"] == "Submitted: 04-Jan-2026\tRevised: ???\tAccepted: 01-Oct-2026"
     assert text["cite"] == ("Cite this article as: Kumar A, Rao RS, van der Berg J. Effect of Valsalva maneuver on "
@@ -241,12 +243,13 @@ def test_jehp_complete_affiliations_and_run_on_correspondence(tmp_path, monkeypa
     pl = fm.plan(ms, st)
     text = {b.role: b.text for b in pl.blocks}
     # each affiliation complete, departments of one place not grouped, country after each
-    assert text["affiliations"] == ("Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
-                                    "1Department of Physiology, City Eye Hospital, Chennai, Tamil Nadu, India")
+    assert text["affiliations"] == ("1Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
+                                    "2Department of Physiology, City Eye Hospital, Chennai, Tamil Nadu, India")
     corr = [b.text for b in pl.blocks if b.role == "correspondence"]
-    # JEHP editors drop the street when the address names the institution ("12 Main Road" goes)
+    # JEHP editors drop the street when the address names the institution ("12 Main Road" goes); the PIN goes
+    # (S "delete pin/zip code"; owner, 2026-10-27)
     assert corr[0] == ("Address for correspondence: Dr. Asha Kumar, Department of Ophthalmology, City Eye Hospital, "
-                       "Chennai - 600 006, Tamil Nadu, India.")
+                       "Chennai, Tamil Nadu, India.")
     assert corr[1] == "E-mail: asha@example.org"
 
 
@@ -303,8 +306,8 @@ def test_affiliations_complete(tmp_path, monkeypatch):
     text = _affiliations(tmp_path, monkeypatch, [
         dict(blank, id=1, department="Dept. of Dermatology"),
         dict(blank, id=2, department="Dept of Psychiatry", institution="Patil Medical College", city="Pimpri, Pune")])
-    assert text["affiliations"] == ("Department of Dermatology, Patil Medical College, Pimpri, Pune, Maharashtra, India, "
-                                    "1Department of Psychiatry, Patil Medical College, Pimpri, Pune, Maharashtra, India")
+    assert text["affiliations"] == ("1Department of Dermatology, Patil Medical College, Pimpri, Pune, Maharashtra, "
+                                    "India, 2Department of Psychiatry, Patil Medical College, Pimpri, Pune, Maharashtra, India")
 
 
 def test_affiliation_city_named_in_the_institution_stays(tmp_path, monkeypatch):
@@ -314,8 +317,8 @@ def test_affiliation_city_named_in_the_institution_stays(tmp_path, monkeypatch):
              country="Thailand"),
         dict(blank, id=2, department="Department of Surgery", institution="AIIMS, New Delhi", city="New Delhi",
              country="India")])
-    assert text["affiliations"] == ("School of Medical Sciences, University of Phayao, Phayao, Thailand, "
-                                    "1Department of Surgery, AIIMS, New Delhi, India")
+    assert text["affiliations"] == ("1School of Medical Sciences, University of Phayao, Phayao, Thailand, "
+                                    "2Department of Surgery, AIIMS, New Delhi, India")
 
 
 def test_duplicate_affiliations_by_printed_form_and_sorted_links(tmp_path, monkeypatch):

@@ -70,8 +70,8 @@ def test_inline_consent_label_split_and_renamed_for_aian(tmp_path):
     t = run(path, "aian")
     i = t.index("<H2>Declaration of patient consent")  # AIAN: the journal's heading
     assert t[i + 1].startswith("Written informed consent for publication")
-    t = run(path, "ijo")  # IJO keeps the author's words, sentence case
-    assert "<H2>Patient consent" in t
+    t = run(path, "ijo")  # IJO too: S388 (owner, 2026-10-27; it kept the author's words before)
+    assert "<H2>Declaration of patient consent" in t and "<H2>Patient consent" not in t
 
 
 def test_consent_added_for_clinical_photographs_with_query(tmp_path):
