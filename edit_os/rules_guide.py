@@ -125,6 +125,10 @@ def find_operator_spacing(text: str, cfg: dict) -> list:
         new = f" {m.group(2)} "
         if m.group(0) != new:
             out.append((start, m.end(), new))
+    if "±" in ops:  # "Mean±SD" (a table head, 1559) -> "Mean ± SD"
+        for m in re.finditer(r"\b(?:Mean|mean|MEAN|M)(" + _SP + r"*±" + _SP + r"*)(?=(?:SD|SE|SEM|S\.D\.|S\.E\.)\b)", text):
+            if m.group(1) != " ± ":
+                out.append((m.start(1), m.end(1), " ± "))
     return out
 
 
@@ -247,7 +251,7 @@ def find_p_value(text: str, cfg: dict) -> list:
     if lone:
         return [(lone.start(1), lone.end(1), "P")]
     return [(m.start(), m.end(), "P")
-            for m in re.finditer(r"(?<![\w.\-])p(?=" + _SP + r"*[=<>≤≥]" + _SP + r"*(?:[0.]|NS\b)|[\- ]values?\b)", text)]
+            for m in re.finditer(r"(?<![\w.\-])p(?=" + _SP + r"*[=<>≤≥]" + _SP + r"*(?:[0.]|NS\b)|[\- ][Vv]alues?\b)", text)]
 
 
 def find_comparison_symbol(text: str, cfg: dict) -> list:
@@ -334,6 +338,59 @@ def find_abbreviation_colon(text: str, cfg: dict) -> list:
     return out if len(out) >= 2 else []
 
 
+# Owner, 2026-10-27 (JEHP; the sheet and the guide are silent): a decimal below one takes its zero ".413" -> "0.413"
+# (the editors 28 times, never for a P value: ".05" after "P <" stays, 8 of 8); a four-digit number loses its comma
+# "1,260" -> "1260" (five digits and more keep it: "12,345").
+_P_BEFORE = re.compile(r"(?:\b[pP]|\bP[\s-]*values?(?:\s+(?:of|was|is))?)" + _SP + r"*[<>=≤≥]?" + _SP + r"*$")
+
+
+def find_leading_zero(text: str, cfg: dict) -> list:
+    """".413" -> "0.413" (not a P value, unless leading_zero_p is set)."""
+    out = []
+    for m in re.finditer(r"(?:(?<=^)|(?<=[\s(\[=<>≤≥±:;,/−–-]))\.(?=\d)", text):
+        before = text[:m.start()]
+        if re.search(r"\d$", before):
+            continue  # "3.5", "1 .5" typed apart: not ours to read
+        if not cfg.get("leading_zero_p") and _P_BEFORE.search(before):
+            continue
+        out.append((m.start(), m.start(), "0"))
+    return out
+
+
+def find_thousands_comma(text: str, cfg: dict) -> list:
+    """"1,260" -> "1260"; "12,345" keeps its comma. Not inside square brackets (citations "[1,234]" do not reach
+    four digits, but a list of values might)."""
+    out = []
+    for m in re.finditer(r"(?<![\d,.])(\d),(\d{3})(?![\d,]|\.\d{3})", text):
+        if text.rfind("[", 0, m.start()) > text.rfind("]", 0, m.start()):
+            continue
+        out.append((m.start() + 1, m.start() + 2, ""))
+    return out
+
+
+# Owner, 2026-10-27 (b): statistical symbols in italics as the editors set them (the sheet is silent): F, t, d, r,
+# R², β, η, α, Z, k, χ² standing for a statistic, before its value ("F = 74.82", "t(48) = 2.1", "η² = 0.42",
+# "χ²(2) = 5.1"), as a table head ("F", "β", "Z value") and "Cronbach's α"; never inside a word or a unit.
+_STAT_SYMBOLS = "FtdrRZkβηαχ"
+_STAT_VALUE = re.compile(r"(?<![\w.\-/'’\u0370-\u03ff])([" + _STAT_SYMBOLS + r"])(?:[²₀₁₂₃₄₅₆₇₈₉]|2(?=" + _SP + r"*[=(<>]))?"
+                         r"(?=" + _SP + r"*(?:\(\s*\d[\d.,\s]*\)" + _SP + r"*)?[=<>≤≥]" + _SP + r"*[-−]?" + _SP + r"*\.?\d)")
+_STAT_HEAD = re.compile(r"^\s*([" + _STAT_SYMBOLS + r"])(?:[²2])?(?:\s*[-\s][Vv]alues?|\s+statistics?|\s*\([^()]{1,12}\))?\s*[*†‡]?\s*$")
+_STAT_WORD = re.compile(r"(?<![\w.\-/'’])([FtZrχ])(?:²)?(?=[\s-][Vv]alues?\b)|\bCronbach[’']s\s+(α)")
+
+
+def stat_italic_spans(text: str, in_table: bool = False) -> list[tuple[int, int]]:
+    """Where a statistical symbol stands (owner, 2026-10-27 (b)): the symbol letter only."""
+    out = [m.span(1) for m in _STAT_VALUE.finditer(text)]
+    for m in _STAT_WORD.finditer(text):
+        g = 1 if m.group(1) else 2
+        out.append(m.span(g))
+    if in_table:
+        h = _STAT_HEAD.match(text)
+        if h:
+            out.append(h.span(1))
+    return sorted(set(out))
+
+
 FINDERS = {
     "et_al_period": find_et_al,
     "ampersand": find_ampersand,
@@ -357,6 +414,8 @@ FINDERS = {
     "double_space": find_double_space,
     "smart_quotes": find_smart_quotes,
     "abbreviation_colon": find_abbreviation_colon,
+    "leading_zero": find_leading_zero,
+    "thousands_comma": find_thousands_comma,
 }
 # Spacing rules: never next to content the text view leaves out (symbol-font ±, fields, drawings).
 _SPACING = {"trailing_space", "leading_space", "double_space"}
@@ -387,8 +446,10 @@ def propose(text: str, cfg: dict) -> list[tuple[int, int, str, str]]:
 def _paragraphs(ms: Manuscript, include_tables: bool) -> list[Paragraph]:
     end = references.find_heading(ms)
     paras = ms.paragraphs if end is None else ms.paragraphs[:end]
-    if include_tables and end is not None:  # tables placed after the reference list
-        paras = paras + [p for p in ms.paragraphs[end:] if p.in_table]
+    if include_tables and end is not None:  # tables placed after the reference list, with their captions
+        from .rules_figures import caption_match
+
+        paras = paras + [p for p in ms.paragraphs[end:] if p.in_table or caption_match(p) is not None]
     return [p for p in paras if p.text.strip() and (include_tables or not p.in_table)
             and not p.text.lstrip().startswith("<H")]
 
@@ -423,5 +484,20 @@ def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 if near_hidden(s, e, hidden):
                     continue
             out.append(Change(id=f"g{next(_ids)}", para_id=p.id, start=s, end=e, old=p.text[s:e], new=new,
-                              layer=Layer.HOUSE_STYLE, source=Source.RULE, reason=f"guide.{name}"))
+                              layer=Layer.NUMBERS if name in _NUMBER_RULES else Layer.HOUSE_STYLE, source=Source.RULE,
+                              reason=f"guide.{name}"))
+        if pcfg.get("stat_italic") and not looks_like_reference(p.text):
+            from .rules_format import char_formats
+
+            fmts = None
+            for s, e in stat_italic_spans(p.text, p.in_table):
+                fmts = char_formats(p) if fmts is None else fmts
+                if len(fmts) == len(p.text) and all(f.get("italic") for f in fmts[s:e]):
+                    continue
+                out.append(Change(id=f"g{next(_ids)}", para_id=p.id, start=s, end=e, old=p.text[s:e],
+                                  new=p.text[s:e], layer=Layer.NUMBERS, source=Source.RULE, reason="guide.stat_italic",
+                                  format={"italic": True}))
     return out
+
+
+_NUMBER_RULES = {"leading_zero", "thousands_comma"}

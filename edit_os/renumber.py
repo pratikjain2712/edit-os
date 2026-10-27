@@ -267,9 +267,12 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
             if nums and min(nums) > 0:
                 found.append(Occurrence(p.id, m.start(), m.end(), m.group(0), m.group(0), nums))
         out += found
-    # "Sorte et al. (2025)" read as reference 4 (S320, rules.author_year_mentions): cited like any number.
+    # "Sorte et al. (2025)" read as reference 4 (S320, rules.author_year_mentions): it cites the reference, which is
+    # not "uncited" (1683). It counts in the order only for a reference no number cites: the editors renumber by the
+    # numbers and write the name's number after (1580: "Peimani et al. (2018)" stays reference 29).
+    numbered = {n for o in out for n in o.numbers}
     for a in rules.author_year_mentions(ms, style):
-        if a.number is not None:
+        if a.number is not None and a.number not in numbered:
             p = ms.by_id(a.para_id)
             out.append(Occurrence(a.para_id, a.start, a.end, p.text[a.start:a.end],
                                   a.new.replace("{n}", f"[{a.number}]"), [a.number]))
@@ -361,7 +364,9 @@ def _formatted_entries(ms: Manuscript, style: JournalStyle) -> dict[str, str]:
     for r in references.extract(ms):
         text = ms.by_id(r.para_id).text
         # (the label's own edits stay with the position: only the entry moves)
-        mine = (c for c in cs.changes if c.para_id == r.para_id and c.start >= r.offset and c.reason != "ref_label")
+        # (formatting-only changes write no text: applying one over a span another edit already changed would garble it)
+        mine = (c for c in cs.changes if c.para_id == r.para_id and c.start >= r.offset and c.reason != "ref_label"
+                and not c.format_only)
         for c in sorted(mine, key=lambda c: c.start, reverse=True):
             text = text[:c.start] + c.new + text[c.end:]
         out[r.para_id] = text

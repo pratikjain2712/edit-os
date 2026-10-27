@@ -594,6 +594,9 @@ def _restyle_apa_other(text: str, style: JournalStyle, ai_title: str) -> str | N
     if ai_title and refengine.fold(rest).startswith(refengine.fold(ai_title)):
         k = _end_of(rest, ai_title)
         if k:
+            while k < len(rest) and rest[k] in ")]" and rest[:k].count(rest[k] == ")" and "(" or "[") > \
+                    rest[:k].count(rest[k]):
+                k += 1  # "... Differences [Research]": the bracket the title opened closes with it
             title, rest = rest[:k], rest[k:]
     if not title:
         t = re.match(r"(.+?)(?=\s*\((?:\d|[A-Z][a-z]+\s+ed|pp?\.)|\.\s+(?:In\s|[A-Z(])|\.?\s*$)", rest)

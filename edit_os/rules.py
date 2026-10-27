@@ -1230,6 +1230,61 @@ def _same_name(a: str, b: str) -> bool:
     return bool(ka) and bool(kb) and (ka == kb or ratio(ka, kb) >= 85)
 
 
+NAMED_QUERY = ("{name} et al. is mentioned without a reference number (reference {n}, {first}?). Kindly check and "
+               "cite.")
+
+
+def named_uncited(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, int, int, str, int, str]]:
+    """(paragraph, start, end, name, reference number, its first author) for "A more recent study by Bashour et al.,
+    on ..." (1755): a study named with no citation in its sentence (nor in the next one, unless its one matching
+    reference is cited nowhere), whose first author matches one reference."""
+    refs = references.extract(ms)
+    by_num = {r.number: r for r in refs if r.number is not None}
+    if not by_num:
+        return []
+    cited = {n for o in renumber.occurrences(ms, style, 0) for n in o.numbers}
+    if not cited:
+        return []
+    skip = front_matter_ids(ms) | rules_sections.abstract_ids(ms)
+    numbered = {}
+    for a in author_year_mentions(ms, style):  # "Chiang et al. and Gupta et al. in 2024": numbered there
+        numbered.setdefault(a.para_id, []).append(a.start)
+    out, asked = [], set()
+    for p in body_paragraphs(ms):
+        if p.id in skip or rules_figures.caption_match(p) is not None:
+            continue
+        spans = None
+        for m in _ET_AL_MENTION.finditer(p.text):
+            if any(m.start() <= x <= m.end() + 40 for x in numbered.get(p.id, [])):
+                continue
+            words = _surname_words_before(p.text, m.start())
+            if not words:
+                continue
+            nxt = p.text[m.end():]
+            if re.match(r"\s*[\[(⁰¹²³⁴⁵⁶⁷⁸⁹\d]|\s*(?:in\s+)?(?:19|20)\d{2}", nxt):
+                continue  # a number or a year with it: the citation rules' business
+            if spans is None:
+                spans = _citation_spans(p, [])
+            stop = _SENTENCE_GAP.search(p.text, m.end())
+            end = stop.start() if stop else len(p.text)
+            if any(m.end() <= s < end + 2 for s, e, n in spans):
+                continue  # cited at the end of its sentence
+            hits = [n for n, r in by_num.items() if _ay_matches(r.text, words, None)]
+            if len(hits) != 1:
+                continue
+            stop2 = _SENTENCE_GAP.search(p.text, end + 1) if stop else None
+            end2 = stop2.start() if stop2 else len(p.text)
+            if hits[0] in cited and (not stop or any(m.end() <= s < end2 + 2 for s, e, n in spans)):
+                continue  # "Lee et al. found X. They also showed Y.[5]": the passage's citation
+            if hits[0] in asked:
+                continue
+            asked.add(hits[0])
+            first = re.split(r"[,;]", by_num[hits[0]].text.strip(), maxsplit=1)[0].strip()
+            start = p.text.rfind(words[0], 0, m.start())
+            out.append((p, start, m.end(), " ".join(words), hits[0], first))
+    return out
+
+
 def add_author_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     from . import queries
 
@@ -1237,6 +1292,9 @@ def add_author_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
 
     authoryear.add_queries(ms, style, qs)
     queries.TEXT.setdefault("references.author_mismatch", AUTHOR_QUERY)
+    queries.TEXT.setdefault("references.named_uncited", NAMED_QUERY)
+    for p, s, e, name, n, first in named_uncited(ms, style):
+        qs.add(p.id, "references.named_uncited", s, e, name=name, n=n, first=first)
     for p, s, e, name, n, first in author_name_mismatches(ms, style):
         qs.add(p.id, "references.author_mismatch", s, e, name=name, n=n, first=first)
 
@@ -1317,8 +1375,19 @@ def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
         return []
     unary_after_word = style.get("statistics.unary_after_word", True)
     out = []
-    for p in body_paragraphs(ms):
+    paras = body_paragraphs(ms)
+    gcfg = style.get("guide_replace") or {}
+    if gcfg.get("include_tables") or "operator_spacing" in (gcfg.get("table_rules") or []):
+        # G297 in the cells too where the journal applies the guide's operator rule there: "(n=28)" (1039, 1559)
+        ref_ids = {r.para_id for r in references.extract(ms)}
+        body = {p.id for p in paras}
+        # and the cells and captions wherever they are (a table after the list: "Table 1. ... (n=1671).", 1559)
+        paras = paras + [p for p in ms.paragraphs if p.text.strip() and p.id not in ref_ids and p.id not in body
+                         and (p.in_table or rules_figures.caption_match(p) is not None)]
+    for p in paras:
         if "http" in p.text or "<" in p.text and ">" in p.text and re.search(r"<\w+>", p.text):
+            continue
+        if rules_guide.looks_like_reference(p.text):
             continue
         for m in _OPERATOR.finditer(p.text):
             if not unary_after_word and m.group(2) != "=" and m.group(1) and _WORD_BEFORE.search(p.text, 0, m.start()):
@@ -1326,7 +1395,14 @@ def rule_statistics(ms: Manuscript, style: JournalStyle) -> list[Change]:
             new = f" {m.group(2)} "
             if m.group(0) != new:
                 out.append(_change(p, m.start(), m.end(), new, Layer.NUMBERS, "statistics"))
+        for m in _SCALE_ANCHOR.finditer(p.text):  # "(1=very dissatisfied to 5=very satisfied)" (1039)
+            if m.group(0) != " = ":
+                out.append(_change(p, m.start(), m.end(), " = ", Layer.NUMBERS, "statistics"))
     return out
+
+
+# A scale's anchor: a value set equal to its words, "(1=very dissatisfied", "0=completely unable", "5= Strongly agree".
+_SCALE_ANCHOR = re.compile(r"(?<=(?<![\w.,])\d)(\s*)=(\s*)(?=[A-Za-z][a-z])")
 
 
 # --- reference list ------------------------------------------------------------------
@@ -1568,6 +1644,13 @@ def _plain_format(p: Paragraph, s: int, e: int) -> dict | None:
     return fmt or None
 
 
+def _initials_only(text: str) -> bool:
+    """"M, K., H.R. H, and M. S, The effectiveness ...": EndNote lost the surnames, only initials are left (1153).
+    Nothing to style from; the lookup's query asks for the details."""
+    chunks = re.split(r",", text, maxsplit=3)[:3]
+    return len(chunks) == 3 and all(re.fullmatch(r"\s*(?:and\s+|&\s*)?(?:[A-Z]\.?\s*){1,3}", c) for c in chunks)
+
+
 def _apa_shaped(text: str) -> bool:
     """"Surname, I. I., & Surname, I. (2015). Title ...": the author's APA order."""
     m = refengine.APA_HEAD.match(text)
@@ -1583,7 +1666,7 @@ def rule_references(ms: Manuscript, style: JournalStyle) -> list[Change]:
         edits = _reference_edits(ref.text, style)
         out += _label_changes(p, ref, style)
         out += clear_reference_formatting(p, ref.offset, style)
-        if _apa_shaped(ref.text):
+        if _apa_shaped(ref.text) or _initials_only(ref.text):
             # an APA entry nothing could restyle (not verified, not split): left as written for the editor, never
             # half converted ("Piech, C, Spencer, J, ... (2015)": 1209, 997); its lookup query asks for the details
             continue
@@ -1672,10 +1755,13 @@ def _body_proper_nouns(ms: Manuscript) -> set[str]:
         return cached
     caps, lower = set(), set()
     for p in body_paragraphs(ms):
-        for m in re.finditer(r"(?<![.?!:]\s)(?<=\s)([A-Z][a-z]{2,})\b", p.text):
+        # standing alone ("in Tigray", "the Tigray health system"), not a word of a capitalised name ("the Family
+        # Inpatient Communication Survey")
+        for m in re.finditer(r"(?<=[a-z,] )([A-Z][a-z]{2,})\b(?![-‐])(?!\s+[A-Z])", p.text):
             caps.add(m.group(1))
         lower.update(re.findall(r"\b[a-z]{3,}\b", p.text))
-    ms._body_proper = {w for w in caps if w.lower() not in lower}
+    words, _ = refengine._dictionary_words()  # an instrument's name ("Family Inpatient Communication Survey") is no
+    ms._body_proper = {w for w in caps if w.lower() not in lower and w.lower() not in words}  # place: words go
     return ms._body_proper
 
 
@@ -1691,11 +1777,10 @@ def _restore_proper(formatted: str, original: str, names: set[str]) -> str:
             return cap + nxt
         # one name of two words, the second kept: "uttar Pradesh" -> "Uttar Pradesh" (as the entry writes it)
         if nxt.strip() and re.search(rf"\b{cap}\s+{re.escape(nxt.strip())}\b", original) and lower \
-                and w not in lower and not refengine.is_sentence_cased(original) or nxt.strip() and \
-                refengine.is_sentence_cased(original) and re.search(rf"\b{cap}\s+{re.escape(nxt.strip())}\b", original):
+                and w not in lower:
             return cap + nxt
         return w + nxt
-    return re.sub(r"(?<![.?!:]\s)\b([a-z][a-z]{2,})\b(\s+[A-Z][a-z]+\b|)", fix, formatted)
+    return re.sub(r"(?<![.?!:]\s)(?<![\w-])([a-z][a-z]{2,})(?![\w-])(\s+[A-Z][a-z]+\b|)", fix, formatted)
 
 
 def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:

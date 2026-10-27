@@ -26,7 +26,7 @@ _LATIN = re.compile(r"\b(?:[Ii]n[ -](?:vivo|vitro|situ)|[Ee]x[ -]vivo)\b")
 # p / P as a probability: "p < 0.05", "(p=.03)", "p value", "p-values". Not "p." / "pp." (pages),
 # not part of a word or label ("p53", "Hb-p", "5p"), not a subscript-style "p_" form.
 _P_VALUE = re.compile(
-    r"(?<![\w.\-/'’])[pP](?=\s*(?:[<>=≤≥]\s*(?:[-−]?\s*(?:0?[.·]\d|\d)|NS\b)|[- ]values?\b))")
+    r"(?<![\w.\-/'’])[pP](?=\s*(?:[<>=≤≥]\s*(?:[-−]?\s*(?:0?[.·]\d|\d)|NS\b)|[- ][Vv]alues?\b))")  # "p Value" head (1588)
 # n / N as a sample-size variable: "n = 34", "(n=12)".
 _N_VAR = re.compile(r"(?<![\w.\-/'’])[nN](?=\s*=\s*\d)")
 _CITATION = re.compile(r"\[(\d{1,3}(?:\s*[,–—\-]\s*\d{1,3})*)\]")

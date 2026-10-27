@@ -82,6 +82,10 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   double_space: false         # "and  control" -> "and control"
   smart_quotes: false         # "caregivers' knowledge" -> "caregivers’ knowledge", "safe" -> “safe”
   abbreviation_colon: false   # "Abbreviations: CI, confidence interval; OR, odds ratio" -> "CI: confidence interval; ..."
+  leading_zero: false         # ".413" -> "0.413" (not P values unless leading_zero_p); per journal (the guide is silent)
+  leading_zero_p: false
+  thousands_comma: false      # "1,260" -> "1260" (five digits and more keep the comma); per journal
+  stat_italic: false          # F, t, d, r, R², β, η, α, Z, k, χ² in italics as statistics; per journal
   include_tables: false
   table_rules: []             # finders that also run in tables when include_tables is off, e.g. [range_dash]
 
@@ -116,6 +120,8 @@ references:
   et_al: "et al."
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"
   max_initials: null           # 2: "Chandrasena PPCM" -> "Chandrasena PP" (per journal: JEHP)
+  compound_surnames: record    # a compound surname the record splits ("de Olaguer NP" for the author's "Pérez de
+                               # Olaguer N"): the record's (JEHP editors 4 of 5) or the author's ("author"; per journal)
   clear_formatting: false     # italic and bold taken off the entries (EndNote / APA titles, journals, volumes); et al.,
                                # genus and species and in vivo stay (per journal)
   page_range_compress: true    # 101-109 -> 101-9

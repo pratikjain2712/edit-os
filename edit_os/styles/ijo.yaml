@@ -68,6 +68,8 @@ citations:
   compress_from: 3
 
 references:
+  compound_surnames: author    # "Pérez de Olaguer N", "van Wijngaarden P" kept over the record's "de Olaguer NP",
+                               # "Wijngaarden PV" (IJO_2904: the editors kept the author's, 5 of 5)
   clear_formatting: true      # Vancouver sets no italic or bold in an entry: the author's EndNote / APA italics and
                                # bold volumes go (JEHP 1153, 1576: 35 entries; et al. italic stays per formatting)
   label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)

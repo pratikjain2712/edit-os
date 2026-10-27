@@ -903,14 +903,14 @@ def compound_split(surname: str, initials: str, written: str) -> bool:
     return sorted(initials.upper()) == sorted(wi.upper() + extra)
 
 
-def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
+def _usable_authors(r: biblio.Record, p: Parsed | None, keep_compound: bool = False) -> list[str]:
     # (PubMed marks some group names with a footnote star: "... Professional Practice Committee*")
     names = [f"{_surname_case(s.rstrip('*').strip(), i, p)} {i}".strip() for s, i in r.authors]
     if p and p.authors and len(r.authors) > 1 and not r.authors[-1][1] and any(i for _, i in r.authors[:-1]) \
             and fold(r.authors[-1][0].rstrip("*").strip()) not in fold(p.text) and len(p.authors) == len(r.authors) - 1:
         # a body PubMed lists last that the article does not name: "Medscape" (the CME provider; IJO_1347)
         names = names[:-1]
-    if p and p.authors:
+    if p and p.authors and keep_compound:  # (references.compound_surnames: author)
         for k, (s, i) in enumerate(r.authors[:len(names)]):
             if k < len(p.authors) and compound_split(s.rstrip("*").strip(), i, p.authors[k]):
                 names[k] = p.authors[k].strip()
@@ -1301,7 +1301,7 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     """The entry in journal style from a record (or, for an entry not verified, the author's own fields: refstyle).
     `keep`: title words that keep their capital besides the known names."""
     max_a = style.get("references.max_authors", 6)
-    names = _usable_authors(r, p)
+    names = _usable_authors(r, p, style.get("references.compound_surnames", "record") == "author")
     max_i = style.get("references.max_initials")
     if max_i:  # JEHP (owner, 2026-10-26): "Chandrasena PPCM" -> "Chandrasena PP"; group names are left alone
         group_names = {f"{s.rstrip('*').strip()} {i}".strip() for s, i in r.authors if _is_group(s, i)}

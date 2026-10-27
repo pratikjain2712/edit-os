@@ -646,14 +646,19 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
     fixed = template(text, kind, p.title)
     # The author's APA / EndNote order put in the guide's, from the author's own words (refstyle): a book or report
     # is styled whether or not it can be verified; the template fixes run on the reordered entry.
-    restyled = refstyle.restyle_other(text, style, p.title) if kind in (BOOK, CHAPTER, CONFERENCE, REPORT, THESIS) else None
+    # (any kind in the author's APA order: "Siregar, T. (2025). Title. Social Sciences. https://doi..." (997), a report
+    # "Biernbaum, M. A., & Lotyczewski, B. S. (2015). Title [Research].": never left half in APA)
+    restyled = refstyle.restyle_other(text, style, p.title) \
+        if kind in (BOOK, CHAPTER, CONFERENCE, REPORT, THESIS) or refstyle._APA_HEAD.match(text) else None
     if restyled:
         again = template(restyled, kind, p.title)
+        if kind == OTHER:  # no template for an unknown kind: the restyled entry as it is
+            again.text = restyled
         if not refstyle.invented(again.text, text, " ".join(refstyle.TEMPLATE_WORDS)):
             fixed = again
     res = refengine.Resolution(refengine.NOT_JOURNAL, p)
     broken = not fixed.url and re.search(r"https?://\s|\bwww\.\s", text, re.I)
-    if not broken and ((kind == OTHER and not fixed.url) or not (fixed.url or re.search(r"\b(?:19|20)\d\d\b", text))):
+    if not broken and not restyled and ((kind == OTHER and not fixed.url) or not (fixed.url or re.search(r"\b(?:19|20)\d\d\b", text))):
         res.message = "Not a recognisable reference type; left as written"
         return res
     if fixed.text != text:
