@@ -198,7 +198,8 @@ def test_missing_running_head_and_type_are_queried(tmp_path, monkeypatch, ijo):
     assert pl.blocks[0].text == "<RH>Kumar, et al.: ???"
     assert pl.blocks[1].text == "Original Article"
     qs = pl.add_queries(queries.QuerySet(), ms)
-    assert [q.text for q in qs.queries] == ["Kindly confirm article type.", "Kindly provide running head."]
+    # numbered in reading order: the running head stands above the article type
+    assert [q.text for q in qs.queries] == ["Kindly provide running head.", "Kindly confirm article type."]
 
 
 def test_xml_only_without_claude(tmp_path, ijo):

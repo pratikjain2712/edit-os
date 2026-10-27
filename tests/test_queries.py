@@ -9,7 +9,9 @@ from edit_os.changes import Status
 
 def make(tmp_path):
     doc = Document()
+    # an IMRaD paper without a type: an Original Article, so its missing Conclusion is queried (owner, 2026-10-27)
     for t in ["Key words: retina",
+              "Introduction", "Methods", "Results",
               "Discussion",
               "Dermoids are rare (1). Some grow fast [4].",
               "References",
