@@ -55,11 +55,12 @@ _NOT_ARTICLE = re.compile(r"reply|respon|review|referee|rebuttal|comment|contrib
                           re.I)
 # Supplementary material sent as its own file.
 # A questionnaire / study instrument sent as its own file: supplementary material to merge (owner, 2026-10-27).
+# Owner, 2026-10-27 (later the same day): files named Supplementary / Appendix / Annexure are merged the same way.
 _SUPPLEMENT = re.compile(r"questionnaire|instrument|\bsurvey\b|interview\s*guide|data\s*collection\s*tool|proforma|"
-                         r"pro-forma", re.I)
-# A file the author names as supplementary material ("Supplementary File 1", "Appendix 1"): the journal publishes it
-# as it is, beside the article; the editors leave it out of the manuscript (jehp 1153, 1193, 1486, 1580, 1772, 1787:
-# 6 of 6). An editor note only.
+                         r"pro-forma|supplement|appendix|annex", re.I)
+# A file the author names as supplementary material ("Supplementary File 1", "Appendix 1"). The editors left these
+# out of the manuscript (jehp 1153, 1193, 1486, 1580, 1772, 1787), but the owner chose S372 (2026-10-27): Word files
+# are merged under "Supplementary Material" like a questionnaire (_SUPPLEMENT); other formats get an editor note.
 _SUPPLEMENTARY_FILE = re.compile(r"supplement|appendix|annex", re.I)
 
 QUERY_TEXT = {
@@ -357,9 +358,10 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
     n_imp = 0
     for name in zipfile.ZipFile(zip_path).namelist():
         stem = os.path.splitext(os.path.basename(name))[0]
-        if stem and _SUPPLEMENTARY_FILE.search(stem) and not _SUPPLEMENT.search(stem) and not name.endswith("/"):
+        if stem and _SUPPLEMENTARY_FILE.search(stem) and not name.endswith("/") and \
+                not name.lower().endswith(".docx") and not name.startswith("__MACOSX"):
             out.warnings.append({"para_id": "", "rule": "supplied", "message": f"{os.path.basename(name)}: a "
-                                 "supplementary file, kept separate (not merged into the manuscript)."})
+                                 "supplementary file that is not a Word file, kept separate (not merged)."})
     for name in docx_members(zip_path, manuscript_name):
         base = os.path.basename(name)
         got = load_member(zip_path, name, outdir)

@@ -397,3 +397,12 @@ def test_the_clean_manuscript_is_chosen_over_a_track_changes_copy(tmp_path):
     xml = "<article><articlefile>Revised paper.docx</articlefile></article>"
     assert _member(tmp_path, {"Manuscript-track changes.docx": 900, "Revised paper.docx": 500}, xml) == \
         "Revised paper.docx"
+
+
+def test_an_appendix_file_is_merged_as_supplementary_material(tmp_path):
+    # owner, 2026-10-27: Appendix / Supplementary Word files are merged like a questionnaire (S372)
+    a = _docx(["Appendix 1.", "Item one", "Item two"])
+    z = _zip(tmp_path, {"Appendix 1.docx": a})
+    got, out = _accepted_run(z, journal("jehp"), tmp_path)
+    i = got.index("<H2>Supplementary Material")
+    assert got[i + 1:i + 4] == ["Appendix 1.", "Item one", "Item two"]
