@@ -416,6 +416,13 @@ def _warn(para_id: str, message: str) -> dict:
     return {"para_id": para_id, "rule": "figures.insert", "message": message}
 
 
+def cited_figures(ms: Manuscript) -> set[int]:
+    """The figure numbers the text cites (rules_figures' citations)."""
+    from .rules_figures import FIG, citations
+
+    return {n for c in citations(ms) if c.kind == FIG for n in c.numbers}
+
+
 def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str | None,
          manuscript_name: str = "") -> Plan:
     """Figure inserts for the legends that have no picture, from the zip's figure files.
@@ -541,6 +548,8 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
             else:  # "Figure N: ???" and a query to the author
                 legend = f"Figure {num}: ???"
                 out.queries.append((anchor, "figures.legend_missing", {"n": num}))
+            if num not in cited_figures(ms):  # a picture sent as a file that the text never cites
+                out.queries.append((anchor, "figures.uncited", {"kind": "Figure", "n": num}))
         else:
             first, last = block(num)
             anchor, where = ms.paragraphs[last if below else first].id, "after" if below else "before"

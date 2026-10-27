@@ -169,6 +169,21 @@ def _words(text: str) -> int:
     return len(re.findall(r"\w+", text))
 
 
+def _word_count(text: str) -> int:
+    """Words as Word counts them: whitespace-separated tokens ("COVID-19", "3.5", "45%" and "p<0.05" are one
+    each); a lone dash or symbol is not a word."""
+    return sum(1 for t in re.sub(r"</?H\d>", " ", text).split() if re.search(r"\w", t))
+
+
+def _abstract_words(text: str) -> int:
+    """`_word_count` of an abstract paragraph without its structured sub-heading ("Background:", "Methods" on its own
+    line): the 250-word limit is on the text."""
+    if _SUB_ALONE.match(text):
+        return 0
+    m = _SUB_INLINE.match(text)
+    return _word_count(text[m.end():] if m else text)
+
+
 @dataclass
 class Layout:
     abstract_head: Paragraph | None = None   # the "Abstract" heading paragraph (or inline "Abstract: ...")
@@ -2273,6 +2288,8 @@ TEXT = {
     "abstract.structured_case_report": "Please note that in the Case Report there shouldn’t be any structured "
                                        "abstract, hence will have to remove the headings.",
     "keywords.too_many": "Kindly provide a maximum of {n} key words.",
+    "abstract.heading": "The abstract heading “{head}” is not one of the journal’s headings ({allowed}). Kindly check "
+                        "and revise the abstract under these headings.",
     "sections.patient_consent": "Kindly confirm whether consent form obtained or not?",
     "sections.consent_added": "Please ensure that patient consent form has been obtained.",
     "sections.contributions_missing": "Please provide authors’ contributions.",
@@ -2311,6 +2328,29 @@ def duplicate_headings(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragr
     return out
 
 
+_ABS_LABEL = re.compile(r"^\s*(?P<label>" + _SUBHEADS + r")\s*(?::|\s*[–—-]\s*|\s*$)", re.I)
+_ABS_LABEL_ANY = re.compile(r"^\s*(?P<label>[A-Z][A-Za-z]+(?:\s+(?:and\s+|of\s+)?[A-Za-z]+){0,3})\s*:\s*(?=\S)")
+
+
+def abstract_heading_deviations(lay: Layout, style: JournalStyle, allowed: list[str]) -> list[tuple]:
+    """(paragraph, start, end, heading) for each structured-abstract sub-heading that is not one of the sheet's
+    (after the sheet's renames: "Aim" -> "Purpose", "Materials and Methods" -> "Methods"): IJO_2733 "Design-",
+    "Setting-" (S: "Raise query in case of any deviation from these headings"). Only for an abstract with two such
+    headings at least (a structured one)."""
+    rename = {k.lower(): v for k, v in (_cfg(style, "abstract.rename") or {}).items()}
+    ok = {a.lower() for a in allowed} | {k for k, v in rename.items() if v.lower() in {a.lower() for a in allowed}}
+    ok |= {a + "s" for a in ok}  # "Conclusions", "Results" / "Result"
+    ok |= {a[:-1] for a in ok if a.endswith("s")}
+    found = []
+    for p in lay.abstract:
+        m = _ABS_LABEL.match(p.text) or _ABS_LABEL_ANY.match(p.text)
+        if m:
+            found.append((p, m.start("label"), m.end("label"), m.group("label")))
+    if len(found) < 2:
+        return []
+    return [(p, s, e, head) for p, s, e, head in found if re.sub(r"\s+", " ", head).strip().lower() not in ok]
+
+
 def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     """Author queries for the abstract, key words and back matter (see queries.collect)."""
     from .rules import _ROUND, _SQUARE, superscript_citations
@@ -2335,11 +2375,15 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
         if _on(style, "abstract.word_limit_query"):
             structured = _structured(lay)
             limit = _cfg(style, "abstract.word_limit.structured" if structured else "abstract.word_limit.unstructured")
-            n = sum(_words(p.text) for p in lay.abstract)
+            n = sum(_abstract_words(p.text) for p in lay.abstract)
             if lay.keywords_at:
-                n -= _words(lay.keywords.text[lay.keywords_at:])  # the key words' line ends the last paragraph
+                n -= _word_count(lay.keywords.text[lay.keywords_at:])  # the key words' line ends the last paragraph
             if limit and n > limit:
                 qs.add(lay.abstract[0].id, "abstract.too_long", n=limit)
+        allowed = _cfg(style, "abstract.headings") or []
+        if allowed and _cfg(style, "abstract.heading_query", True):
+            for p, s, e, head in abstract_heading_deviations(lay, style, allowed):
+                qs.add(p.id, "abstract.heading", s, e, head=head, allowed=", ".join(allowed))
         if _on(style, "abstract.structured_case_report_query") and _structured(lay) and _is_case_report(ms):
             qs.add((lay.abstract_head or lay.abstract[0]).id, "abstract.structured_case_report")
     if lay.keywords is not None and _on(style, "keywords.max_query"):

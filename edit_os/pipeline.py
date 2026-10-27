@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import docmodel, figures_insert, first_author, frontmatter, header, legends, leftovers, qc, queries, rules, rules_format, style as style_mod, submission, supplied, tracked
+from . import docmodel, revisions, rules_guide, figures_insert, first_author, frontmatter, header, legends, leftovers, qc, queries, rules, rules_format, style as style_mod, submission, supplied, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
 
@@ -79,11 +79,37 @@ def manuscript_member(z: zipfile.ZipFile) -> str | None:
             and not frontmatter._FIRST_PAGE.search(os.path.basename(n))]
     if not docs:
         return None
+    declared = _declared_article(z)  # the submission XML's <articlefile> (IJO_1130: "Manuscript.docx")
+    hit = [n for n in docs if os.path.basename(n) == declared]
+    if hit:
+        return hit[0]
     named = [n for n in docs if "manuscript" in os.path.basename(n).lower()]
     # "Figure of manuscript file.docx", "Table of manuscript.docx" sit next to "Manuscript.docx": the file
-    # named for a part of the manuscript comes after the one that is the manuscript.
-    named.sort(key=lambda n: bool(_PART_OF_MANUSCRIPT.search(os.path.basename(n))))
-    return (named or sorted(docs, key=lambda n: -z.getinfo(n).file_size))[0]
+    # named for a part of the manuscript comes after the one that is the manuscript; so does a copy with the
+    # changes marked ("Manuscript-track changes.docx", "... highlighted", "... marked copy").
+    named.sort(key=lambda n: (bool(_PART_OF_MANUSCRIPT.search(os.path.basename(n))),
+                              bool(_MARKED_COPY.search(os.path.basename(n)))))
+    if not named:
+        docs = sorted(docs, key=lambda n: (bool(_MARKED_COPY.search(os.path.basename(n))), -z.getinfo(n).file_size))
+    return (named or docs)[0]
+
+
+# A copy of the manuscript showing the revisions: not the manuscript when the clean one is there too.
+_MARKED_COPY = re.compile(r"(?i)track(?:ed)?[\s_-]*changes?|\btracked\b|\bmarked\b|highlight\w*|with[\s_-]*changes|"
+                          r"show(?:ing)?[\s_-]*changes|redline")
+
+
+def _declared_article(z: zipfile.ZipFile) -> str:
+    """The manuscript file the submission XML names (<articlefile>), or ""."""
+    for n in z.namelist():
+        if n.lower().endswith(".xml") and not n.startswith("__MACOSX"):
+            try:
+                m = re.search(rb"<articlefile>\s*([^<]+?)\s*</articlefile>", z.read(n))
+            except (KeyError, zipfile.BadZipFile):
+                continue
+            if m:
+                return m.group(1).decode("utf-8", "replace")
+    return ""
 
 
 _PART_OF_MANUSCRIPT = re.compile(r"(?i)\b(?:figures?|fig|tables?|supplement\w*|appendix|rebuttal|response|cover|"
@@ -110,7 +136,8 @@ def query_to_dict(q: queries.Query, key: str, status: str = Status.SUGGESTED.val
 
 
 def query_from_dict(d: dict) -> tuple[queries.Query, str, str]:
-    q = queries.Query(d["para_id"], d["start"], d["end"], d["text"], d["check"], d.get("id", ""))
+    q = queries.Query(d["para_id"], d["start"], d["end"], d["text"], d["check"], d.get("id", ""),
+                      d.get("insert_id", ""), d.get("quote", ""))
     return q, d["key"], d.get("status", Status.SUGGESTED.value)
 
 
@@ -174,6 +201,17 @@ def paragraph_texts(docx_path: str) -> dict[str, str]:
 
 # --- running the stages --------------------------------------------------------------------
 
+def _accept_author_revisions(src: str) -> dict:
+    """Accept the author's own pending tracked changes in the source before anything reads it (revisions.py), so
+    offsets refer to the accepted text; the file as received is kept next to it as <name>.as_received.docx."""
+    keep = os.path.splitext(src)[0] + ".as_received.docx"
+    shutil.copyfile(src, keep)
+    counts = revisions.accept_revisions(src)
+    if not sum(counts.values()):
+        os.remove(keep)
+    return counts
+
+
 def _run_copyedit(ms, st, existing: list[Change], lt_client, only):
     """copyedit.run_all, passing only the options its signature takes (it is developed separately)."""
     from . import copyedit
@@ -231,6 +269,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
     else:
         raise ValueError("input must be a .docx manuscript or a submission .zip")
     stem = os.path.splitext(os.path.basename(src))[0]
+    src_revisions = _accept_author_revisions(src)
 
     ms = docmodel.load(src)
     ms.front_sources = front_src
@@ -239,7 +278,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
     qs = queries.QuerySet()
     stage_info: dict[str, dict] = {}
     warnings: list[dict] = []
-    notes: list[str] = []
+    notes: list[str] = [revisions.note(src_revisions)] if sum(src_revisions.values()) else []
 
     if "style" in stages:
         say("style rules and front matter")
@@ -299,7 +338,9 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
 
     # a cover letter or reply to the reviewers that is deleted gets no heading tags or copy edits
     changes.changes = submission.drop_inside_deleted(changes.changes)
+    changes.changes += rules_guide.collapse_double_spaces(ms, st, changes.changes)  # none left by other changes
     _unique_ids(changes.changes)
+    queries.keep_anchors_live(ms, qs, changes.changes, inserts)  # never on a paragraph emptied or deleted
     qs.number(ms)
     if accept_all:
         for c in changes.changes:
@@ -311,7 +352,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
         "version": 1, "created_at": _now(), "input_name": os.path.basename(input_path),
         "source": os.path.relpath(src, outdir), "stem": stem, "journal": st.code, "journal_name": st.name,
         "stages": list(stages), "stage_info": stage_info, "warnings": warnings, "notes": notes,
-        "header": head_info, "editor": editor or "",
+        "header": head_info, "editor": editor or "", "source_revisions_accepted": src_revisions,
     }
     with open(os.path.join(outdir, MANIFEST), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
@@ -366,14 +407,17 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
 
     def render(kind: str, is_tracked: bool, statuses, comments: bool) -> docmodel.Manuscript:
         ms = docmodel.load(src)
-        if comments:
-            queries.write_comments(ms, qs)
+        plain = [n for n in inserts if not figures_insert.is_figure_insert(n) and not legends.is_move(n)
+                 and not leftovers.is_delete(n) and not supplied.is_import(n)]
+        if comments:  # a query on a front-matter paragraph inserted goes on that paragraph once it is in
+            queries.write_comments(ms, qs, deferred={n.id for n in plain if n.status in statuses})
         tracked.render(ms, changes, tracked=is_tracked, statuses=statuses, on_conflict=conflict(kind))
-        frontmatter.render_inserts(ms, [n for n in inserts if not figures_insert.is_figure_insert(n)
-                                        and not legends.is_move(n) and not leftovers.is_delete(n)
-                                        and not supplied.is_import(n)], tracked=is_tracked, statuses=statuses,
+        elements: dict = {}
+        frontmatter.render_inserts(ms, plain, tracked=is_tracked, statuses=statuses,
                                    run_format=lambda role: rules_format.insert_format(st, role),
-                                   align=lambda role: rules_format.insert_align(st, role))
+                                   align=lambda role: rules_format.insert_align(st, role), elements=elements)
+        if comments:
+            queries.write_insert_comments(ms, qs, elements)
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
                               align=st.get("figures.insert.align", "center"), run_format=run_fmt,
                               legend_align=run_align)
@@ -393,6 +437,7 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
                       run_format=run_fmt, align=run_align)
         if kind == "clean":
             tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
+            revisions.strip_comments(ms)  # nor the comments that came with the manuscript (kept in the tracked copy)
         return ms
 
     render("tracked", True, tracked_statuses, True).save(paths["tracked"])
@@ -410,7 +455,7 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         qc_doc = docmodel.load(paths["clean"])
     # compared with the manuscript as received too: the projected output holds every deletion the clean copy has
     report = qc.check(qc_doc, st, source=base, changes=changes, inserts=inserts,
-                      statuses=pending if n_pending else (Status.ACCEPTED,))
+                      statuses=pending if n_pending else (Status.ACCEPTED,), queries=qs.queries)
 
     summary = build_report(dict(man, notes=man.get("notes", []) + head_notes), changes, inserts, qdicts, report,
                            conflicts, n_pending)

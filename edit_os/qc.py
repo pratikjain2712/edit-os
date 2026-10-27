@@ -76,14 +76,63 @@ def _unary_after_word(text: str, m: re.Match) -> bool:
     if not (m.group(0).startswith(" ") and len(m.group(0)) == 2):
         return False
     word = re.search(r"([A-Za-z]+)\W*$", text[:m.start()])
+    if word and word.group(1) == "or":  # the conjunction ("P < 0.05 or <0.01"); the odds ratio is "OR"
+        return True
     return bool(word) and len(word.group(1)) >= 2 and word.group(1).lower() not in _STAT_WORDS
 
 
+def _keywords(listed: str) -> list[str]:
+    """The key words of a "Keywords:" line: a list delimited by semicolons keeps the commas inside its terms
+    ("Diabetes mellitus, type 2; education, professional"), otherwise commas and semicolons both delimit."""
+    parts = re.split(r";(?![^()]*\))", listed) if ";" in listed else re.split(r"[;,](?![^()]*\))", listed)
+    return [w.strip() for w in parts if w.strip()]
+
+
+def _split_keywords(listed: str) -> list[str]:
+    from .rules_sections import _split_keywords as split  # what the key-word rule sorted
+
+    return split(listed)
+
+
+def _sorted(words: list[str]) -> bool:
+    return [w.lower() for w in words] == sorted(w.lower() for w in words)
+
+
+def _author_count(authors: str) -> int:
+    """Authors in the author part of a reference: a group author after ";" ("...; Ethics, Law, and Humanities
+    Committee, a joint committee of ...") is one author whatever commas its name holds, and "Surname, I, Surname, I"
+    (APA order) counts one author per surname-initials pair."""
+    people, *groups = [g.strip() for g in authors.split(";")]
+    n = sum(1 for g in groups if g)
+    parts = [x.strip() for x in re.split(r",|\s&\s|\sand\s", people) if x.strip()]
+    parts = [re.sub(r"^(?:&|and)\s+", "", x) for x in parts]
+    initials = [x for x in parts if re.fullmatch(r"(?:[A-Z]\.?\s?-?){1,4}", x)]
+    return n + len(parts) - len(initials)
+
+
+def _queried_refs(queries) -> tuple[set[int], set[int]]:
+    """The reference numbers the author is asked about: (uncited entries, citations without an entry), from the
+    queries placed (queries.Query or their saved dicts; rejected ones excluded by the caller)."""
+    uncited, missing = set(), set()
+    for q in queries or ():
+        chk, text = (q.get("check"), q.get("text", "")) if isinstance(q, dict) else (q.check, q.text)
+        m = re.search(r"\d+", text or "")
+        if not m:
+            continue
+        if chk == "references.uncited":
+            uncited.add(int(m.group(0)))
+        elif chk == "references.missing_entry":
+            missing.add(int(m.group(0)))
+    return uncited, missing
+
+
 def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = None, changes=None, inserts=None,
-          statuses=None) -> Report:
+          statuses=None, queries=None) -> Report:
     """QC of `ms` (the rendered output) against the journal's rules. With `source` (the manuscript as received),
     also what the output kept of it (preservation.py): main sections, body text, cited references; `changes` and
-    `inserts` (with the `statuses` rendered into `ms`) say which rule deleted what and what was only moved."""
+    `inserts` (with the `statuses` rendered into `ms`) say which rule deleted what and what was only moved.
+    `queries` (the author queries placed): a reference problem the author is asked about is a warning, not an
+    error (`_queried_refs`)."""
     issues: list[Issue] = []
     if source is not None:
         from .changes import Status
@@ -106,26 +155,36 @@ def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = No
         for m in _SQUARE.finditer(p.text):
             if re.search(r"\s", m.group(2)) and not not_citation_before(p.text[:m.start()].rstrip(), False):
                 issues.append(Issue(ERROR, "citations.format", f"Space inside citation: [{m.group(2)}]", p.id))
+    uncited_q, missing_q = _queried_refs(queries)
+    blocked_q = any((q.get("check") if isinstance(q, dict) else q.check) == "references.renumber_blocked"
+                    for q in queries or ())
     cited, seen_max = set(), 0
     for para_id, nums in _citations(ms, style):
         for n in nums:
             if n not in cited and n > seen_max + 1:
-                issues.append(Issue(ERROR, "citations.order",
-                                    f"Reference {n} is cited before reference {seen_max + 1}", para_id))
+                # with an uncited entry or a citation without one queried, the list is not renumbered (guide E.g. 5,
+                # renumber.plan) and the author's answer settles the order; likewise a renumbering queried as blocked
+                asked = bool(uncited_q or missing_q or blocked_q)
+                issues.append(Issue(WARNING if asked else ERROR, "citations.order",
+                                    f"Reference {n} is cited before reference {seen_max + 1}"
+                                    + (" (queried)" if asked else ""), para_id))
             cited.add(n)
             seen_max = max(seen_max, n)
     numbers = [r.number for r in refs if r.number is not None]
     for n in numbers:
         if cited and n not in cited:
-            issues.append(Issue(ERROR, "references.cited", f"Reference {n} is not cited (author query needed)"))
+            issues.append(Issue(WARNING, "references.cited", f"Reference {n} is not cited (queried)") if n in uncited_q
+                          else Issue(ERROR, "references.cited", f"Reference {n} is not cited (author query needed)"))
     for n in sorted(cited - set(numbers)) if numbers else []:
-        issues.append(Issue(ERROR, "references.exists", f"Citation [{n}] has no entry in the reference list"))
+        asked = n in missing_q
+        issues.append(Issue(WARNING if asked else ERROR, "references.exists",
+                            f"Citation [{n}] has no entry in the reference list" + (" (queried)" if asked else "")))
 
     # Reference entries.
     max_authors = style.get("references.max_authors")
     for r in refs:
         authors = r.text.split(". ")[0]
-        if max_authors and "et al" not in authors and authors.count(",") + 1 > max_authors:
+        if max_authors and "et al" not in authors and _author_count(authors) > max_authors:
             issues.append(Issue(ERROR, "references.authors", f"Reference {r.number}: more than {max_authors} authors", r.para_id))
         if re.search(r"\b[A-Z]\.,", authors):
             issues.append(Issue(WARNING, "references.initials", f"Reference {r.number}: periods after initials", r.para_id))
@@ -135,11 +194,11 @@ def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = No
         m = re.match(r"^\s*(?:<H\d>)?\s*key\s*-?words?\s*[:.\-–]?\s*(.*)$", p.text, re.I)
         if not m:
             continue
-        words = [w.strip() for w in re.split(r"[;,]", m.group(1)) if w.strip()]
+        words = _keywords(m.group(1))
         lo, hi = style.get("keywords.min", 3), style.get("keywords.max", 5)
         if not lo <= len(words) <= hi:
             issues.append(Issue(WARNING, "keywords.count", f"{len(words)} keywords; journal needs {lo}-{hi} (query)", p.id))
-        if style.get("keywords.alphabetical") and [w.lower() for w in words] != sorted(w.lower() for w in words):
+        if style.get("keywords.alphabetical") and not _sorted(words) and not _sorted(_split_keywords(m.group(1))):
             issues.append(Issue(ERROR, "keywords.order", "Keywords are not in alphabetical order", p.id))
         break
 

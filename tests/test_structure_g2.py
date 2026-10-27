@@ -379,3 +379,21 @@ def test_a_repeated_picture_with_its_legend_after_the_references_stays(tmp_path)
     pics[1]._p.xpath(".//a:blip")[0].set(emb, pics[0]._p.xpath(".//a:blip")[0].get(emb))
     doc.save(path)
     assert leftovers.plan(docmodel.load(path), journal("jehp")) == []
+
+
+def _member(tmp_path, names, xml=None):
+    z = tmp_path / "m.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for n, size in names.items():
+            zf.writestr(n, b"x" * size)
+        if xml is not None:
+            zf.writestr("A.xml", xml)
+    return pipeline.manuscript_member(zipfile.ZipFile(z))
+
+
+def test_the_clean_manuscript_is_chosen_over_a_track_changes_copy(tmp_path):
+    assert _member(tmp_path, {"Manuscript-track changes.docx": 900, "Manuscript.docx": 500}) == "Manuscript.docx"
+    assert _member(tmp_path, {"Paper highlighted.docx": 900, "Paper.docx": 500}) == "Paper.docx"
+    xml = "<article><articlefile>Revised paper.docx</articlefile></article>"
+    assert _member(tmp_path, {"Manuscript-track changes.docx": 900, "Revised paper.docx": 500}, xml) == \
+        "Revised paper.docx"

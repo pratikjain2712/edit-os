@@ -366,6 +366,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
                                  # seldom do: owner's list)
     word_limit: {structured: 250, unstructured: 150}
     structured_case_report_query: true  # editors' query: case reports have no structured abstract
+    headings: []                 # the sheet's structured-abstract sub-headings (after `rename`); another one is
+                                 # queried (S: "Raise query in case of any deviation from these headings"); per journal
   keywords:
     heading: "Keywords:"         # every stylesheet; the generic guide says "Key words:"
     fix_heading: true
@@ -505,6 +507,8 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
   cite_journal: ""               # NLM abbreviation for the cite line; per journal below
   cite_max_authors: 6
   ltr_no_running_head_query: false
+  running_head_max: 50           # S (41 sheets): running title "Not more than 50 characters" (the short title after
+                                 # the surnames): a longer one is queried; null: no limit
   # Per-journal settings (merged over the above by the code the style is loaded with), from the stylesheets and the
   # editors' files. Journals loaded under an alias (Neurol -> ni, LungIndia -> lung, SMJ -> sgmj) keep theirs in
   # styles/<journal>.yaml under front_matter:, which applies whichever code is used.

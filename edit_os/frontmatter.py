@@ -51,7 +51,9 @@ queries.TEXT.update({
     "front.running_head": "Kindly provide running head.",
     "front.article_type": "Kindly provide article type.",
     "front.confirm_type": "Kindly confirm article type.",
-    "front.full_name": "Kindly provide full name.",
+    "front.full_name": "Kindly provide the full name of author “{name}”.",
+    "front.running_head_long": "The running title has more than {n} characters. Kindly shorten it to {n} characters "
+                               "or fewer.",
     "front.country": "Kindly provide the country name for the affiliation.",
 })
 
@@ -1262,9 +1264,9 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         atype = clean_article_type(atype)
     elif _imrad(ms):
         atype = "Original Article"
-        qs.append(("front.confirm_type", {}))
+        qs.append(("front.confirm_type", {"_block": "article_type"}))
     else:
-        qs.append(("front.article_type", {}))
+        qs.append(("front.article_type", {"_block": "article_type"}))
     letter = bool(re.search(r"letter", atype or "", re.I))
 
     # Title.
@@ -1278,8 +1280,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     for a in f.authors:
         name, full = format_name(a, cfg)
         names.append(name)
-        if not full:
-            qs.append(("front.full_name", {}))
+        if not full:  # on the author's name in the author group, naming the author
+            qs.append(("front.full_name", {"name": name, "_block": "authors", "_quote": name}))
 
     # Running head.
     surnames = [" ".join(_name_case(w, False) for w in a.surname.split()) for a in f.authors]
@@ -1301,7 +1303,10 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         rh += [(f"{surnames[0]}, ", plain), ("et al.", I)]
     rh.append((": " + (short or MISSING), plain))
     if not short and not (letter and cfg.get("ltr_no_running_head_query")):
-        qs.append(("front.running_head", {}))
+        qs.append(("front.running_head", {"_block": "running_head"}))
+    elif short and cfg.get("running_head_max") and len(short) > cfg["running_head_max"]:
+        # S (IJO, JEHP): the running title is "Not more than 50 characters"
+        qs.append(("front.running_head_long", {"n": cfg["running_head_max"], "_block": "running_head", "_quote": short}))
     blocks.append(Block("running_head", rh))
     if atype:
         blocks.append(Block("article_type", [(atype, B)]))
@@ -1402,7 +1407,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             if countries[gi] and last_of_country:
                 text += (", " if text else "") + _place_case(_clean_part(countries[gi]))
             elif not countries[gi] and last_of_country:
-                qs.append(("front.country", {}))
+                qs.append(("front.country", {"_block": "affiliations"}))
             runs.append((text, plain))
         blocks.append(Block("affiliations", runs))
     if f.equal_note:
@@ -1961,6 +1966,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     for b in blocks:
         by_role.setdefault(b.role, []).append(b)
     placed: dict[int, tuple[str, str]] = {}  # block index -> (para id, "in place")
+    block_insert: dict[int, NewParagraph] = {}  # block index -> the paragraph inserted for it
     # Paragraphs rewritten in place keep their position, so they must already stand in the blocks' order: an
     # "Article type:" line below the title cannot become the article type above it. Keep the heaviest run of
     # paragraphs in block order (`_in_order`); the others are deleted and their blocks inserted where they belong.
@@ -1991,6 +1997,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
                                              new="", layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="front_matter",
                                              provenance=prov))
                     pl.inserts.append(NewParagraph(f"fi{next(_ids)}", p.id, "after", b.runs, role, provenance=b.provenance))
+                    block_insert[outs[k]] = pl.inserts[-1]
                 else:
                     for c in ch:
                         c.provenance = prov
@@ -2020,6 +2027,7 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         if b.end and end_anchor:
             pl.inserts.append(NewParagraph(f"fi{next(_ids)}", end_anchor[0], end_anchor[1], b.runs, b.role,
                                            provenance=b.provenance))
+            block_insert[i] = pl.inserts[-1]
             continue
         if last is None:
             anchor = (first_placed or (first_any.id if first_any else None), "before")
@@ -2028,12 +2036,58 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         if anchor[0] is None:
             continue
         pl.inserts.append(NewParagraph(f"fi{next(_ids)}", anchor[0], anchor[1], b.runs, b.role, provenance=b.provenance))
-    anchor_q = first_placed or (first_any.id if first_any else None)
-    if anchor_q:
-        for check, fmt in qspecs:
-            pl.queries.append(queries.Query(anchor_q, 0, 0, queries.TEXT[check].format(**fmt), check))
+        block_insert[i] = pl.inserts[-1]
+    pl.queries += _front_queries(ms, pl, blocks, qspecs, placed, block_insert, first_placed or (
+        first_any.id if first_any else None))
     ms._front_plan = pl
     return pl
+
+
+def _front_queries(ms: Manuscript, pl: Plan, blocks: list[Block], qspecs: list[tuple[str, dict]],
+                   placed: dict[int, tuple[str, str]], block_insert: dict[int, "NewParagraph"],
+                   fallback: str | None) -> list[queries.Query]:
+    """The front-matter queries on the block they ask about: "Kindly provide the full name of author ..." on that
+    name in the author group, the running-head queries on the running head. A block rewritten in place carries the
+    query on its paragraph; a block inserted (or a paragraph replaced by one) carries it on the inserted paragraph
+    (`Query.insert_id`), never on a paragraph the front matter deletes. Without the block, the first paragraph of
+    the front matter that stays."""
+    deleted = {c.para_id for c in pl.changes if c.start == 0 and c.end == len(c.old) and c.old.strip() and not c.new}
+    stays = next((p.id for p in ms.paragraphs if p.text.strip() and p.id not in deleted), None)
+    first_insert = pl.inserts[0] if pl.inserts else None
+
+    def general(text: str, check: str) -> queries.Query | None:
+        if fallback is not None and fallback not in deleted:
+            return queries.Query(fallback, 0, 0, text, check)
+        if first_insert is not None:  # the top of the front matter, as delivered
+            return queries.Query(first_insert.anchor, 0, 0, text, check, insert_id=first_insert.id,
+                                 quote=first_insert.text)
+        return queries.Query(stays, 0, 0, text, check) if stays else None
+
+    out = []
+    for check, fmt in qspecs:
+        role, quote = fmt.get("_block"), fmt.get("_quote", "")
+        text = queries.TEXT[check].format(**{k: v for k, v in fmt.items() if not k.startswith("_")})
+        i = next((k for k, b in enumerate(blocks) if b.role == role), None) if role else None
+        q = None
+        if i is not None and i in block_insert:
+            n = block_insert[i]
+            s = n.text.find(quote) if quote else -1
+            q = queries.Query(n.anchor, max(s, 0), s + len(quote) if s >= 0 else 0, text, check, insert_id=n.id,
+                              quote=quote if s >= 0 else n.text)
+        elif i is not None and i in placed and placed[i][0] not in deleted:
+            p = ms.by_id(placed[i][0])
+            s = p.text.find(quote) if quote else -1
+            if s < 0 and quote:  # the name as written ("Natarajan S" for "S. Natarajan")
+                sur = quote.split()[-1]
+                s = p.text.find(sur)
+                quote = sur if s >= 0 else quote
+            q = queries.Query(p.id, max(s, 0), s + len(quote) if s >= 0 else 0, text, check)
+        if q is None:
+            q = general(text, check)
+        if q is None:
+            continue
+        out.append(q)
+    return out
 
 
 def _in_order(positions: list[int], weights: list[int]) -> set[int]:
@@ -2345,11 +2399,11 @@ def _run_el(text: str, fmt: dict, template_rpr):
 
 
 def render_inserts(ms: Manuscript, inserts: list[NewParagraph], tracked: bool = True, statuses=None,
-                   author: str = "Edit OS", run_format=None, align=None) -> int:
+                   author: str = "Edit OS", run_format=None, align=None, elements: dict | None = None) -> int:
     """Insert accepted NewParagraphs into the document; tracked as inserted paragraphs. Call after
     `tracked.render` (anchors are paragraph ids, which do not move). `run_format(role)` / `align(role)`: the
     journal's font and size for the runs and the paragraph's alignment (None: as the anchor's runs / the default).
-    Returns how many were placed."""
+    Returns how many were placed; `elements` (when given) collects each inserted w:p by its insert id."""
     statuses = statuses or (Status.ACCEPTED,)
     date = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     ids = count(8000)
@@ -2397,5 +2451,7 @@ def render_inserts(ms: Manuscript, inserts: list[NewParagraph], tracked: bool = 
             prev = last_after.get(np_.anchor, anchor)
             prev.addnext(p)
             last_after[np_.anchor] = p
+        if elements is not None:
+            elements[np_.id] = p
         placed += 1
     return placed

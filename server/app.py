@@ -372,6 +372,9 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         out = []
         for q in qdicts:
             t = texts.get(q["para_id"], "")
+            if q.get("insert_id"):  # on a front-matter paragraph Edit OS inserts
+                out.append({**q, "anchor": q.get("quote", ""), "paragraph": q.get("quote", "")})
+                continue
             out.append({**q, "anchor": t[q["start"]:q["end"]] if q["end"] > q["start"] else "",
                         "paragraph": t})
         return {"job_id": job["id"], "items": out}

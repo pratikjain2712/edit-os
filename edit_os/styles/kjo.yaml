@@ -30,6 +30,7 @@ figures:
   table_caption_end_period: delete  # the sheet has no "The caption should end with a period": G200 deletes it
 
 front_matter:
+  running_head_max: null        # the KJO sheet has no running-title row
   group_departments: true       # no rule in this stylesheet: the guide groups duplicate affiliations
   affiliation_country_each: false
   dates: {labels: [Submitted, Revised, Accepted], format: "%d-%b-%Y"}  # S: "Submitted: 12‑May‑2021"

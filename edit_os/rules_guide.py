@@ -425,3 +425,133 @@ def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
             out.append(Change(id=f"g{next(_ids)}", para_id=p.id, start=s, end=e, old=p.text[s:e], new=new,
                               layer=Layer.HOUSE_STYLE, source=Source.RULE, reason=f"guide.{name}"))
     return out
+
+
+# --- double spaces left by other changes ----------------------------------------------------------------------------
+
+_RUN = re.compile(r"(?<=\S)[  ]{2,}(?=\S)")
+
+
+def collapse_double_spaces(ms: Manuscript, style: JournalStyle, changes: list[Change]) -> list[Change]:
+    """Double spaces the output would still hold once every change is applied (where the journal's double_space
+    rule is on): those the rule's own proposal lost to an overlapping change ("(1).  It" where the citation moves),
+    and those another change makes ("  " once the no-break space becomes a space, a deletion between two spaces).
+
+    Runs after all rules and checkers, on the text as the changes leave it. A run made only of the manuscript's own
+    spaces gets a deletion of all but one; a run that holds spaces a change inserts keeps that one and loses the
+    manuscript's; a change whose replacement itself holds two spaces in a row has them closed up (unless its
+    replacement carries per-piece formatting). New changes are returned; touched changes are edited in place."""
+    from .copyedit.common import near_hidden
+    from .tracked import PARAGRAPH_BREAK
+
+    cfg = settings(style)
+    if not cfg.get("double_space"):
+        return []
+    tables = bool(cfg.get("include_tables")) or "double_space" in (cfg.get("table_rules") or [])
+    by_para: dict[str, list[Change]] = {}
+    for c in changes:
+        if not c.format_only:
+            by_para.setdefault(c.para_id, []).append(c)
+    out: list[Change] = []
+    for p in _paragraphs(ms, tables):
+        if p.in_table and not tables or looks_like_reference(p.text):
+            continue
+        cs = sorted(by_para.get(p.id, []), key=lambda c: (c.start, c.end))
+        if any(b.start < a.end for a, b in zip(cs, cs[1:])):
+            continue  # overlapping proposals: the renderer reports them; nothing to add here
+        text = p.text
+        # the projected text, with each character's origin: an index into `text`, or (change, index into its new)
+        proj, origin, pos = [], [], 0
+        for c in cs + [None]:
+            stop = len(text) if c is None else c.start
+            for k in range(pos, stop):
+                proj.append(text[k])
+                origin.append(k)
+            if c is None:
+                break
+            for k, ch in enumerate(c.new):
+                proj.append(ch)
+                origin.append((c, k))
+            pos = c.end
+        projected = "".join(proj)
+        guard = _protected(text)
+        hidden = None
+        for m in _RUN.finditer(projected):
+            if PARAGRAPH_BREAK in projected[max(0, m.start() - 1):m.end() + 1]:
+                continue
+            src = [o for o in origin[m.start():m.end()] if isinstance(o, int)]
+            ins = [o for o in origin[m.start():m.end()] if not isinstance(o, int)]
+            if src:
+                if any(gs <= s < ge for s in src for gs, ge in guard):
+                    continue
+                hidden = _shown_hidden(p) if hidden is None else hidden
+                if near_hidden(min(src), max(src) + 1, hidden):
+                    continue
+            drop = src if ins else [s for s in src if s != next((x for x in src if text[x] == " "), src[0])]
+            if ins and len(ins) > 1:
+                _close_up(ins)
+            for lo, hi in _ranges(drop):
+                if _absorb(cs, text, lo, hi):
+                    continue
+                out.append(Change(id=f"g{next(_ids)}", para_id=p.id, start=lo, end=hi, old=text[lo:hi], new="",
+                                  layer=Layer.HOUSE_STYLE, source=Source.RULE, reason="guide.double_space"))
+    return out
+
+
+def _absorb(cs: list[Change], text: str, lo: int, hi: int) -> bool:
+    """Take the spaces text[lo:hi] into the change right next to them, so they go only if that change is accepted
+    (a deletion between two spaces: rejected, both spaces come back). Not when another change also touches that
+    point (an insertion there would no longer be ordered with it) or the change formats its text piece by piece."""
+    for c in cs:
+        if c.end == lo:
+            point, grow = lo, "end"
+        elif c.start == hi:
+            point, grow = hi, "start"
+        else:
+            continue
+        if isinstance((c.segment_format or [None])[0], list) or c.new.startswith("\u2029") or \
+                any(d is not c and (d.start == point or d.end == point) for d in cs):
+            continue
+        if grow == "end":
+            c.end = hi
+        else:
+            c.start = lo
+        c.old = text[c.start:c.end]
+        return True
+    return False
+
+
+def _shown_hidden(p: Paragraph) -> list[int]:
+    """Offsets where the paragraph shows something the text view leaves out (a Symbol-font character, a drawing,
+    an object): a space there is not a double space. Field boundaries are not among them: a field's result is in
+    the text view (EndNote's "(1)"), so the spaces around it are what the reader sees."""
+    from docx.oxml.ns import qn
+
+    from .docmodel import run_text, text_runs
+
+    shown = {qn("w:sym"), qn("w:drawing"), qn("w:object"), qn("w:pict")}
+    out, pos = [], 0
+    for r in text_runs(p.element):
+        if any(c.tag in shown for c in r):
+            out.append(pos)
+        pos += len(run_text(r))
+    return out
+
+
+def _ranges(idx: list[int]) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for i in sorted(idx):
+        if out and out[-1][1] == i:
+            out[-1] = (out[-1][0], i + 1)
+        else:
+            out.append((i, i + 1))
+    return out
+
+
+def _close_up(ins: list) -> None:
+    """Spaces from replacement texts in one run: keep the first, take the others out of their change's new text
+    (a change with per-piece formatting is left as it is)."""
+    for c, k in sorted(ins[1:], key=lambda o: -o[1]):
+        if isinstance((c.segment_format or [None])[0], list):
+            continue
+        c.new = c.new[:k] + c.new[k + 1:]

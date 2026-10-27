@@ -251,6 +251,31 @@ def _to_deleted(run) -> None:
         t.tag = qn("w:delText")
 
 
+def _vert(run) -> bool:
+    va = run.find(f"{qn('w:rPr')}/{qn('w:vertAlign')}")
+    return va is not None and va.get(qn("w:val")) in ("superscript", "subscript")
+
+
+def _insert_template(spans, c: Change):
+    """The run a pure insertion copies its formatting from: the nearest run before it that shows text (field-code
+    and bookmark runs of no length never got the paragraph's size or font), else the first after it. Text that is
+    not itself raised or lowered skips a superscript / subscript neighbour (a "." moved before a citation takes the
+    sentence's 12 pt, not the citation's size)."""
+    plain = not any(f.get("superscript") or f.get("subscript") for _, f in c.pieces(0, c.new.split(PARAGRAPH_BREAK)[0])
+                    if f) and not (c.format or {}).get("superscript") and not (c.format or {}).get("subscript")
+    before = [r for r, s, e in spans if e <= c.start and e > s]
+    after = [r for r, s, e in spans if s >= c.end and e > s]
+    for group in (before[::-1], after):
+        for r in group:
+            if not plain or not _vert(r):
+                return r
+    if before or after:
+        return (before or after)[-1 if before else 0]
+    before = [r for r, s, e in spans if e <= c.start]
+    after = [r for r, s, e in spans if s >= c.end]
+    return before[-1] if before else (after[0] if after else None)
+
+
 def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date: str) -> None:
     text = paragraph_text(p_el)
     formats = [c for c in changes if c.format_only]
@@ -302,7 +327,7 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
         doomed = [r for r, s, e in spans if s >= c.start and e <= c.end and e > s]
         before = [r for r, s, e in spans if e <= c.start]
         after = [r for r, s, e in spans if s >= c.end]
-        template = doomed[0] if doomed else (before[-1] if before else (after[0] if after else None))
+        template = doomed[0] if doomed else _insert_template(spans, c)
 
         anchor = None  # element the inserted run goes after
         for r in doomed:
@@ -321,7 +346,7 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
         if doomed and tracked:
             anchor.addnext(ins)
         elif after:
-            after[0].addprevious(ins)
+            _before_point(p_el, after[0]).addprevious(ins)
         elif before:
             before[-1].addnext(ins)
         else:
@@ -452,6 +477,16 @@ def _mark_inserted(p_el, ids: _Ids, author: str, date: str) -> None:
     mark.set(qn("w:author"), author)
     mark.set(qn("w:date"), date)
     rpr.insert(0, mark)
+
+
+def _before_point(p_el, run):
+    """The element new text goes in front of, to land just before `run`: the run itself, or, when the run opens a
+    container (a hyperlink, a simple field, another change's tracked insertion), that container, so the new text is
+    not drawn into it and a paragraph can start there."""
+    top = _top(p_el, run)
+    if top is not run and next(top.iter(qn("w:r")), None) is run:
+        return top
+    return run
 
 
 def _break_paragraph(p_el, ins, after, segments, template, c: Change, tracked, ids, date) -> None:

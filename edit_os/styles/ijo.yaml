@@ -158,6 +158,9 @@ sections:
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
              patient and methods: Methods, aim: Purpose, aims: Purpose}
     word_limit_query: false  # the IJO sheet has no word-limit line
+    # S: 'Change “Aim” to “Purpose', '... change as only “Methods', 'raise a query for “Conclusion” if missing' and
+    # "Raise query in case of any deviation from these headings": other sub-headings ("Design", "Setting") queried
+    headings: [Purpose, Methods, Results, Conclusion]
     heading_case: true       # S: 'The word "Abstract" should be added as heading': "ABSTRACT" (typed or all-caps) -> "Abstract"
     heading_bold: true       # ... 'in bold style and left aligned' (an inline "ABSTRACT: We report ..." split off)
     unbold_text: true        # S: "Abstract text should not be in bold"
