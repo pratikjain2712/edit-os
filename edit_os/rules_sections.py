@@ -2278,8 +2278,12 @@ TEXT = {
 
 def duplicate_headings(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, int, int, str]]:
     """(paragraph, start, end, heading) for a heading the text gives twice in a row: a heading line, then the same
-    heading again on its own line or as the run-in label of the next paragraph ("Sleep Habits
-    Questionnaire:" over "Sleep Habits Questionnaire: A three-item ...")."""
+    heading again as a heading of its own (a line, or a run-in label the heading rules split off its text:
+    "Sleep Habits Questionnaire:" over "Sleep Habits Questionnaire: A three-item ...").
+
+    A run-in label left in its paragraph under the same heading ("<H2>Ethical considerations" over "Ethical
+    Considerations: The study ...") is not a second heading and is not queried: JEHP's and MJDRDYPU's editors leave
+    it as written (jehp_1044, mjdrdypu_601: 2 of 2 kept, no query)."""
     from .rules_format import _tagged_headings
 
     levels = _tagged_headings(ms, style)
@@ -2292,9 +2296,10 @@ def duplicate_headings(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragr
         head = _key(p.text)
         if not head or len(head) < 4:
             continue
-        cut = ends.get(q.id) if q.id in levels else None
-        lead = re.match(r"\s*(?:\d+(?:\.\d+)*\.?\s+)?([^:]{3,120}?)\s*:", q.text)
-        label = q.text[:cut] if cut else q.text if q.id in levels else lead.group(1) if lead else ""
+        if q.id not in levels:
+            continue  # a run-in label kept in its paragraph: the editors leave it
+        cut = ends.get(q.id)
+        label = q.text[:cut] if cut else q.text
         if label and _key(label) == head:
             s = len(q.text) - len(q.text.lstrip())
             out.append((q, s, s + len(label.strip()), p.text.strip().rstrip(":").strip()))

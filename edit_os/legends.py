@@ -30,7 +30,6 @@ Settings: `figures.legends_to_end`, `figures.legends_heading`, `figures.legends_
 
 from __future__ import annotations
 
-import copy
 import re
 from dataclasses import dataclass, field
 
@@ -469,7 +468,7 @@ def _is_inserted(el) -> bool:
 def _detach(els: list, mk) -> list:
     """The elements to place at the new position; in the tracked copy the originals stay, deleted, and copies with
     the edits accepted go in as insertions (a paragraph that is itself an insertion just moves)."""
-    from .header import _accept, _mark_block, _reject
+    from .header import _mark_block, _reject, moved_copy
 
     if not mk.tracked:
         return els
@@ -478,8 +477,7 @@ def _detach(els: list, mk) -> list:
         if _is_inserted(e):
             out.append(e)
             continue
-        c = copy.deepcopy(e)
-        _accept(c)
+        c = moved_copy(e)
         _mark_block(c, mk, "w:ins")
         _reject(e)
         _mark_block(e, mk, "w:del")

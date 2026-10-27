@@ -476,7 +476,7 @@ def format_article(a: Article, style: JournalStyle, text: str) -> tuple[str, lis
     if a.authors_raw:
         queries.append(("references.author_style", {}))
     if a.full_names:
-        queries.append(("references.author_names", {}))
+        queries.append(("references.full_names", {}))
     if not a.volume:
         queries.append(("references.no_volume", {}))
     elif not a.pages:

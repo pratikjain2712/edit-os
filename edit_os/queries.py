@@ -31,7 +31,16 @@ TEXT = {
     "references.no_pages": "Kindly provide page numbers.",
     "references.record_differs": "The {what} given here differs from the published article. Kindly check.",
     "references.author_style": "The author names could not be set in the journal's style (surname followed by initials). Kindly check and provide them.",
-    "references.author_names": "The author names could not be verified against PubMed / CrossRef. Kindly check.",
+    "references.author_names": "The author names differ from the published article ({pairs}). Kindly check.",
+    "references.author_order": "The order of the authors differs from the published article ({names}). Kindly "
+                               "check.",
+    "references.author_count": "The published article lists {n} authors ({names}). Kindly check.",
+    "references.author_names_incomplete": "The published record gives incomplete author names ({names}), so the "
+                                          "author names could not be verified. Kindly check.",
+    "references.author_names_unlisted": "The published record lists no authors, so the author names could not be "
+                                        "verified. Kindly check.",
+    "references.full_names": "The author names were given in full and have been changed to surname and initials. "
+                             "Kindly check.",
     "references.book_et_al": "Kindly provide minimum 6 author names before et al.",
     "references.link_dead": "Link is not working. Kindly check.",
     "references.link_redirect": "The link now opens a different page ({url}). Kindly check and provide the correct URL.",
@@ -161,6 +170,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
             qs.add(ref.para_id, "references.book_et_al", **span)
         added = {q.check for q in qs.queries if q.para_id == ref.para_id}
         for check, fmt in res.queries:  # books, links, reports (refs_other); fields missing from a styled entry
+            if check == "references.full_names" and res.status == refengine.QUERY:
+                continue  # already queried as not found: "provide complete details" covers the names
             if check not in added:
                 qs.add(ref.para_id, check, **fmt, **span)
 

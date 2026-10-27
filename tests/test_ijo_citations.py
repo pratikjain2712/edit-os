@@ -158,8 +158,8 @@ def test_author_name_against_the_reference_list(tmp_path):
     path = _save(tmp_path, body + _refs(4, first))
     st = _style()
     qs = [q for q in queries.collect(docmodel.load(path), st).queries if q.check == "references.author_mismatch"]
+    # "Mariot" for "Marriot": a doubled letter is a spelling variant, not another author (owner, 2026-10-27)
     assert [q.text.split(": ", 1)[1] for q in qs] == [
-        "Rowan et al. is cited as reference 1, whose first author is Hale JS.",
-        "Mariot et al. is cited as reference 3, whose first author is Marriot A."]
+        "Rowan et al. is cited as reference 1, whose first author is Hale JS."]
     st.settings["citations"]["author_match_query"] = False
     assert not [q for q in queries.collect(docmodel.load(path), st).queries if q.check == "references.author_mismatch"]

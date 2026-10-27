@@ -156,6 +156,24 @@ def _is_heading(p: Paragraph) -> bool:
     return p.text.lstrip().startswith("<H") or (len(p.text) < 80 and not p.text.rstrip().endswith("."))
 
 
+def _label_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"<H\d>", "", text.lower()))
+
+
+def _repeats_heading(ms: Manuscript, p: Paragraph, end: int) -> bool:
+    """`p` opens with a run-in label ending after `end` that repeats the heading line just above it ("<H2>Attitudes
+    Scale (AS)" over "Attitudes Scale (AS): The ..."): a definition in that label repeats the heading's."""
+    colon = p.text.find(":")
+    if colon < end or colon > 160:
+        return False
+    i = next((k for k, q in enumerate(ms.paragraphs) if q.id == p.id), 0)
+    prev = next((q for q in reversed(ms.paragraphs[:i]) if q.text.strip()), None)
+    if prev is None or prev.in_table or not _is_heading(prev):
+        return False
+    head = _label_key(prev.text.strip().rstrip(":"))
+    return bool(head) and _label_key(p.text[:colon]) == head
+
+
 def _main_heading(p: Paragraph) -> bool:
     text = p.text.strip()
     m = _HEAD.match(text)
@@ -540,8 +558,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                 continue  # its definitions lose "(ABBR)" instead
             for d in ds[1:]:
                 p = ms.by_id(d.para_id)
-                if p.text[d.paren_start:d.end] != f"({key})" or _is_heading(p):
-                    continue  # "(ABBR; n = 12)" and headings: leave for the editor
+                if p.text[d.paren_start:d.end] != f"({key})" or _is_heading(p) or _repeats_heading(ms, p, d.end):
+                    continue  # "(ABBR; n = 12)", headings and a run-in label repeating its heading: leave as written
                 if mode == "change":
                     changes.append(change(p, d.start, d.end, key, "abbreviations",
                                           reason="abbreviation defined twice"))

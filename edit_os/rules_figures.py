@@ -95,7 +95,8 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
         cap = paras[k] if k >= 0 and paras[k].id in cap_ids else next((p for p in cells if p.id in cap_ids), None)
         if cap is None:
             continue  # not a numbered table (an appendix grid, a layout table)
-        anchor = cap
+        # on the footnote, where the expansions go; the caption when the table has none
+        anchor = next((q for q in block if q.text.strip()), cap)
         # abbreviations
         defined = {d.short for p in cells for d in abbrev.definitions(p)}
         allow = set(style.get("copyedit.abbreviations.allow") or [])

@@ -268,7 +268,7 @@ def test_malformed_record_keeps_the_authors_names_and_asks(db):
     res = refengine.resolve(ENTRY, style.load("ijo"))
     assert res.status == refengine.FORMAT_FIXED
     assert res.formatted.startswith("Okoro A, Lindqvist B, Haddad C. ")
-    assert ("references.author_names", {}) in res.queries
+    assert ("references.author_names_incomplete", {"names": "B S, R S"}) in res.queries
 
 
 def test_record_without_authors_is_written_from_its_title():

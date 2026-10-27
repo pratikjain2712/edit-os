@@ -242,6 +242,23 @@ def run_props(p: Paragraph, styles: _Styles) -> list[dict]:
     return out
 
 
+def char_style_bold(p: Paragraph, styles: _Styles) -> list[bool]:
+    """For each character of `p.text`: bold only through a character style ("Strong", "Emphasis bold"), not set on
+    the run itself nor by the paragraph style. A heading bold that way loses it with the author's character style
+    (and reads as not bold where the style is not carried), so the heading rule sets bold on the run."""
+    ppr_style = p.element.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+    para_bold = bool(styles.props(ppr_style.get(qn("w:val")) if ppr_style is not None else None).get("bold"))
+    out: list[bool] = []
+    for r in text_runs(p.element):
+        rpr = r.find(RPR)
+        rs = rpr.find(qn("w:rStyle")) if rpr is not None else None
+        direct = _direct(rpr).get("bold")
+        flag = (not para_bold and direct is None and rs is not None
+                and bool(styles.props(rs.get(qn("w:val"))).get("bold")))
+        out += [flag] * len(run_text(r))
+    return out
+
+
 _BRIDGE = 3  # at most this many letters already in the wanted state are bridged
 
 
@@ -455,7 +472,10 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
         if p.id in tagged and not front and not label:
             if levels[p.id] not in unbold_levels:
                 end = (getattr(ms, "_heading_ends", {}) or {}).get(p.id) or len(text)
-                emit(p, _regions(text[:end], lambda i: not text[i].isspace() and not f[i].get("bold"), is_("bold")),
+                # bold only through a character style ("Strong") counts as not bold: the run gets its own bold
+                cs = char_style_bold(p, styles)
+                weak = (lambda i: not f[i].get("bold") or cs[i]) if len(cs) == len(text) else is_not("bold")
+                emit(p, _regions(text[:end], lambda i: not text[i].isspace() and weak(i), lambda i: not weak(i)),
                      {"bold": True}, "fmt_heading_bold", Layer.STRUCTURE)
         elif kind == "heading" and not front:
             # A section heading is short and stands alone ("Keywords: a; b" is a labelled paragraph).

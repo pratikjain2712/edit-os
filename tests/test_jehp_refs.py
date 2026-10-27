@@ -61,7 +61,7 @@ def test_full_names_put_as_surname_and_initials_and_queried():
     assert names == ["Bonyani A", "Safaeian L", "Chehrazi M"] and not et_al
     res = refstyle.style_unverified(refengine.Resolution(refengine.QUERY, refengine.parse(text)), text, jehp())
     assert res.formatted.startswith("Bonyani A, Safaeian L, Chehrazi M. A high school-based")
-    assert ("references.author_names", {}) in res.queries
+    assert ("references.full_names", {}) in res.queries
     assert refstyle.full_name_authors("World Health Organization, Ministry Health. Title") is None
 
 

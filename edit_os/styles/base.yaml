@@ -39,7 +39,7 @@ headings:
                                   # ("Data availability", "Consent for publication") -> <H2>
   sentence_case_brackets: false  # sentence case also in brackets whose words the text writes in lower case:
                                  # "(In Vitro)" -> "(in vitro)" ("(Index Case)" kept: IJO editors)
-  duplicate_query: true  # a heading given twice in a row (own line, or as the next paragraph's run-in label) -> query
+  duplicate_query: true  # a heading given twice in a row (own line, or a run-in label split off as a heading) -> query
   nested_subheadings: false  # a head over another head is its parent (<H2> over <H3>), heads over a caption, bold run-in
                              # methods labels split off, Word heading styles giving the level (per journal: JEHP)
   case_report_methods_sections: false  # in a case report, the first own-line head under "Methods" that is not a case

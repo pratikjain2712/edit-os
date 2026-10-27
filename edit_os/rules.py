@@ -1000,9 +1000,25 @@ def author_name_mismatches(ms: Manuscript, style: JournalStyle) -> list[tuple[Pa
             parts = {_name_key(w) for w in re.split(r"[\s\-‐]+", first) if not _is_initials(w)}
             if not words or not keys or _mention_matches(words, keys[0]) or _name_key(words[-1]) in parts:
                 continue  # "Nalcacioglu et al." for "Nalcacioglu-Yüksekkaya P"
+            if any(_same_name(" ".join(words[i:]), k) for i in range(len(words)) for k in parts | {keys[0]}):
+                continue  # a transliteration: "Al'Hamid et al." for "Alhammid K"
             start = before.rfind(words[0], 0, m.start())
             out.append((p, start, e, words[-1], nums[0], first))
     return out
+
+
+def _translit_key(s: str) -> str:
+    """A name with apostrophes, hyphens and spaces dropped, diacritics folded and doubled letters collapsed:
+    "Ba’ezat" and "Baezzat" -> "baezat"."""
+    return re.sub(r"(.)\1+", r"\1", _name_key(s.translate(refengine._LETTERS)))
+
+
+def _same_name(a: str, b: str) -> bool:
+    """Two spellings of one surname (transliteration variants): equal once folded, or nearly so (ratio >= 0.85)."""
+    from rapidfuzz.fuzz import ratio
+
+    ka, kb = _translit_key(a), _translit_key(b)
+    return bool(ka) and bool(kb) and (ka == kb or ratio(ka, kb) >= 85)
 
 
 def add_author_queries(ms: Manuscript, style: JournalStyle, qs) -> None:

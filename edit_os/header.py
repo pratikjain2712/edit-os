@@ -353,8 +353,33 @@ def _blocks(ms: Manuscript, item: dict) -> dict[int, list] | None:
     return {old: kids[lo:hi + 1] for old, (lo, hi) in spans.items()}
 
 
-def _accept(el) -> None:
-    """The element as it reads with every revision in it accepted (for the inserted copy)."""
+_COMMENT_TAGS = ("w:commentRangeStart", "w:commentRangeEnd", "w:commentReference")
+
+
+def moved_copy(el):
+    """The inserted copy of a block that moves (every revision in it accepted). Author queries go with the text:
+    each Word comment whose anchor survives whole in the copy (start, end and reference) is taken off the deleted
+    original, so a query on a table caption put into its table's first row sits on the caption there, not on the
+    empty paragraph left behind; the rest stay on the original."""
+    c = copy.deepcopy(el)
+    _accept(c, comments=True)
+    have = {tag: {x.get(qn("w:id")) for x in c.iter(qn(tag))} for tag in _COMMENT_TAGS}
+    whole = have["w:commentRangeStart"] & have["w:commentRangeEnd"] & have["w:commentReference"]
+    for root, drop in ((c, lambda i: i not in whole), (el, lambda i: i in whole)):
+        for tag in _COMMENT_TAGS:
+            for x in list(root.iter(qn(tag))):
+                if drop(x.get(qn("w:id"))):
+                    parent = x.getparent()
+                    parent.remove(x)
+                    if tag == "w:commentReference" and parent.tag == qn("w:r") and \
+                            not [k for k in parent if k.tag != qn("w:rPr")]:
+                        parent.getparent().remove(parent)  # the reference's own run, now empty
+    return c
+
+
+def _accept(el, comments: bool = False) -> None:
+    """The element as it reads with every revision in it accepted (for the inserted copy). `comments`: keep the
+    Word comment anchors (they move with the text, see `carry_comments`)."""
     # A paragraph inside it whose mark is deleted joins the paragraph after it (an empty paragraph in a table cell
     # deleted: rules_tables.render_cell_blanks).
     for p in list(el.iter(qn("w:p"))):
@@ -388,7 +413,7 @@ def _accept(el) -> None:
                 i += 1
             par.remove(x)
     for tag in ("w:rPrChange", "w:pPrChange", "w:trPrChange", "w:tcPrChange", "w:tblPrChange",
-                "w:commentRangeStart", "w:commentRangeEnd", "w:commentReference", "w:bookmarkStart", "w:bookmarkEnd"):
+                "w:bookmarkStart", "w:bookmarkEnd") + (() if comments else _COMMENT_TAGS):
         for x in list(el.iter(qn(tag))):
             x.getparent().remove(x)
 
@@ -505,9 +530,8 @@ def move_blocks(ms: Manuscript, info: dict, changes: ChangeSet, statuses, *, tra
                 # A paragraph already deleted (a caption moved into its table, legends.py) stays where it is, deleted.
                 els = [e for e in els if not (e.tag == qn("w:p") and e.find(f"{qn('w:pPr')}/{qn('w:rPr')}/{qn('w:del')}")
                                               is not None and not paragraph_text(e).strip())]
-                copies = [copy.deepcopy(e) for e in els]
+                copies = [moved_copy(e) for e in els]
                 for c in copies:
-                    _accept(c)
                     _mark_block(c, mk, "w:ins")
                 for e in els:
                     _reject(e)

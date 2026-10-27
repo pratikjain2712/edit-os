@@ -753,6 +753,65 @@ def malformed_authors(r: biblio.Record) -> bool:
     return any(_bad_name(s, i) for s, i in r.authors)
 
 
+_AFFILIATION = re.compile(r"\b(?:department|university|hospital|faculty|school|division|institute|center|centre|"
+                          r"college|research|ministry)\b", re.I)
+
+
+def _name_key(name: str) -> str:
+    """A name for spotting transliteration variants: letters only, accents folded, doubled letters single."""
+    return re.sub(r"(.)\1+", r"\1", re.sub(r"[^a-z]", "", fold_name(name)))
+
+
+def same_written_name(a: str, b: str) -> bool:
+    """Two writings of one author's name ("Esmaeili H" / "Esmeili H", "Ba'ezat F" / "Baezzat F", a record's slip
+    "LIAGN Y" for "LIANG Y"): equal once folded, nearly so (ratio >= 0.85), or one transposed pair of letters."""
+    ka, kb = _name_key(a), _name_key(b)
+    if not ka or not kb:
+        return False
+    if ka == kb or fuzz.ratio(ka, kb) >= 85:
+        return True
+    return len(ka) == len(kb) and sorted(ka) == sorted(kb) and \
+        sum(x != y for x, y in zip(ka, kb)) == 2  # "liagny" / "liangy"
+
+
+def author_name_query(p: Parsed, r: biblio.Record) -> tuple[str, dict] | None:
+    """The query on the author's names kept over a record whose author list is broken (affiliations in it, names
+    split up, capitals): what the record says otherwise -- a name written differently, another order, a name the
+    record cannot give -- or None when the record's names (affiliations aside) agree with the author's."""
+    ours = [a for a in p.authors if not re.fullmatch(r"\s*et\.?\s+al\.?\s*", a, re.I)]
+    people = [(s, i) for s, i in r.authors
+              if s.strip() and not (not i and ("," in s or _AFFILIATION.search(s) or len(s.split()) > 4))]
+    if not people:
+        return ("references.author_names_unlisted", {})
+    # ("HE N", "YUE Y" in capitals read as initials: a real name when the author wrote the same one)
+    broken = []
+    for s, i in people:
+        name = f"{s} {i}".strip()
+        if _bad_name(s, i) and not any(same_written_name(a, name) for a in ours):
+            broken.append(name)
+    if broken:
+        return ("references.author_names_incomplete", {"names": ", ".join(broken)})
+    theirs = [f"{s} {i}".strip() for s, i in people]
+    et_al = len(ours) < len(p.authors)
+    if et_al:
+        theirs = theirs[:len(ours)]
+    if len(ours) == len(theirs) and all(same_written_name(a, b) for a, b in zip(ours, theirs)):
+        return None
+    left = list(theirs)
+    for a in ours:
+        k = next((k for k, b in enumerate(left) if same_written_name(a, b)), None)
+        if k is None:
+            break
+        left.pop(k)
+    else:
+        if not left:
+            return ("references.author_order", {"names": ", ".join(theirs)})
+    if len(ours) != len(theirs) and not et_al:
+        return ("references.author_count", {"n": len(theirs), "names": ", ".join(theirs)})
+    pairs = [f"{a} vs {b}" for a, b in zip(ours, theirs) if not same_written_name(a, b)]
+    return ("references.author_names", {"pairs": "; ".join(pairs)})
+
+
 # Lower-case particles a surname may open with (G63: "van", "von", "der", "de" ... are part of the surname).
 _PARTICLES = frozenset("van von der den de del della di da das dos du la le ter ten bin binti al el ibn zu af av".split())
 
@@ -1290,7 +1349,9 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         if not p.authors:
             return style_unverified(Resolution(QUERY, p, record, message="Record's author names are malformed"),
                                     text, style, fields)
-        queries.append(("references.author_names", {}))  # the author's names are kept: ask to check them
+        q = author_name_query(p, record)  # the author's names are kept: ask about what the record says otherwise
+        if q:
+            queries.append(q)
     formatted = format_record(record, style, p) + errata(text, style)
     t, _, _ = score(p, record)
     status = MATCHED if fold(formatted) == fold(text) and formatted.rstrip() == text.rstrip() else FORMAT_FIXED
