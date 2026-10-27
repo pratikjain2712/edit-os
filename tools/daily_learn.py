@@ -17,8 +17,9 @@ Run every afternoon by a scheduled Claude Code cloud session (fresh container, t
    newest first) and the fixed per-journal held-out set (<prefix>heldout.json; picked once per journal, never used
    for learning) with the repository's own tools: tools/evaluate.py (style closure, joined paragraphs),
    tools/eval_final.py (rule precision vs ce.docx, bigram closure of text / references / front matter),
-   tools/eval_refs.py, tools/eval_frontmatter.py, tools/eval_format.py (the editors' formatting) and the QC report
-   (qc.check incl. content.*). Results: <prefix>results/<id>.json;
+   tools/eval_refs.py, tools/eval_frontmatter.py, tools/eval_format.py (the editors' formatting), the QC report
+   (qc.check incl. content.*) and tools/defect_scan.py (defects of the rendered files themselves: headings not bold,
+   queries on deleted text, paragraphs lost, tracked-change residue, ...). Results: <prefix>results/<id>.json;
 3. learns (tools/learn.py; deterministic): autopilot hold / release candidates per journal from rule precision over
    the last `window` articles, editor-only edit patterns as new-rule proposals (never applied), stylesheet rules
    nearly all editors go against as owner questions, regressions against the previous run;
@@ -323,6 +324,7 @@ def evaluate_article(adir: str, journal: str, workdir: str, timeout: int = 900) 
         if od:
             step("patterns", lambda: res.update(patterns=_patterns(adir, od)))
             step("qc", lambda: res.update(qc=_qc(od)))
+            step("defects", lambda: res.update(defects=_defects(od, aid, journal)))
         rows = step("eval_format", lambda: eval_format.article_rows(adir, journal))
         if rows:
             fe: dict = {}
@@ -435,6 +437,25 @@ def _qc(od: str) -> dict:
         q = json.load(f)["qc"]
     return {"passed": q["passed"], "errors": q["errors"], "warnings": q["warnings"],
             "failed": {c["check"]: c["severity"] for c in q["checks"] if not c["passed"]}}
+
+
+def _defects(od: str, aid: str, journal: str) -> dict:
+    """Output defects of the rendered files (tools/defect_scan.py): {check: [findings, severity]}, the number of
+    error findings, and up to two masked locations per check."""
+    import defect_scan
+
+    found = defect_scan.scan(od, aid, journal)
+    checks: dict = {}
+    examples: dict = {}
+    for f in found:
+        cur = checks.setdefault(f.check, [0, f.severity])
+        cur[0] += 1
+        if f.severity == defect_scan.ERROR:
+            cur[1] = defect_scan.ERROR
+        ex = examples.setdefault(f.check, [])
+        if len(ex) < 2 and f.loc:
+            ex.append(f"p{f.para} {f.loc}" if f.para is not None else f.loc)
+    return {"errors": sum(f.severity == defect_scan.ERROR for f in found), "checks": checks, "examples": examples}
 
 
 def _worker(args):

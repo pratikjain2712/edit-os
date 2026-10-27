@@ -235,6 +235,11 @@ def journal_metrics(results: list[dict]) -> dict:
     m["qc_failed"] = dict(Counter(c for r in results for c, sev in ((r.get("qc") or {}).get("failed") or {}).items()
                                   if sev == "error"))
     m["crashes"] = sum(1 for r in results if r.get("crashes"))
+    # output defects (tools/defect_scan.py): articles with an error-level defect, and per check the articles with it
+    scanned = [r for r in results if r.get("defects")]
+    m["defect_articles"] = sum(1 for r in scanned if r["defects"].get("errors")) if scanned else None
+    m["defects"] = dict(Counter(c for r in scanned for c, (n, sev) in r["defects"]["checks"].items()
+                                if sev == "error"))
     return m
 
 
@@ -383,6 +388,12 @@ def regressions(today: dict, previous: dict | None, journal: str, cfg: dict | No
             if a is not None and b is not None and a - b > c["noise"]:
                 out.append({"journal": journal, "kind": "metric", "metric": k, "before": round(a, 4),
                             "after": round(b, 4), "what": f"{journal} held-out {LABELS[k]}: {a:.1%} -> {b:.1%}"})
+        if (today.get("defect_articles") or 0) > (previous.get("defect_articles") or 0):
+            worse = sorted(k for k, v in (today.get("defects") or {}).items()
+                           if v > (previous.get("defects") or {}).get(k, 0))
+            out.append({"journal": journal, "kind": "defects", "what": f"{journal} held-out articles with output "
+                        f"defects {previous.get('defect_articles') or 0} -> {today['defect_articles']}"
+                        + (f" (more: {', '.join(worse[:6])})" if worse else "")})
         if today.get("qc_blocked", 0) > previous.get("qc_blocked", 0):
             out.append({"journal": journal, "kind": "qc", "what": f"{journal} held-out QC-blocked articles "
                         f"{previous.get('qc_blocked', 0)} -> {today['qc_blocked']}"})
@@ -459,6 +470,22 @@ def render_markdown(rep: dict) -> str:
     L += ["", "## Owner questions", ""]
     qs = rep.get("owner_questions", [])
     L += [f"- {q['question']}" for q in qs] or ["- none"]
+    L.append("")
+    L += ["## Output defects (tools/defect_scan.py)", "",
+          "Error-level defects found in the rendered files themselves (independent of the editors' files): articles "
+          "affected per check, held-out and new.", ""]
+    any_def = False
+    for j, js in sorted(rep.get("journals", {}).items(), key=lambda kv: kv[1].get("priority", 99)):
+        for setname in ("heldout", "new"):
+            m = js.get(setname) or {}
+            if m.get("defect_articles") is None:
+                continue
+            any_def = True
+            top = sorted((m.get("defects") or {}).items(), key=lambda kv: -kv[1])[:8]
+            L.append(f"- **{j}** {setname}: {m['defect_articles']}/{m['articles']} articles with defects"
+                     + (": " + ", ".join(f"`{k}` {v}" for k, v in top) if top else ""))
+    if not any_def:
+        L.append("- not scanned")
     L.append("")
     crashes = rep.get("crashes", [])
     if crashes:

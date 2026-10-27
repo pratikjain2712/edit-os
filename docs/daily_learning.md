@@ -47,8 +47,11 @@ Per article, with the repository's own evaluation tools (imported, not shelled o
 editor's file (`tools/evaluate.py`, joined paragraphs), rule precision and bigram closure of text, references and front
 matter against the final copy-edited file (`tools/eval_final.py`), references (`tools/eval_refs.py`), front-matter
 fields (`tools/eval_frontmatter.py`), the editors' formatting (`tools/eval_format.py`) and the QC report (`qc.check`,
-content-preservation checks included). The held-out set is evaluated again whenever the commit changes; that is the
-trend line.
+content-preservation checks included), plus the defects of the rendered files themselves, independent of any editor's
+file (`tools/defect_scan.py`: headings not bold or at the wrong size, fonts, queries on deleted text or duplicated,
+body paragraphs lost, tracked-change residue, placeholders, legends / tables / reference numbering). The report has an
+"Output defects" section (articles per error-level check) and a regression when more held-out articles have defects
+than in the previous run. The held-out set is evaluated again whenever the commit changes; that is the trend line.
 
 ## What is learnt (tools/learn.py, deterministic)
 
