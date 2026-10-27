@@ -303,11 +303,17 @@ def book_title_case(body: str, title: str = "") -> str:
     return body[:span[0]] + title_case(body[span[0]:span[1]]) + body[span[1]:]
 
 
+_NO_LINK = re.compile(r"[\s.,;]*\b(?:Available\s+(?:from|at|online)|Disponible\s+(?:sur|en)|Verfügbar\s+unter)\s*:?\s*"
+                      r"(?!https?://|www\.|doi|10\.)[^\s/:.]{1,30}\.?\s*$", re.I)
+
+
 def template(text: str, kind: str, title: str = "") -> Fixed:
     """Template fixes for a non-journal reference, from the author's own data only."""
     kind = classify(text, kind)
     f = Fixed(text=text, kind=kind)
     body = _NOTE.sub("", text)
+    # "Available from" with no link after it: "... 2022. Disponible sur: WHO." -> "... 2022." (1402: 3 entries)
+    body = _NO_LINK.sub("", body)
     body, f.accessed, f.access_raw = _split_access(body)
     if f.access_raw:
         f.notes.append("access date unreadable")

@@ -685,6 +685,10 @@ def format_pages(pages: str, style: JournalStyle) -> str:
     return f"{m.group(1)}{m.group(2)}{dash}{prefix2}{last}"
 
 
+# NLM abbreviations with a slip in NLM's own list, as ISO 4 and the editors write them (1209: "J Educ Techno Soc").
+NLM_FIXES = {"J Educ Techno Soc": "J Educ Technol Soc"}
+
+
 def journal_name(r: biblio.Record, style: JournalStyle) -> str:
     """PubMed's MedlineTA; for a CrossRef record, NLM's abbreviation when NLM lists the journal, else
     (`references.non_indexed_journal: full`; stylesheets: "Use complete name of the journal for non-indexed
@@ -702,7 +706,7 @@ def journal_name(r: biblio.Record, style: JournalStyle) -> str:
                 by_name = None  # CrossRef's short title "pie" is NLM's "La Pie", not "Perspectives in Education"
             j = by_name or (r.journal_full and journals.directory().lookup(r.journal_full))
         if j:
-            name = j.med_abbr
+            name = NLM_FIXES.get(j.med_abbr, j.med_abbr)
         elif style.get("references.non_indexed_journal", "full") == "full" and r.journal_full:
             name = _ACRONYM_QUALIFIER.sub("", r.journal_full.strip())  # "... Public Health Science (IJPHS)": the
             # publisher's acronym is no part of the journal's name (NLM's "(Lausanne)", "(Basel)" are kept)
@@ -745,11 +749,21 @@ def _bad_name(surname: str, initials: str) -> bool:
     if not initials and re.search(r"\b(?:department|university|hospital|faculty|school|division)\b", surname, re.I) \
             and "," in surname:
         return True  # an affiliation in the author list ("Department of ..., ... University, Tehran")
+    if not initials and surname.count(",") >= 2:
+        return True  # "Consultant Ophthalmologist, Mathura, Uttah Pradesh, India" (IJO_1745)
     return not initials and not _is_group(surname) and len(surname.split()) in (2, 3) \
         and all(re.fullmatch(r"[A-Z][a-z]+", w) for w in surname.split())
 
 
+# An institution in a record's author list among the people ("International Islamic University Malaysia; Mohd
+# Shukri NA; ...": CrossRef's affiliations deposited as authors, 1793): the record's list is not the authors'.
+_INSTITUTION = re.compile(r"\b(?:universit(?:y|i|é|ä|à|e|a|as|at|ät|eit)|hospital|faculty|department|college|"
+                          r"institut(?:e|o|ion)?|school\s+of|polytechnic)\b", re.I)
+
+
 def malformed_authors(r: biblio.Record) -> bool:
+    if any(i for _, i in r.authors) and any(not i and _INSTITUTION.search(s) for s, i in r.authors):
+        return True
     return any(_bad_name(s, i) for s, i in r.authors)
 
 
@@ -780,7 +794,8 @@ def author_name_query(p: Parsed, r: biblio.Record) -> tuple[str, dict] | None:
     record cannot give -- or None when the record's names (affiliations aside) agree with the author's."""
     ours = [a for a in p.authors if not re.fullmatch(r"\s*et\.?\s+al\.?\s*", a, re.I)]
     people = [(s, i) for s, i in r.authors
-              if s.strip() and not (not i and ("," in s or _AFFILIATION.search(s) or len(s.split()) > 4))]
+              if s.strip() and not (not i and ("," in s or _AFFILIATION.search(s) or _INSTITUTION.search(s)
+                                                or len(s.split()) > 4))]
     if not people:
         return ("references.author_names_unlisted", {})
     # ("HE N", "YUE Y" in capitals read as initials: a real name when the author wrote the same one)
@@ -868,9 +883,37 @@ def same_name_other_case(surname: str, initials: str, written: str, text: str) -
     return all(a == b or a.lower() in _PARTICLES for a, b in zip(sur.split(), surname.split()))
 
 
+def compound_split(surname: str, initials: str, written: str) -> bool:
+    """The record cut a compound surname the author wrote whole, its first word(s) read as initials: "de Olaguer NP"
+    for "Pérez de Olaguer N", "Wijngaarden PV" for "van Wijngaarden P", "Lopes IV" for "Valente Lopes I" (IJO_2904).
+    The author's form keeps more of the surname, so it is the one to keep (the other way round, "Naghavi
+    Alhosseini SS" over the author's "Alhosseini SSN", the record's is)."""
+    m = re.fullmatch(r"(?P<sur>.*\S)\s+(?P<ini>[A-Z]{1,4})", written.strip())
+    if not m or not initials:
+        return False
+    ws, wi = m.group("sur").split(), m.group("ini")
+    rs = surname.split()
+    if len(ws) <= len(rs):
+        return False
+    fw, fr = [fold_name(w) for w in ws], [fold_name(w) for w in rs]
+    k = len(fw) - len(fr)
+    if fw[k:] != fr:  # the record's surname ends the author's
+        return False
+    extra = "".join(w[0].upper() for w in ws[:k])
+    return sorted(initials.upper()) == sorted(wi.upper() + extra)
+
+
 def _usable_authors(r: biblio.Record, p: Parsed | None) -> list[str]:
     # (PubMed marks some group names with a footnote star: "... Professional Practice Committee*")
     names = [f"{_surname_case(s.rstrip('*').strip(), i, p)} {i}".strip() for s, i in r.authors]
+    if p and p.authors and len(r.authors) > 1 and not r.authors[-1][1] and any(i for _, i in r.authors[:-1]) \
+            and fold(r.authors[-1][0].rstrip("*").strip()) not in fold(p.text) and len(p.authors) == len(r.authors) - 1:
+        # a body PubMed lists last that the article does not name: "Medscape" (the CME provider; IJO_1347)
+        names = names[:-1]
+    if p and p.authors:
+        for k, (s, i) in enumerate(r.authors[:len(names)]):
+            if k < len(p.authors) and compound_split(s.rstrip("*").strip(), i, p.authors[k]):
+                names[k] = p.authors[k].strip()
     if p and p.authors and (malformed_authors(r) or not r.authors):
         return p.authors  # the record's list is broken: keep the author's names (and query them)
     if p and r.source == "crossref" and len(names) < min(len(p.authors), 6):
@@ -1156,6 +1199,15 @@ def record_pages(r: biblio.Record, p: Parsed | None) -> str:
     page ("54" for the author's "54-60") or none at all. The author's pages are used only for the record's
     volume (the same first page, when the record has one)."""
     pages = (r.pages or "").strip()
+    if p and pages and not re.fullmatch(r"\d+\s*[-–]\s*\d+", pages):
+        # an article number as the author (and the journal) writes it: "03000605251363514" where PubMed dropped the
+        # leading zero, "bcr-2018-225806" where it dropped the hyphens (IJO_1347, IJO_1432)
+        key = re.sub(r"[^0-9a-z]", "", pages.lower()).lstrip("0")
+        for m in re.finditer(r"(?<![\w/.\-])[A-Za-z]{0,4}-?[0-9][0-9A-Za-z\-]{3,30}(?![\w\-])", p.text):
+            tok = m.group(0)
+            if tok != pages and re.sub(r"[^0-9a-z]", "", tok.lower()).lstrip("0") == key \
+                    and not re.search(r"(?:doi|10\.\d{4,9})[^\s]*$", p.text[:m.start()].split()[-1] if p.text[:m.start()].split() else ""):
+                return tok
     c = citation(p.text) if p else None
     if not c or not c[3] or not same_volume(p.text, r):
         return pages
@@ -1282,6 +1334,7 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     end = "" if title.endswith(("?", "!")) else "."
     issue = _issue(r, style)
     volume = re.sub(r"\s*\(?suppl.*$", "", r.volume, flags=re.I)
+    volume = re.sub(r"^0+(?=\d)", "", volume)  # CrossRef's "07" -> "7" (IJO_1745)
     if style.get("references.drop_issue", True):  # PubMed's "50 Pt 1": the part goes with the issue (guide, e.g. 3)
         volume = re.sub(r"\s*\(?\s*(?:Pt|Part)\.?\s*\d+[A-Za-z]?\s*\)?\s*$", "", volume)
     pages = format_pages(record_pages(r, p), style)
@@ -1309,6 +1362,44 @@ def errata(text: str, style: JournalStyle) -> str:
         out.append(f" {label}: {journal} {m.group('year')};{m.group('vol')}{issue}:"
                    f"{format_pages(m.group('pages'), style)}.")
     return "".join(out)
+
+
+# Corporate authors as EndNote mangles them, read as a person's name ("Organization WH.", "Control CfD, Prevention."):
+# put back in full (1771: 7 entries). Only these known bodies, never a guess.
+CORPORATE_AUTHORS = ("World Health Organization", "Centers for Disease Control and Prevention",
+                     "Pan American Health Organization", "International Labour Organization",
+                     "American Diabetes Association", "American Psychiatric Association", "American Heart Association",
+                     "American Academy of Pediatrics", "International Diabetes Federation",
+                     "National Institute for Health and Care Excellence", "Indian Council of Medical Research",
+                     "Ministry of Health and Family Welfare", "United Nations Children's Fund",
+                     "United Nations Population Fund", "Joint United Nations Programme on HIV/AIDS")
+
+
+def _endnote_form(name: str) -> str:
+    """"World Health Organization" -> "Organization WH"; "Centers for Disease Control and Prevention" -> "Control
+    CfD, Prevention" (EndNote's surname-and-initials reading of a group name)."""
+    out = []
+    for part in re.split(r"\s+and\s+", name):
+        words = part.split()
+        out.append(words[-1] + (" " + "".join(w[0] for w in words[:-1]) if len(words) > 1 else ""))
+    return ", ".join(out)
+
+
+_CORPORATE_FORMS = sorted(((_endnote_form(n), n) for n in CORPORATE_AUTHORS), key=lambda x: -len(x[0]))
+
+
+_INITIAL_ET_AL = re.compile(r"(?<=\b[A-Z])\.\s*(et\s+al)\.?\s*,\s*")
+
+
+def corporate_author(text: str) -> str:
+    """`text` with an EndNote-mangled corporate author at its start written in full, and "Bouheraoua N. et al.,
+    IC3D ..." read as "Bouheraoua N, et al. IC3D ..." (IJO_2510)."""
+    text = _INITIAL_ET_AL.sub(r", \1. ", text, count=1)
+    lead = len(text) - len(text.lstrip())
+    for form, name in _CORPORATE_FORMS:
+        if text.startswith(form, lead) and re.match(r"\.?(?:\s|$)", text[lead + len(form):]) and form != name:
+            return text[:lead] + name + text[lead + len(form):]
+    return text
 
 
 def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resolution:

@@ -116,6 +116,8 @@ references:
   et_al: "et al."
   initials_without_periods: true  # "Lindqvist P.," -> "Lindqvist P,"
   max_initials: null           # 2: "Chandrasena PPCM" -> "Chandrasena PP" (per journal: JEHP)
+  clear_formatting: false     # italic and bold taken off the entries (EndNote / APA titles, journals, volumes); et al.,
+                               # genus and species and in vivo stay (per journal)
   page_range_compress: true    # 101-109 -> 101-9
   label_period: false          # typed labels as "1. ": "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (per journal)
   label_auto_number: false     # typed labels removed, the entries numbered by Word instead: "1.<tab>Angus DC" ->

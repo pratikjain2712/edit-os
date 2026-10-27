@@ -140,6 +140,10 @@ def apa_authors(block: str) -> tuple[list[str], bool] | None:
     """"Mu, T., Wang, F., & Xu, Y." / "Smith, J. and Jones, K." / "Rahayu, W. R., et al." -> names, et al."""
     et_al = bool(re.search(r"\bet\.?\s*al\b", block))
     names = refengine.apa_authors(block)
+    if not names:  # a one-name author first: "Karyanti, Atmoko, A., & Hitipieuw, I." (997)
+        m = re.match(r"\s*(?P<mono>[A-Z][a-z][\w'’\-]+),\s*(?=[^\W\d_][\w'’\-]*(?:\s+[^\W\d_][\w'’\-]*)?,\s*[A-Z]\.)", block)
+        rest = refengine.apa_authors(block[m.end():]) if m else []
+        names = [m.group("mono")] + rest if rest else []
     return (names, et_al) if names else None
 
 
@@ -250,7 +254,7 @@ def journal_style_name(name: str, style: JournalStyle) -> tuple[str, str]:
     name = " ".join(re.sub(r"\s*\[(?:Internet|Online|serial online)\]", "", name, flags=re.I).split()).strip(" .,;")
     j = _directory_journal(name) if style.get("references.journal_abbreviation", "nlm") == "nlm" else None
     if j:
-        abbr = j.med_abbr
+        abbr = refengine.NLM_FIXES.get(j.med_abbr, j.med_abbr)
         if style.get("references.journal_drop_qualifier", True):
             abbr = re.sub(r"\s*\([^)]*\)$", "", abbr)
         return abbr.replace(".", ""), abbr
@@ -429,6 +433,8 @@ def invented(out: str, source: str, allowed: str = "") -> list[str]:
             continue
         if word.isupper() and len(word) <= 4 and word.isalpha() and _initials_in(word, source):
             continue
+        if word.isupper() and len(word) <= 3 and word.isalpha() and re.search(rf"\b{word}[A-Z]{{1,3}}\b", source):
+            continue  # initials cut to the journal's limit: "MOS" -> "MO" (references.max_initials)
         if t.isdigit() and any(re.sub(r"\D", "", d).endswith(t) for d in digits):
             continue
         bad.append(word)
@@ -512,6 +518,8 @@ _ED_NOTE = re.compile(r"\s*\((?P<ed>\d{1,2}(?:st|nd|rd|th)\s+ed(?:ition)?\.?|[A-
 _EDS = re.compile(r"\s*\((?:Eds?|Editors?)\.?\)\s*,?\s*", re.I)
 _PP = re.compile(r"\s*\(\s*(?:pp?\.\s*)?(?P<pages>[A-Za-z]?\d+(?:\s*[-–—]\s*[A-Za-z]?\d+)?)\s*\)")
 _LINK = re.compile(r"\s*(?:(?:Retrieved|Available)\s+(?:from|at)\s*:?\s*)?(?:https?://|www\.|doi\s*:|\b10\.\d{4,9}/)\S*.*$", re.I)
+_BOOK_NOTE = re.compile(r"\s*\((?P<body>(?:[^()]*?,\s*)?(?:Vol\.\s*\d+|\d{1,2}(?:st|nd|rd|th)\s+ed(?:ition)?\.?)"
+                        r"(?:\s*,\s*[^()]*)?)\)", re.I)
 TEMPLATE_WORDS = {"in", "editors", "editor", "ed", "p", "available", "from", "last", "accessed", "on"}
 
 
@@ -612,14 +620,38 @@ def _restyle_apa_other(text: str, style: JournalStyle, ai_title: str) -> str | N
             if not names:
                 return None
             eds, inner = ", ".join(names) + (", editors." if len(names) > 1 else ", editor."), inner[d.end():]
-        pp = _PP.search(inner)
-        if pp:
-            pages, inner = pp.group("pages"), inner[:pp.start()] + inner[pp.end():]
+        else:  # "In M. Killen & J. G. Smetana, Handbook of ...": the editors without "(Eds.)" (997)
+            cut = None
+            for k in re.finditer(r",\s+", inner):
+                if given_first_names(inner[:k.start()]):
+                    cut = k
+            if cut is not None and inner[cut.end():cut.end() + 1].isupper():
+                names = given_first_names(inner[:cut.start()])
+                eds, inner = ", ".join(names) + (", editors." if len(names) > 1 else ", editor."), inner[cut.end():]
+        notes = []
+        bn = _BOOK_NOTE.search(inner)  # "(Vol. 1, pp. 1–44)", "(3rd ed., pp. 437–453)"
+        if bn:
+            for part in re.split(r"\s*,\s*", bn.group("body")):
+                pg = re.fullmatch(r"pp?\.\s*(?P<pages>[A-Za-z]?\d+(?:\s*[-–—]\s*[A-Za-z]?\d+)?)", part)
+                if pg:
+                    pages = pg.group("pages")
+                elif re.fullmatch(r"Vol\.\s*\d+", part, re.I):
+                    notes.append(re.sub(r"(?i)vol\.\s*", "Vol. ", part))
+                elif _ED_NOTE.fullmatch(f" ({part})"):
+                    notes.insert(0, re.sub(r"(?i)\s+edition\.?|\s+ed\.?", " ed.", part))
+                else:
+                    return None
+            inner = inner[:bn.start()] + inner[bn.end():]
+        else:
+            pp = _PP.search(inner)
+            if pp:
+                pages, inner = pp.group("pages"), inner[:pp.start()] + inner[pp.end():]
         b = re.match(r"(.+?)(?:\.\s+(.*))?\.?\s*$", inner.strip(), re.S)
         if not b:
             return None
         book, rest = b.group(1).strip().rstrip("."), (b.group(2) or "").strip()
         parts.append(f"In: {eds + ' ' if eds else ''}{book}.")
+        parts += [n if n.endswith(".") else n + "." for n in notes]
     publisher = rest.strip().rstrip(".").strip()
     if re.search(r"\d", publisher) or len(publisher) > 120:
         return None  # numbers we cannot place (a volume, a report number)

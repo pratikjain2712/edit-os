@@ -68,6 +68,8 @@ citations:
   compress_from: 3
 
 references:
+  clear_formatting: true      # Vancouver sets no italic or bold in an entry: the author's EndNote / APA italics and
+                               # bold volumes go (JEHP 1153, 1576: 35 entries; et al. italic stays per formatting)
   label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)
   # max_initials: as base (none). The owner cuts initials to two for JEHP and for IJO only if its editors do; they
   # keep all of them ("Relvas LJM", "Ting DSW", "Meenink HCM": 12 of 12 in ijo_new): owner, 2026-10-26.

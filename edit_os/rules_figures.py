@@ -1859,6 +1859,9 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
                     mine += _diff(p, s, t[s:e], new, "fig_citations")
                 lo, hi = s, e
             if unbold:
+                # the bold full stop right after a bold "(Fig. 1A)." goes roman with it (IJO_2510: "[Fig. 1A]**.**")
+                while hi < len(t) and t[hi] in ".,;:" and len(fmts) == len(t) and fmts[hi].get("bold"):
+                    hi += 1
                 flat = _unbold(p, fmts, lo, hi)
                 if flat:
                     for ch in mine:

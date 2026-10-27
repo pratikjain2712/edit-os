@@ -64,6 +64,7 @@ class Reference:
     text: str  # entry without the label
     offset: int  # where `text` starts in the paragraph's text view
     continuation: list[tuple[str, str]] = field(default_factory=list)  # (para_id, text) joined to this entry
+    unlabelled: bool = False  # numbered in sequence after the typed labels, which the author left off (IJO_2904)
 
     @property
     def full_text(self) -> str:
@@ -120,6 +121,37 @@ def find_heading(ms: Manuscript) -> int | None:
     return hits[-1] if hits else None
 
 
+def list_start(ms: Manuscript, p) -> int:
+    """The number Word gives the first item of `p`'s automatic list (its level's start value, or the list's override);
+    1 when it cannot be read."""
+    from docx.oxml.ns import qn
+
+    num_pr = p.element.find(f"{qn('w:pPr')}/{qn('w:numPr')}")
+    try:
+        num_id = num_pr.find(qn("w:numId")).get(qn("w:val"))
+        ilvl_el = num_pr.find(qn("w:ilvl"))
+        ilvl = ilvl_el.get(qn("w:val")) if ilvl_el is not None else "0"
+        numbering = ms.document.part.numbering_part.element
+    except (AttributeError, NotImplementedError, KeyError):
+        return 1
+    for num in numbering.findall(qn("w:num")):
+        if num.get(qn("w:numId")) != num_id:
+            continue
+        for ov in num.findall(qn("w:lvlOverride")):
+            so = ov.find(qn("w:startOverride"))
+            if ov.get(qn("w:ilvl")) == ilvl and so is not None and (so.get(qn("w:val")) or "").isdigit():
+                return int(so.get(qn("w:val")))
+        abstract = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+        for an in numbering.findall(qn("w:abstractNum")):
+            if an.get(qn("w:abstractNumId")) != abstract:
+                continue
+            for lvl in an.findall(qn("w:lvl")):
+                st = lvl.find(qn("w:start"))
+                if lvl.get(qn("w:ilvl")) == ilvl and st is not None and (st.get(qn("w:val")) or "").isdigit():
+                    return max(1, int(st.get(qn("w:val"))))
+    return 1
+
+
 def extract(ms: Manuscript) -> list[Reference]:
     start = find_heading(ms)
     if start is None:
@@ -148,8 +180,17 @@ def extract(ms: Manuscript) -> list[Reference]:
             number, label = int(digits), m.group(0)
         elif p.numbered or auto and _LOOKS_LIKE_REFERENCE.match(raw) and _YEAR.search(raw):
             # An entry the author left out of Word's numbered list still continues it.
+            if not auto and p.numbered:
+                auto = list_start(ms, p) - 1  # a Word list set to start at 11 after typed "1."-"10." (IJO_2904)
             auto += 1
             number, label = auto, ""
+        elif refs and refs[-1].number is not None and (refs[-1].label or refs[-1].unlabelled) \
+                and _LOOKS_LIKE_REFERENCE.match(raw) and _YEAR.search(raw):
+            # "10. Yang Q, ..." then "Collins GS, Moons KGM, ..." with no label: the list goes on (IJO_2904, entries
+            # 11-14, cited as "11-13")
+            number, label = refs[-1].number + 1, ""
+            refs.append(Reference(para_id=p.id, number=number, label="", text=raw.rstrip(), offset=0, unlabelled=True))
+            continue
         else:
             number, label = None, ""
         refs.append(Reference(
