@@ -148,8 +148,8 @@ def apply_format(rpr, fmt: dict) -> None:
                 f.attrib.pop(qn(attr), None)
             for attr in ("w:ascii", "w:hAnsi", "w:cs"):
                 f.set(qn(attr), on)
-        elif prop in ("align", "symbol"):
-            continue  # a paragraph property (`_align` sets it); the Symbol font character (`_new_run`, `_to_symbol`)
+        elif prop in ("align", "symbol", "indent"):
+            continue  # paragraph properties (`_align`, `_clear_indent`); the Symbol font character (`_new_run`, `_to_symbol`)
         elif prop in _CLEARED:
             for tag in _CLEARED[prop]:
                 for el in rpr.findall(qn(tag)):
@@ -280,12 +280,14 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
     for c in formats:
         if "align" in c.format:
             _align(p_el, c.format["align"], tracked, ids, c.author, date)
+        if "indent" in c.format:
+            _clear_indent(p_el, tracked, ids, c.author, date)
         if c.format.get("symbol"):
             for r, s, e in _spans(p_el):
                 if s >= c.start and e <= c.end and e > s:
                     _to_symbol(r, tracked, ids, c.author, date)
             continue
-        if not set(c.format) - {"align"}:
+        if not set(c.format) - {"align", "indent"}:
             continue
         for r, s, e in _spans(p_el):
             if s >= c.start and e <= c.end and e > s:
@@ -374,21 +376,51 @@ def _align(p_el, value: str, tracked: bool, ids: "_Ids", author: str, date: str)
     have = jc.get(qn("w:val")) if jc is not None else None
     if have is not None and _JC_SAME.get(have, have) == value:
         return
-    before = OxmlElement("w:pPr")  # CT_PPrBase: the paragraph properties without rPr / sectPr / pPrChange
-    for child in ppr:
-        if child.tag not in _PPR_TAIL:
-            before.append(copy.deepcopy(child))
+    before = _ppr_snapshot(ppr)
     if jc is None:
         jc = OxmlElement("w:jc")
         _ppr_insert(ppr, jc)
     jc.set(qn("w:val"), value)
-    if tracked and ppr.find(qn("w:pPrChange")) is None:
+    _track_ppr(ppr, before, tracked, ids, author, date)
+def _ppr_snapshot(ppr):
+    """CT_PPrBase copy of a <w:pPr>: its properties without rPr / sectPr / pPrChange (a pPrChange's content)."""
+    before = OxmlElement("w:pPr")
+    for child in ppr:
+        if child.tag not in _PPR_TAIL:
+            before.append(copy.deepcopy(child))
+    return before
+
+
+def _track_ppr(ppr, before, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    if tracked and ppr.find(qn("w:pPrChange")) is None:  # an earlier change keeps the original properties
         ch = OxmlElement("w:pPrChange")
         ch.set(qn("w:id"), ids.next())
         ch.set(qn("w:author"), author)
         ch.set(qn("w:date"), date)
         ch.append(before)
         ppr.append(ch)
+
+
+_IND_LEFT = ("w:left", "w:start", "w:leftChars", "w:startChars", "w:firstLine", "w:firstLineChars", "w:hanging",
+             "w:hangingChars")
+
+
+def _clear_indent(p_el, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """Set the paragraph's left and first-line indentation to zero (<w:ind w:left="0" w:firstLine="0"/>, over any the
+    style gives; the right indentation stays); tracked as a paragraph property change (<w:pPrChange>)."""
+    ppr = _ppr_of(p_el)
+    ind = ppr.find(qn("w:ind"))
+    before = _ppr_snapshot(ppr)
+    if ind is None:
+        ind = OxmlElement("w:ind")
+        _ppr_insert(ppr, ind)
+    for a in _IND_LEFT:
+        ind.attrib.pop(qn(a), None)
+    ind.set(qn("w:left"), "0")
+    ind.set(qn("w:firstLine"), "0")
+    _track_ppr(ppr, before, tracked, ids, author, date)
+
+
 # Child order inside <w:pPr> (CT_PPr); the paragraph mark's <w:rPr> goes before sectPr / pPrChange.
 _PPR_TAIL = (qn("w:rPr"), qn("w:sectPr"), qn("w:pPrChange"))
 

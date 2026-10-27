@@ -182,6 +182,8 @@ def plan(ms: Manuscript, style: JournalStyle, figure_inserts=()) -> tuple[list[N
     notes: list[str] = []
     if style.get("figures.legends_to_end"):
         out += _plan_legends(ms, style, figure_inserts, notes)
+    from . import rules_tables
+    out += rules_tables.plan_cell_blanks(ms, style)  # before the tables move: the blanks go in the table moved
     split = _split_notes(ms, style)
     if style.get("figures.table_caption_row"):
         out += _plan_table_captions(ms, split)
@@ -190,9 +192,15 @@ def plan(ms: Manuscript, style: JournalStyle, figure_inserts=()) -> tuple[list[N
     return out, notes
 
 
+_BARE_TABLE_LABEL = re.compile(r"^\s*tables?\s*(\d{1,2}|[IVX]{1,5})\s*[.:]?\s*$", re.I)
+
+
 def _tbl_number(ms: Manuscript, tbl, cap) -> int | None:
     if cap is not None:
         m = rules_figures.caption_match(cap)
+        if m is None:
+            b = _BARE_TABLE_LABEL.match(cap.text)
+            return _num(b.group(1).upper()) if b else None
         return _num(m.group("num")) if m else None
     tr = tbl.find(qn("w:tr"))
     m = _CAPTION_START.match(_row_text(tr)) if tr is not None else None
@@ -253,8 +261,8 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
             if 0 <= j < len(kids) and kids[j].tag == qn("w:p") and kids[j] in by_el:
                 q = by_el[kids[j]][0]
                 m = rules_figures.caption_match(q)
-                if m is not None and m.group("word").lower().startswith("tab"):
-                    cap, side = q, s_
+                if m is not None and m.group("word").lower().startswith("tab") or _BARE_TABLE_LABEL.match(q.text):
+                    cap, side = q, s_  # (a bare "Table 1" over its table, the title missing, is its caption too)
                     break
         tr = el.find(qn("w:tr"))
         in_row = tr is not None and _CAPTION_START.match(_row_text(tr))
@@ -436,6 +444,9 @@ def render(ms: Manuscript, inserts, statuses, *, tracked: bool, author: str, dat
                 notes += _caption_row(ms, n, mk)
             elif n.kind == "tables":
                 notes += _move_tables(ms, n, mk)
+            elif n.kind == "cell_blanks":
+                from . import rules_tables
+                notes += rules_tables.render_cell_blanks(ms, n, mk)
         except KeyError:
             notes.append(f"{n.text}: not done (a paragraph is gone)")
     return notes
@@ -630,6 +641,7 @@ def _move_tables(ms: Manuscript, n: BlockMove, mk) -> list[str]:
     into its table's first row travels inside it) goes to the end of the document, under the heading."""
     body = ms.document.element.body
     kids = list(body)
+    known = {p.element for p in ms.paragraphs}
     groups = []
     for block in n.blocks:
         els = []
@@ -641,6 +653,12 @@ def _move_tables(ms: Manuscript, n: BlockMove, mk) -> list[str]:
                 continue  # a caption moved into its table (tracked copy): the deleted original stays
             if not any(e is el for e in els):
                 els.append(el)
+            if el.tag == qn("w:p"):  # paragraphs a change split off it (a note's abbreviations moved first) go too
+                x = el.getnext()
+                while x is not None and x.tag == qn("w:p") and x not in known:
+                    if not any(e is x for e in els):
+                        els.append(x)
+                    x = x.getnext()
         tbls = [e for e in els if e.tag == qn("w:tbl")]
         if not tbls:
             return [f"{n.text}: not done (a table is gone)"]

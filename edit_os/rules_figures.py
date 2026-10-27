@@ -599,6 +599,21 @@ def captions(ms: Manuscript) -> list[Caption]:
     return out
 
 
+def _first_row_caption(p: Paragraph) -> bool:
+    """A paragraph in the first row of its table, the row one cell (a caption typed or put into a merged first row)."""
+    tr = next((a for a in p.element.iterancestors() if a.tag == f"{_W}tr"), None)
+    tbl = tr.getparent() if tr is not None else None
+    if tbl is None or tbl.tag != f"{_W}tbl" or tbl.find(f"{_W}tr") is not tr:
+        return False
+    return len(tr.findall(f"{_W}tc")) == 1
+
+
+def table_caption_ids(ms: Manuscript) -> set[str]:
+    """Ids of the table captions: "Table N: ..." paragraphs in the body, and those in a table's one-cell first row."""
+    return {c.para_id for c in captions(ms) if c.kind == TABLE
+            and (not ms.by_id(c.para_id).in_table or _first_row_caption(ms.by_id(c.para_id)))}
+
+
 def _end_period(rest: str) -> int | None:
     """Index of a caption's final period in `rest`, if it should go."""
     stripped = rest.rstrip()
@@ -1101,13 +1116,16 @@ def abbreviation_pairs(text: str) -> list[list[re.Match]]:
         sent = text[a:b]
         body = sent.rstrip().rstrip(".")
         segs, pos = [], a
-        for piece in body.split(";"):
+        # pairs joined by ";", or by "," when each is "term = definition" ("DS= Diopter Sphere, D= Diopter")
+        for piece in re.split(r";|,(?=\s*" + _TERM + r"\s*=\s*[A-Za-z(])", body):
             segs.append((pos, piece))
             pos += len(piece) + 1
         pairs = []
         for k, (pos, piece) in enumerate(segs):
             m = _PAIR.match(text, pos, pos + len(piece))
-            if m is None or not _is_term(m.group("term")) or len(m.group("defn").split()) > 12:
+            # "Kf=Flat Keratometry": with "=" a short capitalised term is an abbreviation too
+            if m is None or not (_is_term(m.group("term")) or m.group("sep").strip() == "=" and
+                                 len(m.group("term")) <= 6) or len(m.group("defn").split()) > 12:
                 break
             if m.group("lead").strip() and k:
                 break
@@ -1138,8 +1156,9 @@ def table_notes(ms: Manuscript) -> list[list[Paragraph]]:
 
 def _other_sep(got: str, sep: str) -> bool:
     """A pair's separator to replace by the journal's `sep`: "," always; ":" / "=" when the journal writes the other
-    (owner, 2026-10-26: IJO "term: definition", JEHP "term = definition")."""
-    return got.strip() != sep.strip() and (got.strip() == "," or sep.strip() in ":=")
+    (owner, 2026-10-27: "term<space>=<space>definition", G211), and the spacing round it ("DS= Diopter" -> "DS =
+    Diopter")."""
+    return got != sep and (got.strip() == "," or sep.strip() in ":=")
 
 
 def _footnote_abbreviations(ms: Manuscript, sep: str) -> list[Change]:
@@ -1166,14 +1185,107 @@ def _footnote_abbreviations(ms: Manuscript, sep: str) -> list[Change]:
 
 
 def _footnote_periods(ms: Manuscript) -> list[Change]:
+    """G213 / G215: no period at the end of the last abbreviation definition, nor at the end of the last footnote: the
+    block's last paragraph, and its last paragraph that is only an abbreviation list (abbreviations given first)."""
     from .rules import _change
     out = []
     for block in table_notes(ms):
-        p = block[-1]
-        i = _end_period(p.text)
+        abbr = [q for q in block if abbreviation_only(q.text)]
+        notes = [q for q in block if not abbreviation_only(q.text)]
+        ends = [x[-1] for x in (abbr, notes) if x]
+        for p in ends:
+            i = _end_period(p.text)
+            if i is not None:
+                end = len(p.text) if not p.text[i + 1:].strip() else i + 1
+                out.append(_change(p, i, end, "", Layer.TABLES_FIGURES, "fig_captions.footnote_period"))
+    return out
+
+
+def abbreviation_only(text: str) -> bool:
+    """A table note that is an abbreviation list and nothing else ("Abbreviations: SD, standard deviation; CI, ...")."""
+    groups = abbreviation_pairs(text)
+    if len(groups) != 1:
+        return False
+    body = text.rstrip().rstrip(".").rstrip()
+    return not text[:groups[0][0].start()].strip() and groups[0][-1].end() >= len(body)
+
+
+_RUN_PROPS = ("italic", "bold", "superscript", "subscript")
+
+
+def _moved_pieces(q: Paragraph, edits: list[tuple[int, int, str]], drop_period: bool) -> tuple[str, list]:
+    """The text of a note paragraph with `edits` applied (and its final period dropped), as [length, format] pieces
+    that keep its run formatting (italic "P", a superscript letter)."""
+    from .rules_format import char_formats
+
+    fmts = char_formats(q)
+    chars = [(ch, {k: bool(f.get(k)) for k in _RUN_PROPS}) for ch, f in zip(q.text, fmts + [{}] * len(q.text))]
+    for s, e, new in sorted(edits, reverse=True):
+        f = chars[s][1] if s < len(chars) else (chars[-1][1] if chars else {})
+        chars[s:e] = [(ch, f) for ch in new]
+    text = "".join(ch for ch, _ in chars)
+    lead = len(text) - len(text.lstrip())
+    chars = chars[lead:len(text.rstrip())]
+    text = "".join(ch for ch, _ in chars)
+    if drop_period:
+        i = _end_period(text)
         if i is not None:
-            end = len(p.text) if not p.text[i + 1:].strip() else i + 1
-            out.append(_change(p, i, end, "", Layer.TABLES_FIGURES, "fig_captions.footnote_period"))
+            chars = chars[:i]
+            while chars and chars[-1][0].isspace():
+                chars.pop()
+    pieces: list = []
+    for ch, f in chars:
+        if pieces and pieces[-1][1] == f:
+            pieces[-1][0] += 1
+        else:
+            pieces.append([1, dict(f)])
+    return "".join(ch for ch, _ in chars), pieces
+
+
+def _footnote_order(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """G214 / S: "Abbreviations should be first and footnotes next": an abbreviation-list paragraph typed under the
+    other notes of its table ("*P < 0.05" then "SD = standard deviation") moves above them. One group of changes: the
+    list inserted (as edited: "term = definition", commas, no final period) as new paragraphs before the first note,
+    and the paragraph where it was deleted."""
+    from .rules import _change
+    from .tracked import PARAGRAPH_BREAK
+
+    sep = style.get("figures.table_footnote_abbreviation")
+    drop = style.get("figures.table_footnote_end_period") == "delete"
+    out = []
+    for block in table_footnotes(ms):
+        first_note = next((k for k, q in enumerate(block) if not abbreviation_only(q.text)), None)
+        if first_note is None:
+            continue
+        late = [q for q in block[first_note + 1:] if abbreviation_only(q.text)]
+        if not late or any(not abbreviation_only(q.text) for q in block[block.index(late[0]):]):
+            continue  # only a list (or lists) closing the block, nothing after them
+        texts, segs = [], []
+        for k, q in enumerate(late):
+            edits = []
+            if sep:
+                for pairs in abbreviation_pairs(q.text):
+                    for j, m in enumerate(pairs):
+                        if _other_sep(m.group("sep"), sep):
+                            edits.append((m.start("sep"), m.end("sep"), sep))
+                        if j:
+                            semi = q.text.rfind(";", pairs[j - 1].end() - 1, m.start("term"))
+                            if semi >= 0:
+                                edits.append((semi, semi + 1, ","))
+            text, pieces = _moved_pieces(q, edits, drop and k == len(late) - 1)
+            texts.append(text)
+            segs.append(pieces)
+        target = block[first_note]
+        group = f"footnote-order-{target.id}"
+        ins = _change(target, 0, 0, PARAGRAPH_BREAK.join(texts) + PARAGRAPH_BREAK, Layer.TABLES_FIGURES,
+                      "fig_captions.footnote_order")
+        ins.segment_format = segs + [None]
+        ins._group = group
+        out.append(ins)
+        for q in late:
+            c = _change(q, 0, len(q.text), "", Layer.TABLES_FIGURES, "fig_captions.footnote_order")
+            c._group = group
+            out.append(c)
     return out
 
 
@@ -1368,7 +1480,10 @@ def _legends_heading(ms: Manuscript, style: JournalStyle, legs: list[Legend]) ->
 def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
     if not style.get("figures.captions", True):
         return []
-    out = _footnote_periods(ms) if style.get("figures.table_footnote_end_period") == "delete" else []
+    # the abbreviation lists moved above the other notes first: their own edits go with the move
+    out = _footnote_order(ms, style) if style.get("figures.table_footnote_order") == "abbreviations_first" else []
+    if style.get("figures.table_footnote_end_period") == "delete":
+        out += _footnote_periods(ms)
     abbr = style.get("figures.table_footnote_abbreviation")  # " = ": "SD, standard deviation" -> "SD = standard deviation"
     if abbr:
         out += _footnote_abbreviations(ms, abbr)
@@ -1386,7 +1501,9 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
         out += _legend_changes(ms, leg, style)
     for cap in captions(ms):
         p = ms.by_id(cap.para_id)
-        if p.in_table or p.id in in_legend:
+        # A caption inside a table only in its one-cell first row (the caption row): "Table IV. Results" there ->
+        # "Table 4: Results" too (G201)
+        if (p.in_table and not _first_row_caption(p)) or p.id in in_legend:
             continue
         m = cap.match
         rest = m.group("rest")

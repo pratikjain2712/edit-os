@@ -207,6 +207,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     from . import renumber, rules_figures
     renumber.add_queries(ms, style, qs)
     rules_figures.add_queries(ms, style, qs)
+    from . import rules_tables
+    rules_tables.add_queries(ms, style, qs)  # G206 empty head cells to merge, G196 entries on lines of their own
     from .rules import add_author_queries  # "Radziwill et al. [6]" where reference 6 is Bae: S "Match author names"
     add_author_queries(ms, style, qs)
     return qs.number(ms)

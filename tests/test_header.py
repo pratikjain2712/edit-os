@@ -144,7 +144,7 @@ def test_table_renumbering_in_captions_and_citations(tmp_path):
     nxt = third.getnext()
     while nxt is not None and not "".join(x.text or "" for x in nxt.iter(W + "t")).strip():
         nxt = nxt.getnext()
-    assert "".join(x.text or "" for x in nxt.iter(W + "t")) == "Abbreviations: CI: confidence interval"  # moves along
+    assert "".join(x.text or "" for x in nxt.iter(W + "t")) == "Abbreviations: CI = confidence interval"  # moves along
     # (IJO table notes "term: definition": owner, 2026-10-26)
 
     # Tracked copy: the moved table is deleted where it was and inserted, edited, where it belongs.

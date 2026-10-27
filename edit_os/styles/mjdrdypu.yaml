@@ -23,6 +23,16 @@ figures:
   before_full_stop: true  # "immunized. (Table 1)" -> "immunized [Table 1].": 4 of 5 in 3 training articles (silent)
   # table_caption_end_period: add, as base: S "The caption should end with a period" (the editors split: 6 of 13
   # training articles add it, Subrata and ManiMekala never -- editor misses; owner's list)
+  # owner, 2026-10-27: follow the guide for table formatting:
+  table_caption_case: sentence  # G199 / S: '"Table<space>#:<space>" followed by caption content in bold style and
+                                # Sentence Case'
+  table_heads_case: sentence    # G204 (S: "Column heads | Sentence case, bold")
+  table_heads_title_case: true  # G205: "In case the content is in All Caps then please make it as Title Case"
+  table_footnote_abbreviation: " = "  # G211: "term<space>=<space>definition"
+  table_footnote_delimiter: ","       # G212: "Comma should be delimiter between abbreviations"
+  table_footnote_end_period: delete   # G213 / G215: no period at the end of the last definition and last footnote
+  table_footnote_order: abbreviations_first  # G214: "Abbreviations should be first and footnotes next"
+  tables_to_end: true           # G195: the tables at the end of the document, after the figure captions
 
 sections:
   back_matter:
@@ -52,6 +62,15 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
     enabled: true
     family: Times New Roman
     align: left
+    table_align: left          # owner, 2026-10-27: follow the guide (G193, G194): table text aligned left
+  table_caption_bold: true     # owner, 2026-10-27: follow the guide (G199): label and caption content in bold
+
+# owner, 2026-10-27: follow the guide (G196, G206, G208, G209)
+tables:
+  indent: {enabled: true}
+  delete_empty_cell_paragraphs: true
+  empty_head_query: true
+  cell_rows_query: true
 
 text:
   prefixes: {enabled: true}  # copy editors close prefixes (rules_text.py): 14 proposed, 86%

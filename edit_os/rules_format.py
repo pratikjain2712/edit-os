@@ -158,7 +158,8 @@ def citation_format(style: JournalStyle) -> dict | None:
 # the wanted formatting are bridged), so a coloured paragraph is one suggestion, not one per run.
 
 # Editors bold "Table 1:" / "Figure 2:" labels but leave supplementary ones as typed.
-_CAPTION_LABEL = re.compile(r"^\s*((?:Table|Figure|Fig\.?|Graph|Chart|Video|Box)\s*\d+[A-Za-z]?\s*[:.|])", re.I)
+_CAPTION_LABEL = re.compile(r"^\s*((?:Table|Figure|Fig\.?|Graph|Chart|Video|Box)\s*(?:\d+[A-Za-z]?|[IVX]{1,5})\s*[:.|])",
+                            re.I)  # "Table 1:", "Table IV." (G201: Roman numerals in labels)
 
 
 def _visible(color) -> bool:
@@ -376,6 +377,13 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     bold_levels = set(style.get("formatting.heading_bold_levels", [1, 2, 3]) or [])
     # IJO: "H3 | Sentence Case, Italics" is not bold
     tagged = {pid for pid, n in levels.items() if n in bold_levels} if _on(style, "heading_bold_tagged") else set()
+    # G199 / S: 'The label should be "Table<space>#:<space>" followed by caption content in bold style': the whole
+    # table caption in bold, not only its label (formatting.table_caption_bold)
+    if _on(style, "table_caption_bold"):
+        from .rules_figures import table_caption_ids
+        caption_bold = table_caption_ids(ms)
+    else:
+        caption_bold = set()
     out: list[Change] = []
 
     def emit(p, spans, fmt, rule, layer=Layer.HOUSE_STYLE):
@@ -424,7 +432,11 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
             emit(p, _regions(text, lambda i: not text[i].isspace() and bool(f[i].get("bold")), is_not("bold")),
                  {"bold": False}, "fmt_table_body", Layer.TABLES_FIGURES)
 
-        if label and _on(style, "label_bold"):
+        if p.id in caption_bold and not front:
+            emit(p, [(a, b) for a, b in _regions(text, lambda i: free(i) and not text[i].isspace()
+                                                 and not f[i].get("bold"), is_("bold"))
+                     if any(ch.isalnum() for ch in text[a:b])], {"bold": True}, "fmt_table_caption", Layer.TABLES_FIGURES)
+        elif label and _on(style, "label_bold"):
             s, e = label
             spans = [(a + s, b + s) for a, b in _regions(
                 text[s:e], lambda i: not text[s + i].isspace() and not f[s + i].get("bold"),
@@ -717,8 +729,11 @@ def rule_fonts(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 last = i
         fmt = {"size": want, **({"font": family} if family else {})}
         para_align = None
-        if align and not d["cell"] and not d["image"] and not any(True for _ in p.element.iter(*_EQUATION)):
-            target = cfg.get("running_head_align", "center") if rh else align
+        # Table cells: `fonts.table_align` (G193-194 "aligned left. No other alignment should be done"); null: the
+        # alignment the cells were typed with.
+        target_align = (cfg.get("table_align") or None) if d["cell"] else align
+        if target_align and not d["image"] and not any(True for _ in p.element.iter(*_EQUATION)):
+            target = cfg.get("running_head_align", "center") if rh else target_align
             if paragraph_alignment(p, styles) != target:
                 para_align = target
         lead, tail = len(text) - len(text.lstrip()), len(text.rstrip())

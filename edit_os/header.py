@@ -355,6 +355,20 @@ def _blocks(ms: Manuscript, item: dict) -> dict[int, list] | None:
 
 def _accept(el) -> None:
     """The element as it reads with every revision in it accepted (for the inserted copy)."""
+    # A paragraph inside it whose mark is deleted joins the paragraph after it (an empty paragraph in a table cell
+    # deleted: rules_tables.render_cell_blanks).
+    for p in list(el.iter(qn("w:p"))):
+        if p is el or p.find(f"{qn('w:pPr')}/{qn('w:rPr')}/{qn('w:del')}") is None:
+            continue
+        nxt = p.getnext()
+        if nxt is None or nxt.tag != qn("w:p"):
+            continue
+        ppr = nxt.find(qn("w:pPr"))
+        at = nxt.index(ppr) + 1 if ppr is not None else 0
+        for child in [c for c in p if c.tag != qn("w:pPr")]:
+            nxt.insert(at, child)
+            at += 1
+        p.getparent().remove(p)
     for tag in ("w:del", "w:moveFrom"):
         for x in list(el.iter(qn(tag))):
             par = x.getparent()

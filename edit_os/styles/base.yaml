@@ -170,6 +170,8 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   table_head_bold: true        # table column heads (header row) in bold
   table_body_unbold: false     # no bold in the table body (rows under the header): editors keep it (4% precision)
   label_bold: true             # "Table 1:", "Figure 1:", "Video 1:" and bold_labels ("Keywords:") in bold
+  table_caption_bold: false    # true: the whole table caption in bold, label and text (G199 '"Table<space>#:<space>"
+                               # followed by caption content in bold style'), also in a table's caption row
   bold_labels: [Keywords, Key words, Key word, Key messages, Key message]
   heading_bold: true           # first-level section headings (Introduction, Methods, ...) in bold
   heading_bold_tagged: false   # every heading the tool tags <H1> / <H2> / <H3> (a line of its own) in bold
@@ -192,6 +194,8 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
     size: 12
     heading_size: 14
     align: null                # left: paragraphs left aligned (not table cells, pictures or equations)
+    table_align: null          # left: table cell paragraphs left aligned too (G193-194 "aligned left. No other alignment
+                               # should be done"); null: cells keep the alignment they were typed with
     running_head_align: center
   symbol_font:                 # Greek letters, ±, ≤, ≥ and the minus sign as Word's Symbol-font symbols (<w:sym>),
     enabled: false             # never ×, ®, ©, µ (owner, 2026-10-26: IJO, JEHP)
@@ -227,6 +231,8 @@ figures:                        # figure and table citations and captions (rules
   table_footnote_end_period: null  # delete: the period ending a table's last footnote goes ("SD, standard deviation.")
   table_caption_case: null      # sentence: "Table 1: Baseline Characteristics" -> "Table 1: Baseline characteristics"
                                 # (S: 'followed by caption content in bold style and Sentence Case'); null: as typed
+  table_footnote_order: null    # abbreviations_first: an abbreviation-list paragraph under the other notes of its table
+                                # moves above them (G214 "Abbreviations should be first and footnotes next")
   table_footnote_delimiter: null  # ",": "CDVA = ...; SD = ..." -> "CDVA = ..., SD = ..." between abbreviation
                                   # definitions in table notes (S: "Comma should be delimiter between abbreviations")
   table_heads_title_case: false # column heads in ALL CAPS -> Title Case (S / G205 "In case the content is in All Caps
@@ -274,6 +280,17 @@ figures:                        # figure and table citations and captions (rules
     parts_per_row: 2            # "1a.jpg" + "1b.jpg": one paragraph, side by side
     max_pixels: 2400            # longer side above this is downscaled (keeps the .docx small); 0 = never
     align: center
+
+tables:  # table body layout (edit_os/rules_tables.py); the guide's TABLE section, G193-G209
+  indent:                       # G208: "clear/more indentation ... removed and 5 spaces (and increment of 5 spaces) added
+    enabled: false              # in its place" (the stub column: leading spaces / tabs and paragraph indentation as
+    spaces: 5                   # levels); G209: rows under a sub-heading row indented (a stub the author did not indent)
+    subheading_rows: true
+  delete_empty_cell_paragraphs: false  # G196: empty paragraphs inside a cell with text deleted (one move suggestion)
+  empty_head_query: false       # G206: empty column-head cells side by side -> query to merge them horizontally (Word
+                                # tracks no cell merge)
+  cell_rows_query: false        # G196: a row whose cells hold their entries as separate paragraphs -> query whether they
+                                # are separate rows (a value with its range on a second line is one row)
 
 queries:  # author queries on the text (edit_os/queries.py)
   unmatched_brackets: false  # true: a stray bracket ("(−1.20,3.40))") -> query (JEHP)

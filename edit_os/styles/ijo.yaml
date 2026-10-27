@@ -50,10 +50,14 @@ formatting:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (19 of 19 articles)
     align: left                # G16 "left aligned" (owner, 2026-10-26: keep the guide's left alignment and 14 pt
-                               # headings; table cells keep the alignment they were typed with)
+                               # headings)
+    # owner, 2026-10-27: follow the guide (G193, G194): table text 12 pt and aligned left, "No other alignment should
+    # be done" -- replaces the owner's 2026-10-26 "table cells keep the alignment they were typed with"
+    table_align: left
   # Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font (Word's inserted symbols, w:sym), never ×, ®, ©, µ
   # (owner, 2026-10-26)
   symbol_font: {enabled: true}
+  table_caption_bold: true     # owner, 2026-10-27: follow the guide (G199): label and caption content in bold
 
 citations:
   # Owner, 2026-10-26: "follow the editors" on where a citation sits. The IJO editors move it next to the study's
@@ -88,18 +92,20 @@ figures:
   # S: 'The label should be "Table<space>#:<space>" followed by caption content in bold style and Sentence Case.'
   table_caption_case: sentence
   # S (table footnotes): "Period should be deleted at end of last abbreviation definition" / "... at end of last
-  # footnote" and "Comma should be delimiter between abbreviations." Whether a definition reads "term = definition"
-  # (the live line) or "term: definition" (the struck one, and the editors): the owner follows the editors (below).
+  # footnote" and "Comma should be delimiter between abbreviations" (G212, G213, G215).
   table_footnote_end_period: delete
   table_footnote_delimiter: ","
-  # Owner, 2026-10-26: the IJO editors' "term: definition" ("CDVA = corrected ..." / "CDVA, corrected ..." ->
-  # "CDVA: corrected ...").
-  table_footnote_abbreviation: ": "
+  # owner, 2026-10-27: follow the guide (G211): "term<space>=<space>definition" ("CDVA: corrected ..." / "CDVA,
+  # corrected ..." -> "CDVA = corrected ...") -- replaces the owner's 2026-10-26 decision 2 (the editors' "term:
+  # definition")
+  table_footnote_abbreviation: " = "
+  table_footnote_order: abbreviations_first  # owner, 2026-10-27: follow the guide (G214)
   # S: "The caption should end with a period": table and figure captions (owner, 2026-10-26: keep the sheet)
   table_caption_end_period: add
   figure_caption_end_period: add
   graph_caption_end_period: add
   table_heads_title_case: true  # S: "In case the content is in All Caps then please make it as Title Case" (G205)
+  table_heads_case: sentence    # owner, 2026-10-27: follow the guide (G204; S: "Column heads | Sentence case, bold")
   # G265: "The caption(s) should be placed at end of document (before table if present)", G195: tables "at end of
   # document after figure captions". Legends in the body move after the references (and the First author block),
   # under a "Figure Legends" heading (the sheet is silent; the IJO editors have a heading in 17 of 18 articles with
@@ -110,6 +116,16 @@ figures:
   # The sheet is silent on where a table caption sits; the IJO editors put it in a merged first row of the table in
   # every article with tables (8 of 8: 769, 1130, 1226, 1862, 2835, 2891, 3136, 510), above or below it as typed.
   table_caption_row: true
+  # owner, 2026-10-27: follow the guide (G195): the tables at the end of the document, after the figure captions (the
+  # back reads: references, First author, Figure Legends, tables); no heading over them (the guide names none)
+  tables_to_end: true
+
+# owner, 2026-10-27: follow the guide (G196, G206, G208, G209)
+tables:
+  indent: {enabled: true}
+  delete_empty_cell_paragraphs: true
+  empty_head_query: true
+  cell_rows_query: true
 
 front_matter:
   # A street address only, in the corresponding author's city: the affiliation's institution in front of it (IJO_769;

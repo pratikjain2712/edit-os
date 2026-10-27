@@ -12,6 +12,7 @@ from itertools import count
 import difflib
 
 from . import journals, provenance, refengine, references, renumber, rules_figures, rules_format, rules_sections
+from . import rules_tables  # table body layout (indentation, cell paragraphs)
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle
@@ -1407,6 +1408,7 @@ RULES = {
     "fig_renumber": rules_figures.rule_renumber,  # before fig_citations / fig_captions: renumbered numbers win
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,
+    "table_indent": rules_tables.rule_indent,  # stub-column indentation as 5 typed spaces per level (G208, G209)
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
     "references": rule_references,

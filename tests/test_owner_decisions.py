@@ -108,7 +108,8 @@ def test_table_note_abbreviations_take_the_journals_form(tmp_path):
         return docmodel.load(out).paragraphs[-1].text
 
     assert note("jehp", "CI: confidence interval; OR: odds ratio") == "CI = confidence interval, OR = odds ratio"
-    assert note("ijo", "CI = confidence interval; OR = odds ratio") == "CI: confidence interval, OR: odds ratio"
+    # owner, 2026-10-27: follow the guide (G211) for IJO too (replaces 2026-10-26 "term: definition")
+    assert note("ijo", "CI: confidence interval; OR: odds ratio") == "CI = confidence interval, OR = odds ratio"
 
 
 def test_affiliation_postal_code_kept():

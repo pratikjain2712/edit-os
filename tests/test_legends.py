@@ -149,8 +149,8 @@ def test_table_notes_comma_between_abbreviations_and_no_end_period(tmp_path):
                            "Table 2: More", ("table", [["A", "B"], ["1", "2"]]),
                            "Note: Model 0: unadjusted; Model 1: adjusted for age, and sex."])
     texts, _ = apply(path, ijo(), tmp_path)
-    # IJO: "term: definition" (owner, 2026-10-26)
-    assert "CDVA: corrected distance visual acuity, SD: standard deviation, D: diopters" in texts
+    # IJO: "term = definition" (owner, 2026-10-27: follow the guide, G211; replaces 2026-10-26 "term: definition")
+    assert "CDVA = corrected distance visual acuity, SD = standard deviation, D = diopters" in texts
     assert "Note: Model 0: unadjusted; Model 1: adjusted for age, and sex" in texts  # not abbreviations: as typed
 
 

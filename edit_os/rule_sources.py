@@ -122,6 +122,17 @@ RULES: dict[str, Locator] = {
     "fig_legends_heading": L("Figure Legends heading", "A heading over the figure legends"),
     # no stylesheet line: the journal's editors put the caption in a merged first row of the table
     "table_caption_row": L("Table caption in the table", "The table caption in a merged first row of its table"),
+    # the guide's TABLE section (owner, 2026-10-27: follow the guide)
+    "tables_move": L("Tables at the end", "Tables moved to the end of the document, after the figure captions",
+                     (r"table", r"end\s+of\s+document"), (r"table", r"end\s+of\s+document"),
+                     "table placed end document after figure captions", first="guide"),
+    "tables.indent": L("Table indentation", "Indentation in the first column as 5 spaces per level",
+                       (r"indentation",), (r"indentation",), "indentation removed 5 spaces increment headings rows"),
+    "table_cell_blanks": L("Empty lines in table cells", "Empty paragraphs inside table cells deleted",
+                           (r"paragraphs", r"rows"), (r"paragraphs", r"rows"), "paragraphs content separate rows deleted",
+                           first="guide"),
+    "fmt_table_caption": L("Table caption bold", "The table caption, label and text, in bold",
+                           (r"label", r"bold"), (r"label", r"bold"), "label table caption content bold style"),
     "ref_lookup": L("Reference rebuilt from PubMed / CrossRef", "Entry rebuilt from the verified record in the journal's "
                     "reference style", (r"pubmed|index medicus",), (r"pubmed",), "update pubmed volume page number"),
     "ref_other": L("Reference format", "Books, websites and reports in the journal's template",

@@ -16,13 +16,15 @@ from enum import Enum
 # right, both), set on the whole paragraph by a formatting-only change.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
                      "color", "size", "highlight", "font", "align",
-                     "list_number", "symbol")
+                     "list_number", "symbol", "indent")
 # "symbol": the one character the change covers becomes Word's Symbol-font symbol (<w:sym>; formatting.symbol_font).
 # "list_number": a paragraph-level property carried by a change that deletes a typed list label ("1.<tab>"): the
 # paragraph becomes an item of Word's automatic numbering instead (tracked.render; references.label_auto_number).
+# "indent": a paragraph property, cleared only (False): the paragraph's direct left and first-line indentation set to
+# zero (tracked as a paragraph property change), as for a table cell whose indentation becomes typed spaces (G208).
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
 # automatic colour over a coloured style), highlighting / coloured shading.
-CLEAR_ONLY = {"color": (False, "auto"), "highlight": (False,)}
+CLEAR_ONLY = {"color": (False, "auto"), "highlight": (False,), "indent": (False,)}
 ALIGNMENTS = ("left", "center", "right", "both")
 
 

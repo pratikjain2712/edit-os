@@ -18,6 +18,7 @@ export const RULE_LABELS = {
   ref_year: "Year and volume", ref_issue: "Issue number", ref_title_case: "Reference title case",
   citations: "Citation style", renumber: "Reference renumbering",
   fig_citations: "Figure / table citation", fig_captions: "Figure / table caption",
+  tables: "Table layout", table_cell_blanks: "Empty lines in table cells", tables_move: "Tables at the end",
   heading_tags: "Heading tag", sections_headings: "Heading", sections_abstract: "Abstract",
   sections_keywords: "Keywords", sections_back_matter: "Back matter",
   statistics: "Statistics spacing", guide_replace: "Style guide fix",

@@ -108,6 +108,7 @@ figures:
   # interval" too: owner, 2026-10-26).
   table_footnote_abbreviation: " = "
   table_footnote_delimiter: ","
+  table_footnote_order: abbreviations_first  # owner, 2026-10-27: follow the guide (G214)
   # ... and asked of the author where the foot is short of it: abbreviations used in the table with no
   # "term = definition" (S "Abbreviations should be first and footnotes next"), a symbol given two meanings or none
   table_footnote_queries: true
@@ -133,6 +134,13 @@ figures:
   query_uncaptioned_images: true  # G244: a picture in the body with no caption beside it (more pictures than legends)
   query_equation_images: true  # S292: "equations ... in image ... format, please raise a query"
   query_no_captions: true  # G244: figures cited, no legend in the file (1486: "Please confirm caption for all figures")
+
+# owner, 2026-10-27: follow the guide (G196, G206, G208, G209)
+tables:
+  indent: {enabled: true}
+  delete_empty_cell_paragraphs: true
+  empty_head_query: true
+  cell_rows_query: true
 
 sections:
   # S: the reference list's heading is "REFERENCES" (set in title case as the other H1 heads): "Reference" ->
@@ -209,11 +217,14 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   fonts:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (32 of 33 articles)
-    align: left                # G16 "left aligned"; headings 14 pt (owner, 2026-10-26: keep the guide; table cells
-                               # keep the alignment they were typed with)
+    align: left                # G16 "left aligned"; headings 14 pt (owner, 2026-10-26: keep the guide)
+    # owner, 2026-10-27: follow the guide (G193, G194): table text 12 pt and aligned left, "No other alignment should
+    # be done" -- replaces the owner's 2026-10-26 "table cells keep the alignment they were typed with"
+    table_align: left
   # Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font (Word's inserted symbols, w:sym), never ×, ®, ©, µ
   # (owner, 2026-10-26)
   symbol_font: {enabled: true}
+  table_caption_bold: true     # owner, 2026-10-27: follow the guide (G199): label and caption content in bold
   # S: "fourth level ... underlined" (owner, 2026-10-26: H4 underlined): the tool tags three levels only, so there
   # is no H4 to underline yet (heading_underline_levels to add once fourth-level detection exists)
 
