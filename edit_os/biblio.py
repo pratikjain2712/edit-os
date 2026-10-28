@@ -66,6 +66,22 @@ class Record:
     full_names: list[str] = field(default_factory=list)  # display-name sources: the names as given, for `authors`
     found_via: str = ""  # a lower-priority source that found the paper this record (PubMed / CrossRef) was taken for
 
+    def __post_init__(self):
+        if self.source != "author":  # the author's own fields stay as written
+            self.title = strip_title_markers(self.title)
+
+
+# A footnote marker the database kept at the end of a title, glued to its last word: PubMed 11408124 reads
+# "... with simulated cataract(2)(2)." (the journal's footnote "2", once per source field). Only after a word of
+# three or more lower-case letters, so a subscript the database writes the same way stays ("vitamin D(3)", "CO(2)").
+_TITLE_MARKERS = re.compile(r"(?<=[a-z]{3})(?:\(\d{1,3}\)|\[\d{1,3}\])+(?=[.?!]?\s*$)")
+
+
+def strip_title_markers(title: str) -> str:
+    """A record's title without trailing footnote markers: "... simulated cataract(2)(2)." -> "... simulated
+    cataract."."""
+    return _TITLE_MARKERS.sub("", title or "") if title else title
+
 
 BREAKER_SECONDS = 600  # how long a service that refused us is left alone
 
