@@ -7,7 +7,9 @@ Python package `edit_os`. Tests: `.venv/bin/python -m pytest`.
   the `old` text it replaces so stale offsets fail loudly.
 - AI suggests; editors decide. Nothing reaches a delivered file unless its status is `accepted`.
 - QC checks are deterministic rules, not model calls.
-- Never decide that a reference exists from model output alone; verify against PubMed / CrossRef.
+- Never decide that a reference exists from model output alone; verify it in code against a bibliographic source
+  (PubMed, CrossRef, OpenAlex, Semantic Scholar, Europe PMC, DOAJ) or the publisher's own page, matching title,
+  authors and year (owner, 2026-10-28). Claude may help find a candidate page; code must confirm it.
 - Manuscripts are client-confidential: keep real samples out of git (`samples/private/` is ignored).
 - The journal's stylesheet (and the pre-editing guide) is the source of truth. Editors work by hand and miss
   things, so a stylesheet rule is applied even when editors often skip it; that counts as an editor miss, not a
