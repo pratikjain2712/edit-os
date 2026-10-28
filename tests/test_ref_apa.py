@@ -52,7 +52,7 @@ def test_apa_entry_without_subtitle_matches_the_record(db):
     res = refengine.resolve(APA.split(" https")[0], st)
     assert res.status == refengine.FORMAT_FIXED
     assert res.formatted == ("Okoro A, Lindqvist BB, Haddad C. Virtual reality in midwifery training: A review of outcomes. "
-                             "Journal of Midwifery Learning 2020;12:40-56.")
+                             "J Midwifery Learn 2020;12:40-56.")
 
 
 @pytest.mark.parametrize("record", [
@@ -106,7 +106,10 @@ def test_non_indexed_journal_full_title(monkeypatch):
             return None
     monkeypatch.setattr(journals, "directory", lambda: Empty())
     r = rec("A title", journal="ITSE", journal_full="Interactive Technology and Smart Education")
-    assert refengine.journal_name(r, style.load("jehp")) == "Interactive Technology and Smart Education"
+    assert refengine.journal_name(r, style.load("mjdrdypu")) == "Interactive Technology and Smart Education"
+    # IJO and JEHP: the editors' ISO 4 abbreviation (owner, 2026-10-28)
+    assert refengine.journal_name(r, style.load("jehp")) == "Interact Technol Smart Educ"
+    assert refengine.journal_name(r, style.load("ijo")) == "Interact Technol Smart Educ"
 
 
 def test_crossref_subtitle_joined():

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz
 
-from . import ai_refs, biblio, journals
+from . import ai_refs, biblio, iso4, journals
 from .style import JournalStyle
 
 DOI = re.compile(r"(?:doi:?\s*|https?://(?:dx\.)?doi\.org/)(10\.\d{4,9}/[^\s\]>]+)", re.I)
@@ -836,9 +836,11 @@ NLM_FIXES = {"J Educ Techno Soc": "J Educ Technol Soc"}
 def journal_name(r: biblio.Record, style: JournalStyle, p: Parsed | None = None) -> str:
     """PubMed's MedlineTA; for a CrossRef record, NLM's abbreviation when NLM lists the journal, else
     (`references.non_indexed_journal: full`; stylesheets: "Use complete name of the journal for non-indexed
-    journals") the full title rather than CrossRef's short one ("ITSE"). Records from the other databases
+    journals") the full title rather than CrossRef's short one ("ITSE"), or (`iso4`: IJO, JEHP) the title's ISO 4
+    abbreviation as the editors write it ("Interact Technol Smart Educ"). Records from the other databases
     (Europe PMC, OpenAlex, Semantic Scholar, DOAJ) are named the same way, by their ISSN / journal title."""
     name = r.journal
+    listed = False  # an NLM abbreviation, or Europe PMC's own
     if r.source in PUBLISHER_SOURCES + ("europepmc",) and journals.directory():
         j = None
         for issn in r.issn:
@@ -851,10 +853,10 @@ def journal_name(r: biblio.Record, style: JournalStyle, p: Parsed | None = None)
                 by_name = None  # CrossRef's short title "pie" is NLM's "La Pie", not "Perspectives in Education"
             j = by_name or (r.journal_full and journals.directory().lookup(r.journal_full))
         if j:
-            name = NLM_FIXES.get(j.med_abbr, j.med_abbr)
+            name, listed = NLM_FIXES.get(j.med_abbr, j.med_abbr), True
         elif r.source == "europepmc" and r.journal and r.journal != r.journal_full:
-            pass  # Europe PMC's own MEDLINE / ISO abbreviation of a journal the local NLM list lacks
-        elif style.get("references.non_indexed_journal", "full") == "full" and r.journal_full:
+            listed = True  # Europe PMC's own MEDLINE / ISO abbreviation of a journal the local NLM list lacks
+        elif style.get("references.non_indexed_journal", "full") in ("full", "iso4") and r.journal_full:
             name = _ACRONYM_QUALIFIER.sub("", r.journal_full.strip())  # "... Public Health Science (IJPHS)": the
             # publisher's acronym is no part of the journal's name (NLM's "(Lausanne)", "(Basel)" are kept)
             if name.isupper() and len(name) > 6:  # "JOURNAL OF SUSTAINABILITY SCIENCE" -> "Journal of Sustainability Science"
@@ -866,6 +868,11 @@ def journal_name(r: biblio.Record, style: JournalStyle, p: Parsed | None = None)
         name = " ".join(w.capitalize() if k == 0 or w not in _MINOR_WORDS else w for k, w in enumerate(name.split()))
     if r.source != "pubmed" and unwritable_journal(name) and p and p.title:
         name = biblio.journal_hint(p.text, p.title) or name  # "حیات": the entry's "Hayat" (as the author wrote it)
+    elif (r.source in PUBLISHER_SOURCES and not listed and len(name.split()) > 1
+          and style.get("references.non_indexed_journal") == "iso4"):
+        full = name if journals.directory() or not r.journal_full else _ACRONYM_QUALIFIER.sub("", r.journal_full)
+        name = iso4.abbreviate(full) or name  # the editors' ISO 4 abbreviation: "Interact Technol Smart Educ"
+        # (owner, 2026-10-28); a short title CrossRef gives without the full one ("ITSE") stays as it is
     if style.get("references.journal_drop_qualifier", True):
         name = re.sub(r"\s*\([^)]*\)$", "", name)
     return name.replace(".", "")

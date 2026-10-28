@@ -114,17 +114,20 @@ class _Dir:
 def test_full_journal_name_drops_publisher_acronym(jehp, monkeypatch):
     monkeypatch.setattr(journals, "directory", lambda: _Dir({}))
     rec = _rec(source="crossref", journal="IJPHS", journal_full="International Journal of Public Health Science (IJPHS)")
-    assert refengine.journal_name(rec, jehp) == "International Journal of Public Health Science"
+    full = style.load("mjdrdypu")  # the stylesheets' complete name; IJO and JEHP abbreviate (owner, 2026-10-28)
+    assert refengine.journal_name(rec, full) == "International Journal of Public Health Science"
+    assert refengine.journal_name(rec, jehp) == "Int J Public Health Sci"
     rec = _rec(source="crossref", journal="Comput. Educ. Artif. Intell.",
                journal_full="Computers and Education: Artificial Intelligence")
-    assert refengine.journal_name(rec, jehp) == "Computers and Education: Artificial Intelligence"
+    assert refengine.journal_name(rec, full) == "Computers and Education: Artificial Intelligence"
+    assert refengine.journal_name(rec, jehp) == "Comput Educ Artif Intell"
 
 
 def test_short_title_match_must_be_the_same_journal(jehp, monkeypatch):
     la_pie = journals.Journal(nlm_id="1", title="La Pie", med_abbr="Pie", iso_abbr="Pie", issn_print="", issn_online="")
     monkeypatch.setattr(journals, "directory", lambda: _Dir({"pie": la_pie}))
     rec = _rec(source="crossref", journal="pie", journal_full="Perspectives in Education")
-    assert refengine.journal_name(rec, jehp) == "Perspectives in Education"
+    assert refengine.journal_name(rec, jehp) == "Perspect Educ"
     rec = _rec(source="crossref", journal="pie", journal_full="La Pie")
     assert refengine.journal_name(rec, jehp) == "Pie"
 

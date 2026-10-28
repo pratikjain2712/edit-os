@@ -14,7 +14,7 @@
   style IN.docx JOURNAL OUTDIR             run the journal's rules; write tracked (with author queries as
         [--first-page FP.docx] [--xml M.xml]  comments) and clean copies, the query sheet and QC; the title-page
   style original.zip JOURNAL OUTDIR        file and XML feed the front matter (a zip supplies all three)
-  journals update                          download NLM's journal list into the local database
+  journals update                          download NLM's journal list and the ISO 4 word list
   journals find NAME                       look up a journal by title, abbreviation or ISSN
 """
 
@@ -24,7 +24,7 @@ import json
 import os
 import sys
 
-from . import docmodel, frontmatter, journals, pipeline, qc, queries, references, rules, rules_format, style, tracked
+from . import docmodel, frontmatter, iso4, journals, pipeline, qc, queries, references, rules, rules_format, style, tracked
 from .changes import ChangeSet, Status
 
 _manuscript_from_zip = pipeline.manuscript_from_zip
@@ -70,6 +70,7 @@ def main(argv: list[str]) -> int:
     cmd, path = argv[0], argv[1]
     if cmd == "journals" and path == "update":
         print(f"{journals.update()} journals saved to {journals.DEFAULT_DB}")
+        print(f"{iso4.update()} ISO 4 title words saved to {iso4.DEFAULT_PATH}")
     elif cmd == "journals" and path == "find" and len(argv) == 3:
         for j in journals.Directory().find(argv[2]):
             print(f"{j.med_abbr}\t{j.title}\tISSN {j.issn_print or '-'} / {j.issn_online or '-'}\tNLM {j.nlm_id}")

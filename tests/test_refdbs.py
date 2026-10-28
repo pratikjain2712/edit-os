@@ -315,8 +315,10 @@ def test_unwritable_journal_name_takes_the_entrys(web):
 
 def test_non_indexed_journal_written_in_full(web):
     web.data["doaj.org"] = doaj(doaj_article())
-    res = refengine.resolve(ENTRY, style.load("jehp"))
+    res = refengine.resolve(ENTRY, style.load("mjdrdypu"))
     assert res.formatted.endswith("Journal of Nursing Teaching Research 2021;9:44-52.")
+    res = refengine.resolve(ENTRY, style.load("jehp"))  # ISO 4, as the JEHP editors write it
+    assert res.formatted.endswith(" J Nurs Teach Res 2021;9:44-52.")
 
 
 def test_provenance_chip_names_the_source(web):
@@ -347,4 +349,4 @@ def test_entry_pages_kept_when_only_the_last_page_differs(web):
                                                                               "volume": "9", "pages": "44-53"})]})
     res = refengine.resolve(ENTRY, style.load("jehp"))
     assert res.record.source == "semantic_scholar"
-    assert res.formatted.endswith("Journal of Nursing Teaching Research 2021;9:44-52.")
+    assert res.formatted.endswith(" J Nurs Teach Res 2021;9:44-52.")

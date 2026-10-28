@@ -216,13 +216,16 @@ references:
   web_search: {enabled: true}  # refweb.py: candidate pages from Claude's web search, verified in code (owner)
   # At most two initials per author: "Chandrasena PPCM" -> "Chandrasena PP" (the editors 6 of 8; owner, 2026-10-26)
   max_initials: 2
+  # A journal NLM does not list: its ISO 4 abbreviation, as the editors write it (13 of 15: "Interact Technol Smart
+  # Educ", "J Learn Sci"), over S "Use complete name of the journal for non-indexed journals" (owner, 2026-10-28)
+  non_indexed_journal: iso4
 
 # references.non_indexed_journal: full as base (S: "Use complete name of the journal for non-indexed journals"): a
 # CrossRef journal NLM does not list keeps its full title. "Indexed" is read as listed by NLM (J_Medline): "MIS Q",
 # "Cogent Educ", "Glob J Health Sci" are NLM's abbreviations and stay so. The editors wrote an ISO-style abbreviation
 # for 13 of 15 unlisted journals ("Interact Technol Smart Educ", "J Learn Sci"), and the editors of 1732 wrote "MIS
-# Quarterly", "Cogent Education"; the owner keeps the rule as it is: not in NLM's list -> CrossRef's full title
-# (owner, 2026-10-26).
+# Quarterly", "Cogent Education". Owner, 2026-10-26: keep the full title; owner, 2026-10-28: abbreviate them like the
+# editors (non_indexed_journal: iso4 above).
 
 submission:
   copyright_notice_prefix: "Query: "  # JEHP editors write "Query: " before the copyright notice (7 of 9)
