@@ -512,12 +512,49 @@ def _diff(p: Paragraph, base: int, old: str, new: str, rule: str) -> list[Change
 
 # --- captions ------------------------------------------------------------------------
 
-_CAPTION = re.compile(
+_CAPTION_HEAD = (
     r"^(?P<lead>\s*)(?P<pre>(?:Legends?\s*(?:\s(?:to|for|of)\s+(?:the\s+)?|[:\-–]\s*|\s(?=Fig)))?)"
     r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Graphs?|GRAPHS?|Tables?|TABLES?|Tabels?|TABELS?)"
     r"(?![A-Za-z])\.?(?P<sp>\s*(?:[-_]\s*)?(?:No\.?\s*)?)"
-    r"(?P<num>\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z]))(?P<part>[A-Za-z](?![A-Za-z]))?"
-    r"(?P<sep>\s*[.:\-–—]+\s*|\s+|(?=\(\s*[A-La-l]\s*[),&–-]))(?P<rest>\S.*)$", re.S)
+    r"(?P<num>\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z]))(?P<part>[A-Za-z](?![A-Za-z]))?")
+_CAPTION_TAIL = r"(?P<sep>\s*[.:\-–—]+\s*|\s+|(?=\(\s*[A-La-l]\s*[),&–-]))(?P<rest>\S.*)$"
+_CAPTION = re.compile(_CAPTION_HEAD + r"(?P<more>)" + _CAPTION_TAIL, re.S)
+# A figure label naming several parts: "Fig 2a & 2b The goat's eye ...", "Figure 1A, B: ...", "Figure 3a-3c. ...":
+# the parts after the first (`more`) are read as the legend's part labels ("Figure 2: (a and b) ...", G263).
+_LABEL_MORE = r"(?:\s*(?:,\s*(?:and\s+)?|&|\band\b|-|–|—|\bto\b)\s*(?:\d{1,2})?[A-La-l](?![A-Za-z]))+"
+_CAPTION_PARTS = re.compile(_CAPTION_HEAD + r"(?P<more>" + _LABEL_MORE + r")" + _CAPTION_TAIL, re.S)
+_MORE_ITEM = re.compile(r"\s*(?P<j>,\s*(?:and\s+)?|&|\band\b|-|–|—|\bto\b)\s*(?P<num>\d{1,2})?(?P<part>[A-La-l])")
+
+
+def label_parts(m: re.Match, style: JournalStyle | None = None) -> tuple[str, str, str]:
+    """(first, last, label) of the part letters a caption label carries: "Figure 1B" -> ("B", "B", "(b)"), "Fig 2a &
+    2b" -> ("a", "b", "(a and b)"), "Figure 3a-3c" -> ("a", "c", "(a–c)"); ("", "", "") when it carries none."""
+    part = m.group("part") or ""
+    if not part:
+        return "", "", ""
+    letters, out = [part], _case(part, style, True)
+    for it in _MORE_ITEM.finditer(m.group("more") or ""):
+        j = it.group("j").strip()
+        joint = "–" if j in ("-", "–", "—", "to") else " and " if j in ("&", "and") else \
+            ", and " if j.startswith(",") and j.endswith("and") else ", "
+        letters.append(it.group("part"))
+        out += joint + _case(it.group("part"), style, True)
+    return letters[0], letters[-1], f"({out})"
+
+
+def _more_ok(m: re.Match) -> bool:
+    """Whether the further parts of a caption label are a figure's part list: letters running forward, each number
+    (if typed) the figure's own."""
+    if not m.group("more"):
+        return True
+    if not m.group("part") or m.group("word").lower().startswith(("tab", "graph")):
+        return False
+    letters = [m.group("part")]
+    for it in _MORE_ITEM.finditer(m.group("more")):
+        if it.group("num") and it.group("num") != m.group("num"):
+            return False
+        letters.append(it.group("part"))
+    return all(ord(b.lower()) > ord(a.lower()) for a, b in zip(letters, letters[1:]))
 
 
 @dataclass
@@ -556,7 +593,15 @@ def _beside_table(el) -> bool:
 
 
 def caption_match(p: Paragraph) -> re.Match | None:
-    m = _CAPTION.match(p.text)
+    m = _CAPTION_PARTS.match(p.text)
+    if m is not None and _more_ok(m):
+        got = _caption_check(p, m)
+        if got is not None:
+            return got
+    return _caption_check(p, _CAPTION.match(p.text))
+
+
+def _caption_check(p: Paragraph, m: re.Match | None) -> re.Match | None:
     if m and p.style.lower().startswith("heading"):
         # A heading is not a caption, except a "Table 1. ..." line in a heading style right next to its table (1751).
         if not (m.group("word").lower().startswith("tab") and not p.in_table and _beside_table(p.element)):
@@ -942,6 +987,8 @@ def _continue(ms: Manuscript, leg: Legend, i: int, start: int, caps: dict, used:
     ref_i = references.find_heading(ms)
     back = ref_i is not None and i > ref_i
     part = _label_part(leg.cap.match) if leg.cap else ""
+    if leg.cap is not None and leg.cap.match.group("more"):
+        part = label_parts(leg.cap.match)[1]  # "Fig 2a & 2b ...": the next part is (c)
     expected = _next(part.lower()) if part else "a"
     expected = _expected_after(leg.para.text, start, leg.number, None, expected)
     blanks = 0
@@ -960,7 +1007,8 @@ def _continue(ms: Manuscript, leg: Legend, i: int, start: int, caps: dict, used:
             from_bracket = p2 and not c2.match.group("part") and lead_part(c2.match.group("rest")) is None
             if c2.number == leg.number and p2 and (not from_bracket or p2.lower() == expected):
                 leg.conts.append((q, "label"))
-                expected = _expected_after(t, c2.match.start("rest"), leg.number, None, _next(p2.lower()))
+                last = label_parts(c2.match)[1] if c2.match.group("more") else p2
+                expected = _expected_after(t, c2.match.start("rest"), leg.number, None, _next(last.lower()))
             else:
                 break
         elif q.style.lower().startswith("heading") or t.lstrip().startswith("<H") or LEGENDS_HEADING.match(t):
@@ -1085,7 +1133,8 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
     if leg.cap is not None:
         m = leg.cap.match
         rest_start, part = m.start("rest"), m.group("part") or ""
-        prefix = f"({_case(part, style, True)}) " if part else ""
+        part_last, parts_label = label_parts(m, style)[1:]
+        prefix = f"{parts_label} " if part else ""
         dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(leg.number) + r"[A-Za-z]?\s*[.:\-–]\s*",
                        m.group("rest"), re.I)
         if dup and not part:  # "Figure 3: Figure 3. Fundus ..." -> drop the repeated label
@@ -1113,7 +1162,7 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
     # Part labels across the legend and its continuations.
     tokens: list[_Token] = []
     if part:
-        tokens.append(_Token(0, -1, -1, part.lower(), part.lower(), "", True, edit=False))
+        tokens.append(_Token(0, -1, -1, part.lower(), part_last.lower(), "", True, edit=False))
     tokens += _tokens(p.text, rest_start, leg.number, style, 0, None if part else rest_start)
     starts = {0: rest_start}
     labels: dict[int, tuple[int, int, str]] = {}  # continuation k -> (start, end, new) of its "Figure 1B: " label
@@ -1121,10 +1170,11 @@ def _legend_changes(ms: Manuscript, leg: Legend, style: JournalStyle, run_on: bo
         if kind == "label":
             m2 = caption_match(q)
             p2 = m2.group("part") or ""
+            _, p2_last, p2_label = label_parts(m2, style)
             starts[k] = m2.start("rest")
-            labels[k] = (m2.end("lead"), m2.start("rest"), f"({_case(p2, style, True)}) " if p2 else "")
+            labels[k] = (m2.end("lead"), m2.start("rest"), f"{p2_label} " if p2 else "")
             if p2:
-                tokens.append(_Token(k, -1, -1, p2.lower(), p2.lower(), "", True, edit=False))
+                tokens.append(_Token(k, -1, -1, p2.lower(), p2_last.lower(), "", True, edit=False))
             tokens += _tokens(q.text, starts[k], leg.number, style, k, None if p2 else starts[k])
         elif kind == "list":
             starts[k] = len(q.text) - len(q.text.lstrip())
@@ -1726,7 +1776,7 @@ def rule_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
             if cap.kind == TABLE:
                 suffix = m.group("part")  # "Table 1A" is its own table
             else:
-                new_rest_prefix = f"({_case(m.group('part'), style, True)}) "
+                new_rest_prefix = f"{label_parts(m, style)[2]} "
         # "Table 3: Table 3. Individual..." -> drop the repeated label.
         dup = re.match(r"(?:Fig(?:ure)?\.?|Table|Graph)\s*" + str(cap.number) + r"[A-Za-z]?\s*[.:\-–]\s*", rest, re.I)
         if dup and not m.group("part"):
@@ -2370,13 +2420,28 @@ def legend_from_text(text: str, number: int, style: JournalStyle) -> str:
     """A legend given as plain text (the submission XML's <legend>): its "Figure N" label dropped, part labels "(a)",
     the end period as the journal has it."""
     t = re.sub(r"\s+", " ", text or "").strip()
-    m = re.match(r"(?:fig(?:ure)?s?\.?)\s*(?:no\.?\s*)?" + str(number) + r"(?!\d)\s*(?:[.:\-–—]+\s*)?", t, re.I)
-    if m:
-        t = t[m.end():]
+    lm = _CAPTION_PARTS.match(t)
+    if lm is None or not _more_ok(lm):
+        lm = _CAPTION.match(t)
+    head = ""
+    if lm is not None and lm.group("part") and lm.group("num") == str(number) \
+            and not lm.group("word").lower().startswith(("tab", "graph")):
+        head, t = label_parts(lm, style)[2], lm.group("rest")  # "Fig 2a & 2b The goat's eye" -> "(a and b) The ..."
+        last = label_parts(lm)[1].lower()
+    else:
+        m = re.match(r"(?:fig(?:ure)?s?\.?)\s*(?:no\.?\s*)?" + str(number) + r"(?!\d)\s*(?:[.:\-–—]+\s*)?", t, re.I)
+        if m:
+            t = t[m.end():]
     if not t:
         return ""
-    toks = [x for x in _select(_tokens(t, 0, number, style, 0, 0)) if x.edit]
+    if head:
+        toks = [x for x in _select([_Token(0, -1, -1, "a", last, "", True, edit=False)] +
+                                   _tokens(t, 0, number, style, 0, None)) if x.edit]
+    else:
+        toks = [x for x in _select(_tokens(t, 0, number, style, 0, 0)) if x.edit]
     t = _apply_edits(t, [(x.start, x.end, x.new) for x in toks]).strip()
+    if head:
+        t = f"{head} {t}"
     end_mode = style.get("figures.figure_caption_end_period")
     if end_mode is None:
         keep = style.get("figures.caption_end_period", False) or style.get("figures.caption_end_period_keep")
@@ -2384,4 +2449,6 @@ def legend_from_text(text: str, number: int, style: JournalStyle) -> str:
     i = _end_period(t)
     if end_mode == "delete" and i is not None:
         t = t[:i].rstrip()
+    elif end_mode == "add" and t and not t.endswith((".", "?", "!", ":")):
+        t += "."  # as the legends in the text get it (figures.figure_caption_end_period)
     return t

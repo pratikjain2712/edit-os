@@ -614,6 +614,8 @@ def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, a
     body = ms.document.element.body
     sect = body.find(qn("w:sectPr"))
     headed = False
+    supp_headed = False  # one "Supplementary Material" heading over all the supplementary files merged
+    tail: dict[str, object] = {}  # anchor id -> the last element placed after it (the files keep their order)
     for n in todo:
         path = os.path.join(base_dir, n.file)
         try:
@@ -624,7 +626,7 @@ def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, a
             continue
         skids = list(sms.document.element.body)
         place: list = []
-        if n.kind == "supplementary" and n.heading:
+        if n.kind == "supplementary" and n.heading and not supp_headed:
             place.append(_heading(n.heading, mk))
         for block in n.blocks:
             els = []
@@ -645,6 +647,8 @@ def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, a
             place += els
         if not place:
             continue
+        if n.kind == "supplementary":
+            supp_headed = supp_headed or bool(n.heading)
         cfg = (style.get("formatting.fonts") or {}) if style is not None and run_format else {}
         for e in place:
             _normalise(e, mk, cfg.get("table_align") or None, align)
@@ -664,9 +668,11 @@ def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, a
                 for e in place:
                     anchor.addprevious(e)
             else:
+                at = tail.get(n.anchor, at)
                 while at.getparent() is not body:
                     at = at.getparent()
                 for e in place:
                     at.addnext(e)
                     at = e
+                tail[n.anchor] = at
     return notes

@@ -13,7 +13,7 @@ caption" (a picture moves with its legend). The back of the article then reads: 
     the move adds one.
   - Legends already in place with no heading get the heading as an inserted paragraph (`NewParagraph`); an author's
     heading ("Legends:", "Legends to Figures", "Image description") is renamed by `rules_figures` (fig_captions).
-  - Figures supplied only as files (figures_insert.py) go under the heading too.
+  - Figures supplied only as files (figures_insert.py) go under the heading too, among the legends in figure order.
   - Table captions go into a merged first row of their table (`figures.table_caption_row`): the IJO technical editors'
     form in every article with tables (8 of 8); the sheet is silent on where the caption sits.
 
@@ -483,7 +483,71 @@ def render(ms: Manuscript, inserts, statuses, *, tracked: bool, author: str, dat
                 notes += rules_tables.render_cell_blanks(ms, n, mk)
         except KeyError:
             notes.append(f"{n.text}: not done (a paragraph is gone)")
+    _order_back_figures(ms)
     return notes
+
+
+_LEGEND_NUMBER = re.compile(r"^\s*fig(?:ure)?s?\.?\s*(\d{1,2})(?!\d)", re.I)
+
+
+def _order_back_figures(ms: Manuscript) -> None:
+    """Figures supplied only as files, with their legends from other material (figures_insert.render records them),
+    were placed where the back of the article starts, which is above the legends' heading. Each goes under the
+    heading, among the legends in figure order: before the first legend with a higher number (its picture above it),
+    else after the last legend (and the lines that go with it)."""
+    blocks = sorted(getattr(ms, "_back_figures", None) or [], key=lambda b: b[0])
+    body = ms.document.element.body
+    for num, els in blocks:
+        if not els or els[-1].getparent() is not body:
+            continue
+        mine = {id(e) for e in els}
+        heading = None
+        legs: list[tuple[int, object]] = []
+        gap = False  # a blank line since the last legend (or a line of it)
+        x = els[-1].getnext()
+        while x is not None:
+            if x.tag != qn("w:p"):
+                break  # a table, the section properties
+            t = paragraph_text(x)
+            if id(x) in mine or _is_deleted(x):
+                x = x.getnext()
+                continue
+            if _CAPTION_START.match(t) or _TABLES_HEADING.match(t) and t.strip():
+                break
+            m = _LEGEND_NUMBER.match(t)
+            if m:
+                legs.append((int(m.group(1)), x))
+            elif heading is None and not legs and t.strip() and rules_figures.LEGENDS_HEADING.match(t):
+                heading = x
+            elif t.strip() and (not legs and heading is None or legs and gap):
+                break  # other text: not over the legends, or past them
+            if not t.strip() and not has_picture(x):
+                gap = True
+            elif t.strip():
+                gap = False
+            x = x.getnext()
+        if heading is None and not any(k < num for k, _ in legs):
+            continue  # already under the heading, before the legends with higher numbers
+        higher = next((el for k, el in legs if k > num), None)
+        if higher is not None:
+            above = _picture_above(higher)
+            target = above[0] if above else higher
+            for e in els:
+                target.addprevious(e)
+            continue
+        if not legs:  # only the heading under it
+            at = heading
+        else:  # after the last legend and the lines that go with it (up to a blank line)
+            at = legs[-1][1]
+            y = at.getnext()
+            while y is not None and y.tag == qn("w:p") and paragraph_text(y).strip() and \
+                    not _LEGEND_NUMBER.match(paragraph_text(y)) and not _CAPTION_START.match(paragraph_text(y)) \
+                    and not _TABLES_HEADING.match(paragraph_text(y)):
+                at = y
+                y = y.getnext()
+        for e in els:
+            at.addnext(e)
+            at = e
 
 
 def _top(el, body):
