@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import glob
 import io
+import json
 import os
 import re
 import sys
@@ -152,6 +153,8 @@ def evaluate(article_dir: str, only=None, lt_client=None, explore=False, show_hu
         ce = f.read()
     paras = views(ce, authors(te))
     st = style_mod.load(journal_of(article_dir))
+    if only and "claude" in only:  # asked for by name: measured even where the journal has it off (JEHP)
+        st.settings["copyedit"]["claude"]["enabled"] = True
     if explore:
         st.settings["copyedit"]["languagetool"].update(categories=["*"], rules=[], disabled_rules=[])
     with tempfile.TemporaryDirectory() as tmp:
@@ -185,6 +188,11 @@ def evaluate(article_dir: str, only=None, lt_client=None, explore=False, show_hu
                 if show_hurt:
                     print(f"  HURT {[(c.old, c.new, c.reason) for c in cs]}\n    O: {o[:200]!r}\n    T: {t[:200]!r}")
         for c in cs:
+            if os.environ.get("EVAL_CE_DUMP"):  # every edit with its context and the copy editor's verdict
+                with open(os.environ["EVAL_CE_DUMP"], "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"article": os.path.basename(article_dir), "old": c.old, "new": c.new,
+                                        "reason": c.reason, "context": o[max(0, c.start - 120):c.end + 120],
+                                        "editor_agrees": closer(apply(o, [c]), o, t)}, ensure_ascii=False) + "\n")
             key = c.reason if c.reason.startswith("languagetool") else c.reason.split(" (")[0]
             proposed[key] += 1
             proposed["checker:" + checker_of(c)] += 1

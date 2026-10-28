@@ -500,13 +500,18 @@ def query(p: Paragraph, q: dict) -> Query | None:
 # --- the pass ----------------------------------------------------------------------------------
 
 def settings(style: JournalStyle) -> dict:
-    """`copyedit.claude` from the journal style; EDITOS_CE_MODEL (else EDITOS_MODEL), EDITOS_CE_EFFORT
-    and EDITOS_CE_EXAMPLES override it."""
+    """`copyedit.claude` from the journal style; EDITOS_CE_MODEL (else EDITOS_MODEL), EDITOS_CE_EFFORT,
+    EDITOS_CE_EXAMPLES, EDITOS_CE_MAX_WORDS, EDITOS_CE_MAX_CHARS and EDITOS_CE_MIN_CONFIDENCE override it."""
     cfg = dict(style.get("copyedit.claude", {}) or {})
     for env, key in (("EDITOS_MODEL", "model"), ("EDITOS_CE_MODEL", "model"), ("EDITOS_CE_EFFORT", "effort"),
                      ("EDITOS_CE_EXAMPLES", "examples_path")):
         if os.environ.get(env):
             cfg[key] = os.environ[env]
+    for env, key in (("EDITOS_CE_MAX_WORDS", "max_words"), ("EDITOS_CE_MAX_CHARS", "max_chars")):
+        if os.environ.get(env):
+            cfg[key] = int(os.environ[env])
+    if os.environ.get("EDITOS_CE_MIN_CONFIDENCE"):
+        cfg["min_confidence"] = os.environ["EDITOS_CE_MIN_CONFIDENCE"]
     return cfg
 
 
