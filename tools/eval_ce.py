@@ -191,7 +191,7 @@ def evaluate(article_dir: str, only=None, lt_client=None, explore=False, show_hu
             if os.environ.get("EVAL_CE_DUMP"):  # every edit with its context and the copy editor's verdict
                 with open(os.environ["EVAL_CE_DUMP"], "a", encoding="utf-8") as f:
                     f.write(json.dumps({"article": os.path.basename(article_dir), "old": c.old, "new": c.new,
-                                        "reason": c.reason, "context": o[max(0, c.start - 120):c.end + 120],
+                                        "reason": c.reason, "context": o[max(0, c.start - 120):c.end + 120], "at": c.start - max(0, c.start - 120),
                                         "editor_agrees": closer(apply(o, [c]), o, t)}, ensure_ascii=False) + "\n")
             key = c.reason if c.reason.startswith("languagetool") else c.reason.split(" (")[0]
             proposed[key] += 1
