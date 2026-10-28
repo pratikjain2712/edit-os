@@ -92,15 +92,18 @@ def test_footnote_abbreviation_query_sits_on_the_footnote_or_the_caption(tmp_pat
     doc = Document()
     for t in ["Introduction", "Results are in Tables 1 and 2 [Tables 1 and 2]."]:
         doc.add_paragraph(t)
-    _table(doc, "Table 1: Scores at baseline", foot="*Chi-square test")
+    _table(doc, "Table 1: Scores at baseline", foot="*Chi-square test, CI = confidence interval")
     _table(doc, "Table 2: Scores at follow-up")
     for t in _refs("A A. One. J T 2020;1:1-2."):
         doc.add_paragraph(t)
     path = _save(doc, tmp_path)
     ms = docmodel.load(path)
     qs = queries.collect(ms, jehp())
-    on = [ms.by_id(q.para_id).text for q in qs.queries if q.check == "figures.footnote_abbreviations"]
-    assert on == ["*Chi-square test", "Table 2: Scores at follow-up"]
+    on = [(ms.by_id(q.para_id).text, q.text) for q in qs.queries if q.check.startswith("figures.footnote_abbreviations")]
+    # SD is missing under both tables: asked once, at the first table's footnote, naming both
+    assert on == [("*Chi-square test, CI = confidence interval",
+                   "Kindly provide the expansion of SD in the footnotes of Tables 1 and 2."),
+                  ("Table 2: Scores at follow-up", "Kindly provide the expansion of CI in the table footnote.")]
 
 
 def test_moved_copy_takes_the_comments_with_it(tmp_path):

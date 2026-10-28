@@ -116,12 +116,13 @@ def _queried_refs(queries) -> tuple[set[int], set[int]]:
     uncited, missing = set(), set()
     for q in queries or ():
         chk, text = (q.get("check"), q.get("text", "")) if isinstance(q, dict) else (q.check, q.text)
-        m = re.search(r"\d+", text or "")
-        if not m:
+        if chk == "references.uncited":  # one or several ("Reference nos. 19, 24 and 27–29 have not been cited")
+            from .queries import uncited_numbers
+
+            uncited.update(uncited_numbers(text))
             continue
-        if chk == "references.uncited":
-            uncited.add(int(m.group(0)))
-        elif chk == "references.missing_entry":
+        m = re.search(r"\d+", text or "")
+        if m and chk == "references.missing_entry":
             missing.add(int(m.group(0)))
     return uncited, missing
 

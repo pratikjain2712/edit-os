@@ -318,6 +318,11 @@ tables:  # table body layout (edit_os/rules_tables.py); the guide's TABLE sectio
 
 queries:  # author queries on the text (edit_os/queries.py)
   unmatched_brackets: false  # true: a stray bracket ("(−1.20,3.40))") -> query (JEHP)
+  # queries.condense (owner, 2026-10-28: no query the editors would not write; every ask the sheet needs is kept):
+  condense: true             # false: the queries as each check raises them
+  merge_uncited: true        # uncited references in one query ("Reference nos. 19, 24 and 27–29 have not been
+                             # cited. Kindly cite."); uncited tables and figures in one ("Tables 2, 4 and 5 ...")
+  one_per_reference: true    # a reference's asks in one query, what another ask covers left out
 
 header:  # top of the tracked and clean copies (edit_os/header.py); measured on the 236 style editors' files
   enabled: true
@@ -611,6 +616,8 @@ copyedit:
     query_before_definition: true
     move_definition: false     # instead of a query, move the expansion to the first use
     redefinition: query        # full form (ABBR) again in one scope: query | change (-> "ABBR") | off
+    ask_once: true             # each abbreviation queried once in the article (its first occurrence), not once per
+                               # repeated definition or per scope (owner, 2026-10-28: no repeated queries)
     unused_definition: "off"   # "(ABBR)" never used again: change (drop it) | query | off. Off: on 158 articles the
                                # copy editors kept the definition 3 times in 4 (precision 26%, closure -2.5%)
     full_form_after_definition: change  # full form again after the definition: change (-> "ABBR") | query | off;

@@ -441,6 +441,137 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     return qs.number(ms)
 
 
+# --- one query where the editors write one --------------------------------------------------------------------------
+
+# Asked about the reference as a whole: with one of these on it, the asks below are covered ("check and provide
+# complete details" takes in the names, volume and pages, as collect() already counts it). A missing element named
+# on its own ("Kindly provide publisher location") stays: S "query for any missing elements".
+_NOT_FOUND = ("references.not_found", "references.not_found_et_al", "references.unverified",
+              "references.book_unverified")
+_COVERED = {
+    "references.not_found": {"references.author_style", "references.full_names", "references.author_names_incomplete",
+                             "references.author_names_unlisted", "references.no_volume", "references.no_pages",
+                             "references.incomplete"},
+    "references.book_unverified": {"references.author_style", "references.full_names", "references.incomplete"},
+    "references.no_volume": {"references.no_pages"},
+}
+_COVERED["references.not_found_et_al"] = _COVERED["references.not_found"]
+_COVERED["references.unverified"] = {"references.author_style", "references.full_names",
+                                     "references.author_names_incomplete", "references.author_names_unlisted"}
+_UNCITED_REF = re.compile(r"^Reference no\. (\d+) has not been cited\. Kindly cite\.$")
+_UNCITED_FIG = re.compile(r"^(\w+) (\d+) has not been cited in the text part\. Kindly cite\.$")
+_PROVIDE = re.compile(r"^Kindly provide (.+?)\.$")
+
+
+def number_list(nums) -> str:
+    """"19, 24, 25 and 27–29": runs of three or more as a range."""
+    nums = sorted(set(nums))
+    parts, i = [], 0
+    while i < len(nums):
+        j = i
+        while j + 1 < len(nums) and nums[j + 1] == nums[j] + 1:
+            j += 1
+        parts += [f"{nums[i]}\u2013{nums[j]}"] if j - i >= 2 else [str(n) for n in nums[i:j + 1]]
+        i = j + 1
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def uncited_numbers(text: str) -> list[int]:
+    """The reference numbers an uncited-reference query names: "Reference no. 7 has not been cited", "Reference nos.
+    19, 24 and 27–29 have not been cited"."""
+    m = re.match(r"Reference nos?\.\s*([\d,\s\u2013\-and]+?)\s+ha(?:s|ve) not been cited", text or "")
+    if not m:
+        return []
+    out = []
+    for a, b in re.findall(r"(\d+)(?:\s*[\u2013\-]\s*(\d+))?", m.group(1)):
+        out += list(range(int(a), int(b) + 1)) if b else [int(a)]
+    return out
+
+
+def _merge_texts(texts: list[str]) -> str:
+    """One query from several on one item, as the editors write it: the "Kindly provide ..." asks in one sentence
+    ("Kindly provide last accessed date and publisher location."), the rest as they are, in order."""
+    # (an ask that has its own "and" or "et al." keeps its sentence: "volume and page numbers", "6 author names
+    # before et al.")
+    single = [t for t in texts if (m := _PROVIDE.match(t)) and not re.search(r"\band\b|\bet al$", m.group(1))]
+    asks = list(dict.fromkeys(_PROVIDE.match(t).group(1) for t in single))
+    out = []
+    for t in texts:
+        if t in single and len(asks) > 1:
+            t = "Kindly provide " + ", ".join(asks[:-1]) + " and " + asks[-1] + "."  # in place of the first
+        if t not in out:
+            out.append(t)
+    return " ".join(out)
+
+
+def condense(ms: Manuscript, style: JournalStyle, qs: QuerySet) -> QuerySet:
+    """No query the editors would not write (owner, 2026-10-28): the same ask once, and one query per item.
+
+    * uncited references: one query naming them all ("Reference nos. 19, 24 and 27–29 have not been cited. Kindly
+      cite.", the guide's E.g. 2 wording), at the first (`queries.merge_uncited`);
+    * tables and figures never cited: one query ("Tables 2, 4 and 5 and Figure 2 have not been cited in the text
+      part. Kindly cite."; the JEHP editors: "Please cite Tables 2, 4 and 5 in the text part"), the same figure
+      asked twice (a caption and a supplied file) once;
+    * a reference with several asks: one query on it, the asks merged into one sentence and what another ask
+      already covers left out (`queries.one_per_reference`; the editors: "Kindly check and provide publisher
+      location, edition and page number details.").
+    Nothing the stylesheet asks for is dropped: every ask is still in a query."""
+    if not style.get("queries.condense", True):
+        return qs
+    order = {p.id: i for i, p in enumerate(ms.paragraphs)}
+
+    def where(q: Query):
+        return order.get(q.para_id, 10 ** 9), 0 if q.insert_id else 1, q.start
+
+    drop: set[int] = set()
+    merged_uncited: set[int] = set()
+    if style.get("queries.merge_uncited", True):
+        refs = [q for q in qs.queries if q.check == "references.uncited" and _UNCITED_REF.match(q.text)]
+        if len(refs) > 1:
+            first = min(refs, key=where)
+            nums = [int(_UNCITED_REF.match(q.text).group(1)) for q in refs]
+            first.text = f"Reference nos. {number_list(nums)} have not been cited. Kindly cite."
+            merged_uncited.add(id(first))
+            drop |= {id(q) for q in refs if q is not first}
+        figs = [q for q in qs.queries if q.check == "figures.uncited" and _UNCITED_FIG.match(q.text)]
+        if figs:
+            first = min(figs, key=where)
+            kinds: dict[str, list[int]] = {}
+            for q in sorted(figs, key=where):
+                k, n = _UNCITED_FIG.match(q.text).groups()
+                kinds.setdefault(k, []).append(int(n))
+            if sum(len(set(v)) for v in kinds.values()) > 1:
+                names = [f"{k}s {number_list(v)}" if len(set(v)) > 1 else f"{k} {v[0]}" for k, v in kinds.items()]
+                first.text = " and ".join(names) + " have not been cited in the text part. Kindly cite."
+            drop |= {id(q) for q in figs if q is not first}
+    if style.get("queries.one_per_reference", True):
+        ref_ids = {r.para_id for r in references.extract(ms)}
+        groups: dict[tuple, list[Query]] = {}
+        for q in qs.queries:
+            if id(q) in drop or id(q) in merged_uncited or q.insert_id or q.para_id not in ref_ids \
+                    or not q.check.startswith("references."):
+                continue
+            groups.setdefault((q.para_id, q.start), []).append(q)
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            checks = {q.check for q in group}
+            covered = set().union(*(_COVERED.get(c, set()) for c in checks))
+            if checks & set(_NOT_FOUND):  # one "not found" ask is enough
+                main = next(q.check for q in group if q.check in _NOT_FOUND)
+                covered |= set(_NOT_FOUND) - {main}
+            keep = [q for q in group if q.check not in covered] or group[:1]
+            # the uncited ask first (QC reads its number off the first), then "not found", then the rest as asked
+            keep.sort(key=lambda q: (q.check != "references.uncited", q.check not in _NOT_FOUND))
+            first = keep[0]
+            first.text = _merge_texts([q.text for q in keep])
+            first.end = max(q.end for q in group)
+            drop |= {id(q) for q in group if q is not first}
+    if drop:
+        qs.queries[:] = [q for q in qs.queries if id(q) not in drop]
+    return qs
+
+
 def write_comments(ms: Manuscript, qs: QuerySet, author: str = AUTHOR, deferred: set[str] = frozenset()) -> int:
     """Add each query as a Word comment on its anchor. Returns how many were placed. Queries on an inserted paragraph
     in `deferred` (the inserts this copy renders) wait for `write_insert_comments`; those whose insert is not

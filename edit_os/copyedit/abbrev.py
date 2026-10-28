@@ -330,6 +330,11 @@ def uses(p: Paragraph, lenient: bool = False):
     prot += [(m.start(1), m.end(1)) for m in _LABEL.finditer(p.text)]
     prot += [(m.start(), m.end()) for m in _MAKER.finditer(p.text)]
     prot += [(m.start(), m.end()) for m in _DEGREES.finditer(p.text)]
+    pos = 0
+    for line in p.text.split("\n"):  # a heading in capitals on a line of its own: "DISCUSSION \nTo the best ..."
+        if "\n" in p.text and line.strip().isupper() and len(line) < 80:
+            prot.append((pos, pos + len(line)))
+        pos += len(line) + 1
     for m in _USE.finditer(p.text):
         key = _abbr_key(m.group(1))
         if not key or key in _NOT_ABBR or overlaps(m.start(), m.end(), prot):
@@ -508,6 +513,11 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
     changes: list[Change] = []
     queries: list[Query] = []
     queried: set[str] = set()
+    # `ask_once`: each abbreviation is asked about once in the article, at its first occurrence -- a second
+    # definition in the abstract and again in the text, or five in the text, is one query, not one per occurrence
+    # (owner, 2026-10-28: "JBI: The abbreviation has already been expanded" six times in one article)
+    once = cfg.get("ask_once", True)
+    asked: set[tuple[str, str]] = set()
     all_scopes = scopes(ms)
     expanded = expanded_elsewhere(ms) if cfg.get("query_undefined", True) else set()
     outside = _outside_scopes(ms, {p.id for s in all_scopes for p in s})
@@ -582,7 +592,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                 if mode == "change":
                     changes.append(change(p, d.start, d.end, key, "abbreviations",
                                           reason="abbreviation defined twice"))
-                elif mode == "query":
+                elif mode == "query" and not (once and ("abbrev.defined_twice", key) in asked):
+                    asked.add(("abbrev.defined_twice", key))
                     queries.append(Query(p.id, d.start, d.end, TEXT["abbrev.defined_twice"].format(abbr=key),
                                          "abbrev.defined_twice"))
 
@@ -600,7 +611,9 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                         dp = ms.by_id(d.para_id)
                         changes.append(change(dp, d.start, d.end, key, "abbreviations",
                                               reason="expand abbreviation at first use"))
-                    elif cfg.get("query_before_definition", True):
+                    elif cfg.get("query_before_definition", True) and \
+                            not (once and ("abbrev.before_definition", key) in asked):
+                        asked.add(("abbrev.before_definition", key))
                         queries.append(Query(p.id, s, e, TEXT["abbrev.before_definition"].format(abbr=key),
                                              "abbrev.before_definition"))
             elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \

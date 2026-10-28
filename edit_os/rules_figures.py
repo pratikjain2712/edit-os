@@ -43,6 +43,8 @@ QUERY_TEXT = {
     # S: table foot "Abbreviations should be as per format term = definition ... Abbreviations should be first"
     "figures.stray_citation": "This citation stands alone in its own paragraph. Kindly check where it belongs.",
     "figures.footnote_abbreviations": "Kindly provide the expansion of {abbrs} in the table footnote.",
+    "figures.footnote_abbreviations_tables": "Kindly provide the expansion of {abbrs} in the footnotes of Tables "
+                                             "{tables}.",
     "figures.footnote_symbol_twice": "The symbol “{sym}” is used for more than one footnote. Kindly check.",
     "figures.footnote_symbol_missing": "The symbol “{sym}” used in the table is not explained in the footnote. "
                                        "Kindly check.",
@@ -51,6 +53,10 @@ QUERY_TEXT = {
                             "image file (TIFF/JPEG) of good resolution.",
 }
 
+# "LUBERTO, CM, MILLSTEIN, RA", "LUBERTO CM", "DYKENS EM, 2014, PEDIATRICS": a cell naming a study by its authors (a
+# table of the studies reviewed)
+_NAME_LIST = re.compile(r"\b[A-Z][A-Za-z'\-]+,\s+[A-Z]{1,3},\s+[A-Z][A-Za-z'\-]+,\s+[A-Z]{1,3}\b"
+                        r"|^\s*[A-Z][A-Za-z'\-]{2,}\s+[A-Z]{1,3}\s*(?:,|$)")
 _MARKER = re.compile(r"(?:^|(?<=[\s,;.(]))([*†‡§¶#]+)\s*(?=[A-Za-z(])")
 _CELL_MARKER = re.compile(r"([*†‡§¶#]+)(?=\s*[-−–]?\d)|(?<=\d)([*†‡§¶#]+)")
 
@@ -87,7 +93,11 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
     for p in paras:
         if p.in_table:
             tables.setdefault(_table_of(p), []).append(p)
-    cap_ids = {c.para_id for c in captions(ms) if c.kind == TABLE}
+    caps_t = {c.para_id: c for c in captions(ms) if c.kind == TABLE}
+    cap_ids = set(caps_t)
+    # abbreviation -> the tables whose footnote lacks it, in order: each is asked once, at the first such table
+    # (owner, 2026-10-28: "SD" missing under five tables is one query naming the five, not five queries)
+    lacking: dict[str, list[tuple[Paragraph, Paragraph]]] = {}
     for key_t, cells in tables.items():
         if len(cells) < 4:
             continue  # a one-cell box, not a data table
@@ -106,8 +116,8 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
         allow = set(style.get("copyedit.abbreviations.allow") or [])
         missing = []
         for p in cells:
-            if p.id in cap_ids:
-                continue
+            if p.id in cap_ids or _NAME_LIST.search(p.text):
+                continue  # (a cell listing the studies' authors, "LUBERTO, CM, MILLSTEIN, RA": names, not abbreviations)
             # (a short cell, "SD" or "95% CI", is all capitals or "numeric" to the text checker: read it here)
             found = [k for m in abbrev._USE.finditer(p.text) if (k := abbrev._abbr_key(m.group(1)))
                      and k not in abbrev._NOT_ABBR] if len(p.text) <= 40 else [k for k, _, _ in abbrev.uses(p, True)]
@@ -115,9 +125,8 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
                 if key in defined or key in allow or key in missing or re.search(r"\b" + re.escape(key) + r"\b", foot):
                     continue
                 missing.append(key)
-        if missing:
-            abbrs = ", ".join(missing[:-1]) + " and " + missing[-1] if len(missing) > 1 else missing[0]
-            out.append((anchor, 0, 0, "figures.footnote_abbreviations", {"abbrs": abbrs}))
+        for key in missing:
+            lacking.setdefault(key, []).append((anchor, cap))
         # symbols
         marks = [(q, m) for q in block for m in _MARKER.finditer(q.text)]
         seen: dict[str, int] = {}
@@ -135,6 +144,19 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
             for sym, p in used:
                 k = p.text.find(sym)
                 out.append((p, k, k + len(sym), "figures.footnote_symbol_missing", {"sym": sym}))
+    asks: dict[tuple, list[str]] = {}  # (first anchor, the tables) -> abbreviations
+    for key, where in lacking.items():
+        asks.setdefault((where[0][0].id, tuple(c.id for _, c in where)), []).append(key)
+    for (anchor_id, cap_ids_), keys in asks.items():
+        abbrs = ", ".join(keys[:-1]) + " and " + keys[-1] if len(keys) > 1 else keys[0]
+        if len(cap_ids_) == 1:
+            out.append((ms.by_id(anchor_id), 0, 0, "figures.footnote_abbreviations", {"abbrs": abbrs}))
+        else:
+            from .queries import number_list
+
+            nums = number_list([caps_t[c].number for c in cap_ids_])
+            out.append((ms.by_id(anchor_id), 0, 0, "figures.footnote_abbreviations_tables",
+                        {"abbrs": abbrs, "tables": nums}))
     return out
 
 _EMU_INCH = 914400
