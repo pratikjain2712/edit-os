@@ -331,7 +331,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
                 what = "PMID" if res.message.startswith("PMID") else "DOI"
                 qs.add(ref.para_id, "references.wrong_id", what=what, **span)
             elif refengine.DIFFERS in res.message:
-                what = res.message.split(": the ", 1)[1].split(" " + refengine.DIFFERS)[0]
+                m = re.search(r": the (.+?) " + re.escape(refengine.DIFFERS), res.message)
+                what = m.group(1) if m else "details"  # "Found in Europe PMC, but the PubMed record differs ..."
                 qs.add(ref.para_id, "references.record_differs", what=what, **span)
             elif "no volume" in res.message:
                 # the record has no volume yet: ask only for what the entry as delivered still lacks (the author

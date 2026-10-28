@@ -350,3 +350,19 @@ def test_entry_pages_kept_when_only_the_last_page_differs(web):
     res = refengine.resolve(ENTRY, style.load("jehp"))
     assert res.record.source == "semantic_scholar"
     assert res.formatted.endswith(" J Nurs Teach Res 2021;9:44-52.")
+
+
+
+def test_record_differs_message_without_field_names_gives_a_query(monkeypatch, tmp_path):
+    # "Found in Europe PMC, but the PubMed record differs ..." names no field: it crashed queries.collect (JEHP 1764)
+    from docx import Document
+    from edit_os import docmodel, queries, references, rules
+    res = refengine.Resolution(refengine.QUERY, refengine.parse(ENTRY),
+                               message=f"Found in Europe PMC, but the PubMed record {refengine.DIFFERS}")
+    monkeypatch.setattr(rules, "lookup_references", lambda ms, st: [(r, res) for r in references.extract(ms)])
+    doc = Document()
+    doc.add_paragraph("References")
+    doc.add_paragraph("1. " + ENTRY)
+    doc.save(tmp_path / "m.docx")
+    qs = queries.collect(docmodel.load(str(tmp_path / "m.docx")), style.load("jehp"))
+    assert any(q.text == "The details given here differ from the published article. Kindly check." for q in qs.queries)
