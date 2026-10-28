@@ -57,6 +57,14 @@ queries.TEXT.update({
     "front.country": "Kindly provide the country name for the affiliation.",
     "front.xml_only_author": "Author name(s) {names} given in the submission system, but missing in the author list "
                              "provided in the title page. Kindly check.",
+    # in the editors' wording (front_matter.queries in the journal's style)
+    "front.department": "Kindly provide department name.",
+    "front.departments": "Kindly provide department names.",
+    "front.missing_date": "Kindly provide missing {what} date.",
+    "front.postal_code": "Kindly check and provide postal code.",
+    "front.designator": "Kindly note that the corresponding author’s designator is missing. Please check and provide.",
+    "front.xml_name": "Kindly note the Author name provided in XML as “{name}”. Please check and confirm.",
+    "front.type_source": "Kindly note that the “Article type” provided in {source} file has been followed.",
 })
 
 MODEL = os.environ.get("EDITOS_MODEL", "claude-haiku-5-5")
@@ -174,6 +182,7 @@ class Sources:
     # funding, conflicts, ethics, data and AI statements the back matter uses when the manuscript has none
     declaration_files: list[list[str]] = field(default_factory=list)
     declaration_file_names: list[str] = field(default_factory=list)
+    file_names: list[str] = field(default_factory=list)  # every file of the submission ("First author photograph.jpg")
 
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -327,6 +336,7 @@ def sources_from_zip(path: str) -> Sources:
     z = zipfile.ZipFile(path)
     src = Sources()
     names = z.namelist()
+    src.file_names = [os.path.basename(n) for n in names if not n.startswith("__MACOSX") and not n.endswith("/")]
     fp = [n for n in names if _WORD_FILE.search(n) and _FIRST_PAGE.search(os.path.basename(n))
           and not n.startswith("__MACOSX")]
     if fp:
@@ -645,6 +655,7 @@ class Author:
     affs: list[int] = field(default_factory=list)
     corresponding: bool = False
     prefix: str = ""
+    written: str = ""  # the name as the title page writes it, before any expansion from the XML ("Dewi S. Rochmayani")
 
 
 @dataclass
@@ -1573,6 +1584,54 @@ def _settings(style: JournalStyle) -> dict:
     return _merge(cfg, over)
 
 
+def _query_on(cfg: dict, name: str) -> bool:
+    return bool((cfg.get("queries") or {}).get(name))
+
+
+# A unit of the institution in an affiliation's department place: "Department of ...", "Division of Allergy",
+# "Endovascular Intervention Unit", "Postdoctoral Station of ...", a research centre. A service ("Oculoplasty
+# Services"), an institute ("Anant Bajaj Retina Institute"), a programme or a hospital there is no department.
+_SUBUNIT = re.compile(r"(?i)\b(?:departments?|dept|division|units?|section|station|laborator(?:y|ies)|lab|clinic|cell|"
+                      r"wing|ward|cent(?:er|re))\b")
+
+
+def _no_department(a: dict) -> bool:
+    """The affiliation names no department or unit of its institution ("Gokhale Eye Hospital, Mumbai"; the IJO
+    editors ask "Kindly provide department" there: 13 of 13 articles)."""
+    return not _SUBUNIT.search(department_form(a.get("department", "")))
+
+
+def _name_tokens_of(text: str) -> list[str]:
+    """Lower-case letters of a name, split at anything else ("Oktia W.K. Handayani" -> oktia, w, k, handayani)."""
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c)).casefold()
+    return [t for t in re.split(r"[^a-z]+", text) if t]
+
+
+def xml_fuller_name(written: str, xml_authors: list[dict]) -> bool:
+    """The submission XML gives in full a name the title page shortens: an initial the XML spells out ("Dewi S.
+    Rochmayani" / "Dewi Sari Rochmayani", "Natarajan S" / "natarajan shanmugasundaram") or a single name to which it
+    adds another ("Sonakshi" / "Sonakshi Rajput"). Not a name the XML only repeats ("Hartono Hartono"), shortens
+    or spells otherwise (another person, or a spelling for the author to settle elsewhere)."""
+    w = _name_tokens_of(written)
+    full, inits = {t for t in w if len(t) > 1}, {t for t in w if len(t) == 1}
+    if not full:
+        return False
+    best, score = None, 0
+    for x in xml_authors:
+        sur, giv = set(_name_tokens_of(x.get("surname", ""))), set(_name_tokens_of(x.get("given", "")))
+        n = 2 * len(full & sur) + len(full & giv)
+        if n > score:
+            best, score = x, n
+    if best is None:
+        return False
+    xt = set(_name_tokens_of(f"{best.get('given', '')} {best.get('surname', '')}"))
+    if not full <= xt:
+        return False
+    extra = [t for t in xt - full if len(t) > 2]
+    return any(t[0] in inits for t in extra) or (len(full) == 1 and not inits and bool(extra))
+
+
 def _imrad(ms: Manuscript) -> bool:
     heads = {re.sub(r"^<H\d>|[:.]$", "", p.text.strip()).strip().lower() for p in ms.paragraphs if len(p.text) < 60}
     need = [{"introduction"}, {"materials and methods", "methods", "patients and methods", "subjects and methods",
@@ -1655,6 +1714,14 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         qs.append(("front.confirm_type", {"_block": "article_type"}))
     else:
         qs.append(("front.article_type", {"_block": "article_type"}))
+    if atype and _query_on(cfg, "type_source") and (f.article_type or meta.article_type):
+        # "Kindly note that the “Article type” provided in FP file has been followed.": the title page's when it
+        # names one, else the XML's
+        fp = _norm(" ".join(getattr(getattr(ms, "front_sources", None), "first_page", None) or []))
+        given = clean_article_type(f.article_type) if f.article_type else ""
+        source = "FP" if given and _norm(given) in fp else "XML" if meta.article_type else ""
+        if source:
+            qs.append(("front.type_source", {"source": source, "_block": "article_type"}))
     letter = bool(re.search(r"letter", atype or "", re.I))
 
     # Title.
@@ -1668,7 +1735,12 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     for a in f.authors:
         name, full = format_name(a, cfg)
         names.append(name)
-        if not full:  # on the author's name in the author group, naming the author
+        if a.written and _query_on(cfg, "xml_name") and xml_fuller_name(a.written, meta.authors) \
+                and set(_name_tokens_of(name)) == set(_name_tokens_of(a.written)):
+            # printed as the title page writes it, the XML's fuller form not taken: the editors note the XML's
+            # (JEHP: "Kindly note the Author name provided in XML as “Sonakshi”. Please check and confirm.")
+            qs.append(("front.xml_name", {"name": a.written, "_block": "authors", "_quote": name}))
+        elif not full:  # on the author's name in the author group, naming the author
             qs.append(("front.full_name", {"name": name, "_block": "authors", "_quote": name}))
 
     if f.xml_only:
@@ -1763,6 +1835,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             else:
                 groups.append([u])
         countries = [_country(affs[g[0]]) for g in groups]
+        no_dept: list[str] = []  # affiliations naming no department (front_matter.queries.department)
         for k, c in enumerate(countries):  # "Turkey" and "Türkiye" in one block: the first spelling throughout
             first = next((x for x in countries if _same_country(x, c)), c)
             countries[k] = first
@@ -1797,6 +1870,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 parts = [department_form(a0.get("department", ""))]
             text = _affiliation_body(a0, parts, bool(cfg.get("affiliation_postal_code")),
                                      bool(cfg.get("delete_postal_codes")))
+            if len(g) == 1 and text and _query_on(cfg, "department") and _no_department(a0):
+                no_dept.append(text)
             if len(g) > 1 and text:
                 text = ", " + text
             last_of_country = gi == len(groups) - 1 or countries[gi + 1] != countries[gi] \
@@ -1807,6 +1882,9 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 qs.append(("front.country", {"_block": "affiliations"}))
             runs.append((text, plain))
         blocks.append(Block("affiliations", runs))
+        if no_dept:  # one query on the line, on the first such affiliation ("Kindly provide the departments.": 1130)
+            qs.append(("front.department" if len(no_dept) == 1 else "front.departments",
+                       {"_block": "affiliations", "_quote": no_dept[0]}))
     if f.equal_note:
         blocks.append(Block("equal_contribution", [(f.equal_mark, {"bold": True, "superscript": True}),
                                                    (f.equal_note, B)]))
@@ -1847,13 +1925,18 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             prefix.strip(" .").lower(), "") if prefix.strip(" .").lower() in allowed else ""
         blocks.append(Block("correspondence", [(cfg.get("correspondence_label", "Address for correspondence:"), B),
                                                (f" {prefix}{name},", plain)]))
+        if surname and not prefix and _query_on(cfg, "designator"):
+            # no Dr. / Prof. (nor another prefix the journal keeps) for the corresponding author (JEHP)
+            qs.append(("front.designator", {"_block": "correspondence", "_quote": name}))
         parts = [_clean_part(p) for p in c.get("address_parts", [])]
         if cfg.get("correspondence_drop_street") and any(_UNIT_WORDS.search(p) for p in parts):
             # the institution's street, building and office ("Office 2110", "Building 2 (Bu Hasa)", "SAN Campus",
             # "215 Hong Bang Street", "4-16-11, Shimoochiai Shinjuku") go when the address names the institution
             parts = [p for p in parts if _UNIT_WORDS.search(p) or not _STREET.search(p)]
         city, pin = _place_case(_clean_part(c.get("city", ""))), re.sub(r"\s+", "", c.get("postal_code", ""))
-        drop_postal = bool(cfg.get("delete_postal_codes"))
+        # the correspondence keeps its postal code where the journal's editors keep it (correspondence_postal_code)
+        drop_postal = bool(cfg.get("delete_postal_codes")) and not cfg.get("correspondence_postal_code")
+        pin_at_country = cfg.get("correspondence_postal_position") == "country"
         if drop_postal:  # S "delete pin/zip code": the editors delete it in the correspondence too
             parts = [q for q in (drop_postal_codes(p) for p in parts) if q]
             city, pin = drop_postal_codes(city), ""
@@ -1884,8 +1967,13 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
                 city = city or _place_case(_clean_part(a.get("city", "")))
                 c = dict(c, state=_state(a), city=c.get("city") or a.get("city", ""))
                 country = _country(a)
+        if pin and any(pin in re.sub(r"\s+", "", p) for p in parts):
+            pin = ""  # written into the address already ("Jl. Ir. Sutami No.36A, Surakarta 57126")
+        has_pin = bool(pin) or any(drop_postal_codes(p) != p for p in parts)
         if city:
-            if pin and country.casefold() == "india" and re.fullmatch(r"\d{6}", pin):
+            if pin and pin_at_country:
+                pass
+            elif pin and country.casefold() == "india" and re.fullmatch(r"\d{6}", pin):
                 city += " - " + (f"{pin[:3]} {pin[3:]}" if cfg.get("pin_spaced", True) else pin)
             elif pin:
                 city += ", " + pin
@@ -1893,6 +1981,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         state = _state({"state": c.get("state", ""), "city": c.get("city", ""), "country": country})
         if state:
             parts.append(_place_case(_clean_part(state)))
+        if pin and pin_at_country:
+            parts.append(pin)  # "Semarang, Central Java, 50229, Indonesia" (the JEHP editors)
         if country:
             country = _COUNTRY_CODES.get(country, country)
             # the affiliations' spelling ("Turkey" there, "Türkiye" in the address: IJO_1347)
@@ -1904,6 +1994,9 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         for p in parts:
             if p and not any(_norm(p) == _norm(q) for q in dedup):
                 dedup.append(p)
+        if dedup and not drop_postal and not has_pin and _query_on(cfg, "postal_code"):
+            # on the address's last part, the country, where the JEHP editors anchor it
+            qs.append(("front.postal_code", {"_block": "correspondence", "_quote": dedup[-1]}))
         if dedup and cfg.get("correspondence_one_line", False):  # "Address for correspondence: Dr. A, Dept, ..."
             blocks[-1].runs.append((" " + ", ".join(dedup) + ".", plain))
         elif dedup:
@@ -1918,6 +2011,11 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     no_xml = not (meta.article_type or meta.title or meta.authors or meta.dates)
     if meta.dates or no_xml and dcfg.get("without_xml", True) and f.authors:  # a plain .docx: "???" to fill in
         vals = [meta.dates.get(k) for k in dcfg.get("keys", ["received", "revised", "accepted"])]
+        if meta.dates and _query_on(cfg, "missing_dates"):
+            for lab, v in zip(labels, vals):  # the XML gives the history but not this date ("Revised: ???", IJO)
+                if not v:
+                    qs.append(("front.missing_date", {"what": lab.lower(), "_block": "dates",
+                                                      "_quote": f"{lab}: {dcfg.get('missing', MISSING)}"}))
         items = [[(f"{lab}:", B), (" " + (v.strftime(dcfg.get("format", "%d-%m-%Y")) if v else dcfg.get("missing", MISSING)), plain)]
                  for lab, v in zip(labels, vals)]
         if dcfg.get("one_line"):
@@ -2283,6 +2381,8 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
     if raw is not None:
         source_text = "\n".join(src.first_page + [p.text for p in lead]) + "\n" + src.meta.text()
         f = verify(raw, source_text, para_ids)
+        for a in f.authors:
+            a.written = " ".join(x for x in (a.given, a.surname) if x)
         xml_names = [Author(a.get("given", ""), a.get("surname", "")) for a in src.meta.authors]
         xml_names += [Author(g, sn) for g, sn in submission.notice_names(ms)]  # the portal's copyright notice
         written = _norm(" ".join(t for t in src.first_page + [p.text for p in lead] if not submission._COPYRIGHT.match(t)))
@@ -2506,7 +2606,9 @@ def _front_queries(ms: Manuscript, pl: Plan, blocks: list[Block], qspecs: list[t
     for check, fmt in qspecs:
         role, quote = fmt.get("_block"), fmt.get("_quote", "")
         text = queries.TEXT[check].format(**{k: v for k, v in fmt.items() if not k.startswith("_")})
-        i = next((k for k, b in enumerate(blocks) if b.role == role), None) if role else None
+        roles = [k for k, b in enumerate(blocks) if b.role == role] if role else []
+        # the block of that role that holds the quote ("Revised: ???" among the dates, the address's country)
+        i = next((k for k in roles if quote and quote in blocks[k].text), roles[0] if roles else None)
         q = None
         if i is not None and i in block_insert:
             n = block_insert[i]

@@ -148,11 +148,23 @@ front_matter:
   correspondence_add_institution: true
   initial_period: false  # S: 'In author name no need dot (.) in middle name “John B John'
   # S: 'Country name must be added at the end if it is not present; delete pin/zip code': the postal codes go from
-  # the affiliations and (the editors delete them there too) the correspondence. This reverses the 2026-10-26
-  # read-back of the title page's postal code (owner, 2026-10-27: follow the sheet). "Faculty of ..." units stay as
-  # written (owner, 2026-10-26).
+  # the affiliations (the editors: none in 38 articles). This reverses the 2026-10-26 read-back of the title page's
+  # postal code (owner, 2026-10-27: follow the sheet). "Faculty of ..." units stay as written (owner, 2026-10-26).
   affiliation_postal_code: false
   delete_postal_codes: true
+  # The sheet's "delete pin/zip code" is an Affiliation line; its Correspondence lines are silent. The IJO editors keep
+  # the correspondence address's postal code ("Porai - 841 219, Bihar, India", "Wuhan, 430070, China": 15 of the 17
+  # articles whose title page gives one; deleted in 1862, 2456) and never ask for a missing one (0 of 38): owner,
+  # 2026-10-28, follow the editors on postal codes.
+  correspondence_postal_code: true
+  # Author queries in the IJO editors' wording (the sheet is silent):
+  queries:
+    # an affiliation with no department or unit ("Gokhale Eye Hospital", "Oculoplasty Services", "Anant Bajaj Retina
+    # Institute"): "Kindly provide department" in 13 of the 13 articles that have one; not asked in 2 (702, 2155).
+    # One query on the affiliation line ("Kindly provide department names." for several), on the first of them
+    department: true
+    # a history date the XML lacks ("Revised: ???"): "Kindly provide missing revised date" in 6 of 6
+    missing_dates: true
   # The first affiliation is numbered from 1 like the others: the written rule ("link the unlinked affiliations and
   # renumber the links") wins over the sheet's example, which leaves the first unnumbered (owner, 2026-10-27).
   affiliation_first_unnumbered: false
@@ -161,6 +173,9 @@ sections:
   letter_salutation: "Dear Editor,"  # S: LTE articles start with “Dear Editor” instead of “Sir” / “Dear Sir/Madam”
   headings:
     # S: 'Materials and Methods”, “Subject and Methods”, “Patient and Methods” etc. change as only “Methods'
+    # ... and say so on the heading: "Heading has been changed to Methods as per journal specification." (the editors
+    # in 4 of the 6 articles with such a rename: 1351, 407, 880, 888; not 3136, 942)
+    rename_query: true
     rename: {methods: Methods, method: Methods,
              materials and methods: Methods, material and methods: Methods, materials and method: Methods,
              subjects and methods: Methods, subject and methods: Methods, patients and methods: Methods,
@@ -220,7 +235,10 @@ sections:
     # articles), kept by the copy editors: label, full name, affiliation, after the references.
     # Not for a plain "Letter to Editor" (the editor added none; owner confirmed 2026-10-24); the stand-alone
     # "Letter to Editor (Stand-alone brief communications ...)" gets one, as the editor did.
-    first_author: {enabled: true, skip_types: [Letter to Editor, Letter to the Editor]}
+    # photo_query: "Kindly provide photo and designation for the first author." on the block's label: the editors in
+    # 37 of the 37 articles that get the block (the designation alone where the submission has the author's
+    # photograph: 1184 "First author photograph.jpg").
+    first_author: {enabled: true, skip_types: [Letter to Editor, Letter to the Editor], photo_query: true}
 
 # guide_replace.multiplication: as base (G315 "10x20" -> "10 × 20"; the IJO editors leave "4.5x4.5 mm": owner's list)
 guide_replace:

@@ -309,6 +309,7 @@ def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGE
             inserts += fa.inserts
             for pid, key in fa.queries:
                 qs.add(pid, key)
+            qs.queries += fa.insert_queries
         moves, move_notes = legends.plan(ms, st, figs.inserts)  # after the First author block: it goes first
         inserts += moves
         notes += move_notes

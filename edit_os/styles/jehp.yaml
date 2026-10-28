@@ -219,6 +219,10 @@ references:
   # A journal NLM does not list: its ISO 4 abbreviation, as the editors write it (13 of 15: "Interact Technol Smart
   # Educ", "J Learn Sci"), over S "Use complete name of the journal for non-indexed journals" (owner, 2026-10-28)
   non_indexed_journal: iso4
+  # Off, for the owner: "Kindly check and provide edition and page number details." on a book entry with neither
+  # (G179's book template has both) is one style editor's habit: 21 entries in 4 articles (1280, 1485, 1576, 1683),
+  # while 14 other articles with such entries were not asked (1646 by the same editor).
+  other: {edition_query: false}
 
 # references.non_indexed_journal: full as base (S: "Use complete name of the journal for non-indexed journals"): a
 # CrossRef journal NLM does not list keeps its full title. "Indexed" is read as listed by NLM (J_Medline): "MIS Q",
@@ -299,12 +303,38 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
   # S90: the correspondence run on, the address on the name line (owner, 2026-10-26; the editors split 9 / 8, and
   # front-matter similarity fell 82.8% -> 78.2% when it was first tried)
   correspondence_one_line: true
-  # S: 'Country name must be added at the end if it is not present; delete pin/zip code': the postal codes go from
-  # the affiliations and (the editors delete them there too: "Fez, 30000", "Rabat, 10100", "Hamadan, 6517838695") the
-  # correspondence. This reverses the 2026-10-26 read-back of the title page's postal code (owner, 2026-10-27: follow
-  # the sheet). "Faculty of ..." units stay as written (owner, 2026-10-26).
+  # S: 'Country name must be added at the end if it is not present; delete pin/zip code' (an Affiliation line): the
+  # postal codes go from the affiliations (the editors: none kept in 35 articles). This reverses the 2026-10-26
+  # read-back of the title page's postal code (owner, 2026-10-27: follow the sheet). "Faculty of ..." units stay as
+  # written (owner, 2026-10-26).
   affiliation_postal_code: false
   delete_postal_codes: true
+  # Owner, 2026-10-28: follow the editors on postal codes (replaces the 2026-10-27 "delete them in the correspondence
+  # too"). The sheet's Correspondence lines are silent. The editors keep the correspondence address's postal code
+  # after the state, before the country ("Semarang, Central Java, 50229, Indonesia", "Tokyo, 161-8550, Japan":
+  # 1464, 1646, 1683, 1580, 1772; one editor deleted it in 6: 1153, 1193, 1209, 1486, 1559, 1751) and, when the address
+  # has none, ask "Kindly check and provide postal code." on its country (8 articles: 1039, 1280, 1485, 1562, 1576,
+  # 1732, 1793, 997; not asked in 15 others, whose editors never ask it).
+  correspondence_postal_code: true
+  correspondence_postal_position: country
+  # Author queries in the JEHP editors' wording (the sheet is silent):
+  queries:
+    postal_code: true
+    # no Dr. / Prof. / Mrs. / Mr. for the corresponding author (the XML's "Ms", not printed): "Kindly note that the
+    # corresponding author’s designator is missing. Please check and provide." (1576, 1646, 1683, 1732; not 1559,
+    # 1731, whose editors added "Ms."; also asked in 1464 over the XML's "Mrs")
+    designator: true
+    # a name the title page shortens and the XML gives in full, printed as written: "Kindly note the Author name
+    # provided in XML as “Sonakshi”. Please check and confirm." (1464, 1576, 1683; not 1874 "Andrew M. J. Milewski")
+    xml_name: true
+    # Off, for the owner: one style editor's habits, asked in few of the articles where the condition holds.
+    #   type_source  "Kindly note that the “Article type” provided in FP / XML file has been followed.": 8 of 35
+    #                articles (7 of that editor's 8), every article taking its type from the title page or XML
+    #   department   "Kindly provide department name.": asked over a "Faculty of" / "Program" / "School of" unit
+    #                in 5 articles (1410, 1464, 1580, 1588, 1772), not in 12 others with such units; the 5 with no
+    #                department at all (1044, 1193, 1402, 1646, 1787) were not asked
+    type_source: false
+    department: false
   # The first affiliation is numbered from 1 like the others: the written rule ("link the unlinked affiliations and
   # renumber the links") wins over the sheet's example, which leaves the first unnumbered (owner, 2026-10-27).
   affiliation_first_unnumbered: false

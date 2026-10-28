@@ -40,7 +40,14 @@ ROLE = "first_author"
 queries.TEXT.update({
     "first_author.missing": "Kindly provide the first author’s full name and affiliation.",
     "first_author.affiliation": "Kindly provide the first author’s affiliation.",
+    # the IJO editors, on the block they add (37 of 37 articles that get one; "Kindly provide designation for first
+    # author" where the submission has the photograph: IJO_1184)
+    "first_author.photo": "Kindly provide photo and designation for the first author.",
+    "first_author.designation": "Kindly provide designation for the first author.",
 })
+
+# A submission file that is the author's photograph ("First author photograph.jpg"), not a figure.
+_PHOTO_FILE = re.compile(r"(?i)author.*(?:photo|image|picture|pic)|(?:photo|image|picture|pic).*author")
 
 # A block the manuscript already has: "First author:", "First Author", "First author's details:", "First author: Name".
 _EXISTING = re.compile(r"^\s*(?:<H\d>)?\s*first[\s-]+author(?:['’]s)?(?:\s+details?)?\s*(?:[:\-–]|$)", re.I)
@@ -48,6 +55,7 @@ _EXISTING = re.compile(r"^\s*(?:<H\d>)?\s*first[\s-]+author(?:['’]s)?(?:\s+det
 class Plan:
     inserts: list[NewParagraph] = field(default_factory=list)
     queries: list[tuple[str, str]] = field(default_factory=list)  # (para_id, queries.TEXT key)
+    insert_queries: list[queries.Query] = field(default_factory=list)  # on the inserted block itself
 
 
 def settings(style: JournalStyle) -> dict:
@@ -113,6 +121,14 @@ def plan(ms: Manuscript, style: JournalStyle, front: frontmatter.Plan | None) ->
                                         reason=REASON, provenance=prov, layer=Layer.STRUCTURE))
 
     add([(cfg.get("label", "First author:"), {"bold": True})], rule)
+    if cfg.get("photo_query"):
+        # on the block's label, where the editors anchor it ("First author:")
+        label = out.inserts[-1]
+        photo = any(_PHOTO_FILE.search(n) for n in (front.sources.file_names if front is not None and front.sources
+                                                     else []))
+        check = "first_author.designation" if photo else "first_author.photo"
+        out.insert_queries.append(queries.Query(anchor, 0, len(label.text), queries.TEXT[check], check,
+                                                insert_id=label.id, quote=label.text))
     author = f.authors[0] if f and f.authors else None
     if author is None:
         out.queries.append((anchor, "first_author.missing"))
