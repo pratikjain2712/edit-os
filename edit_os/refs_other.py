@@ -733,3 +733,37 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
     res.styled = bool(restyled and fixed.text == res.formatted and not verified)
     res.message = f"{kind}: " + ("; ".join(notes) or "not checked")
     return res
+
+
+# --- a book without edition and pages ------------------------------------------------------
+
+EDITION_PAGES = "references.edition_pages"  # queries.TEXT
+_PAGES = re.compile(r"(?i)\bpp?\.\s*\d|\b\d+\s*pp?\b")
+
+
+def lacks_edition_pages(text: str) -> tuple[int, int] | None:
+    """A book entry ("Kaufman L, Rousseeuw PJ. Finding Groups in Data. New York: Wiley; 1990.") with neither an
+    edition nor page numbers and no link: the span of its year, where the editors anchor "Kindly check and provide
+    edition and page number details." (JEHP: one style editor, 21 entries in 4 articles); None otherwise."""
+    if classify(text, "") not in (BOOK, CHAPTER) or re.search(r"https?://|www\.|\bdoi\b", text, re.I):
+        return None
+    parts = book_parts(text)
+    if parts["edition"] or _PAGES.search(text) or not parts["year"]:
+        return None
+    m = None
+    for m in re.finditer(r"\b" + re.escape(parts["year"]) + r"\b", text):
+        pass
+    return (m.start(), m.end()) if m else None
+
+
+def add_edition_queries(ms, style: JournalStyle, qs, refs=None) -> None:
+    """Ask for the edition and pages of each book entry that gives neither (references.other.edition_query; off
+    unless the journal's editors ask it)."""
+    if not style.get("references.other.edition_query", False):
+        return
+    from . import references
+
+    for r in refs if refs is not None else references.extract(ms):
+        span = lacks_edition_pages(r.text)
+        if span:
+            qs.add(r.para_id, EDITION_PAGES, r.offset + span[0], r.offset + span[1])

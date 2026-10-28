@@ -163,6 +163,8 @@ references:
     query_unverified: true     # conference papers, reports, theses: query that they could not be verified
     query_unverified_articles: true  # an entry written as a journal article that no database confirms
     query_unverified_books: true  # books and chapters no catalogue confirms: "This book could not be verified ..."
+    edition_query: false       # a book with neither edition nor pages: "Kindly check and provide edition and page
+                               # number details." on its year
 
 keywords:
   min: 3
@@ -368,6 +370,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
   enabled: true
   headings:
     strip_numbering: true      # "1. Introduction" -> "Introduction" (recognised headings only)
+    rename_query: false        # a heading renamed by `rename`: "Heading has been changed to Methods as per journal
+                               # specification." on it (per journal: IJO)
     title_minor_words: true    # "Materials And Methods" -> "Materials and Methods"
     case: title                # H1 text case: keep | upper | title | sentence (S: "H1 | Title case, Bold"; G133 Title Case;
                                # caps journals: upper)
@@ -484,6 +488,7 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
       label: "First author:"
       name_bold: true
       skip_types: []             # article types (as printed, whole) that get no block
+      photo_query: false         # "Kindly provide photo and designation for the first author." on the block (IJO)
     data_availability:  # "Data availability statement" (MJDRDYPU stylesheet: add it if given in source or FP, else query)
       enabled: false             # an existing statement is kept as written (and places the sections added around it)
       heading: Data availability statement
@@ -534,6 +539,18 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
                                    # ("Chennai - 600 006")
   delete_postal_codes: false       # postal codes written into an affiliation or the correspondence address go
                                    # ("Fez, 30000", "Rabat 10100"; per journal: IJO, JEHP "delete pin/zip code")
+  correspondence_postal_code: false  # true: the correspondence address keeps its postal code even where
+                                     # delete_postal_codes takes them out of the affiliations
+  correspondence_postal_position: city  # city: after the city ("Chennai - 600 006", "Tokyo, 161-8550"); country: after
+                                        # the state, before the country ("Chennai, Tamil Nadu, 600116, India")
+  # Front-matter author queries in the editors' wording (the sheets are silent; per journal where its editors ask)
+  queries:
+    department: false     # an affiliation naming no department or unit: "Kindly provide department name."
+    missing_dates: false  # a history date the submission XML lacks: "Kindly provide missing revised date."
+    postal_code: false    # a correspondence address with no postal code: "Kindly check and provide postal code."
+    designator: false     # no prefix (Dr., Prof., ...) before the corresponding author's name
+    xml_name: false       # a name the title page shortens ("Dewi S.") and the submission XML gives in full
+    type_source: false    # "Kindly note that the “Article type” provided in FP / XML file has been followed."
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
   correspondence_drop_street: false  # street / building / office parts dropped when the address names the institution

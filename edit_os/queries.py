@@ -60,6 +60,7 @@ TEXT = {
     "text.instruction": "This looks like a drafting instruction left in the text (“{quote}”). Kindly check and "
                         "delete it, or provide the final text.",
     "references.incomplete": "This reference is incomplete (no {missing}). Kindly provide the complete details.",
+    "references.edition_pages": "Kindly check and provide edition and page number details.",
 }
 
 
@@ -438,6 +439,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     rules_tables.add_queries(ms, style, qs)  # G206 empty head cells to merge, G196 entries on lines of their own
     from .rules import add_author_queries  # "Radziwill et al. [6]" where reference 6 is Bae: S "Match author names"
     add_author_queries(ms, style, qs)
+    refs_other.add_edition_queries(ms, style, qs, refs)  # a book without edition and pages (per journal)
     return qs.number(ms)
 
 

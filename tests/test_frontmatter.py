@@ -149,14 +149,16 @@ def test_front_matter_in_the_manuscript(tmp_path, monkeypatch, ijo):
     assert text["affiliations"] == ("1Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
                                     "2Department of Physiology, Erasmus University, Rotterdam, Netherlands")
     corr = [b.text for b in pl.blocks if b.role == "correspondence"]
-    # the PIN goes (S "delete pin/zip code"; owner, 2026-10-27)
+    # the correspondence keeps its PIN, as the IJO editors do (owner, 2026-10-28: follow the editors; S "delete
+    # pin/zip code" is an Affiliation line)
     assert corr == ["Correspondence to: Dr. Asha Kumar,",
-                    "Department of Ophthalmology, City Eye Hospital, 12 Main Road, Chennai, Tamil Nadu, India.",
+                    "Department of Ophthalmology, City Eye Hospital, 12 Main Road, Chennai - 600 006, Tamil Nadu, India.",
                     "E-mail: asha@example.org"]
     assert text["dates"] == "Submitted: 04-Jan-2026\tRevised: ???\tAccepted: 01-Oct-2026"
     assert text["cite"] == ("Cite this article as: Kumar A, Rao RS, van der Berg J. Effect of Valsalva maneuver on "
                             "intraocular pressure in OCT study. Indian J Ophthalmol XX;XX:XX.")
-    assert not pl.queries  # running head, type and full names all present
+    # running head, type and full names all present; the XML has no revised date (IJO editors ask for it)
+    assert [q.text for q in pl.queries] == ["Kindly provide missing revised date."]
 
     # Through the rules: the existing paragraphs are rewritten in place, the running-title line removed.
     cs = rules.run_all(ms, ijo)
@@ -247,10 +249,10 @@ def test_jehp_complete_affiliations_and_run_on_correspondence(tmp_path, monkeypa
     assert text["affiliations"] == ("1Department of Ophthalmology, City Eye Hospital, Chennai, Tamil Nadu, India, "
                                     "2Department of Physiology, City Eye Hospital, Chennai, Tamil Nadu, India")
     corr = [b.text for b in pl.blocks if b.role == "correspondence"]
-    # JEHP editors drop the street when the address names the institution ("12 Main Road" goes); the PIN goes
-    # (S "delete pin/zip code"; owner, 2026-10-27)
+    # JEHP editors drop the street when the address names the institution ("12 Main Road" goes); the PIN stays,
+    # before the country (owner, 2026-10-28: follow the editors; S "delete pin/zip code" is for affiliations)
     assert corr[0] == ("Address for correspondence: Dr. Asha Kumar, Department of Ophthalmology, City Eye Hospital, "
-                       "Chennai, Tamil Nadu, India.")
+                       "Chennai, Tamil Nadu, 600006, India.")
     assert corr[1] == "E-mail: asha@example.org"
 
 

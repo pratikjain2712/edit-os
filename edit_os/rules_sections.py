@@ -2808,6 +2808,7 @@ TEXT = {
     "sections.data_availability_missing": "Please provide the missing Data availability statement, if available.",
     "headings.duplicate": "The heading “{head}” is repeated. Kindly check and delete the duplicate.",
     "sections.statement_twice": "The {head} statement is given twice. Kindly check and retain one.",
+    "headings.renamed": "Heading has been changed to {new} as per journal specification.",
 }
 
 
@@ -2871,6 +2872,15 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     if not _cfg(style, "enabled", True):
         return
     lay = layout(ms)
+    if _on(style, "headings.rename_query"):
+        # a section heading the journal's rename list changes ("Materials and Methods" -> "Methods"): the IJO editors
+        # say so on the heading (4 of the 6 articles with such a rename); a plural alone is no new heading
+        rename = {k.lower() for k in (_cfg(style, "headings.rename") or {})}
+        for c in rule_headings(ms, style):
+            new = _TAG.sub("", c.new).strip()
+            old = _key(c.old)
+            if old in rename and new and _key(new).rstrip("s") != old.rstrip("s"):  # not "Method" -> "Methods"
+                qs.add(c.para_id, "headings.renamed", new=new)
     if style.get("headings.duplicate_query", True):
         for q, s, e, head in duplicate_headings(ms, style):
             qs.add(q.id, "headings.duplicate", s, e, head=re.sub(r"<H\d>", "", head))
