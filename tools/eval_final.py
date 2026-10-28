@@ -73,12 +73,27 @@ def gram_distance(a: collections.Counter, b: collections.Counter) -> int:
 def split_refs(paras: list[str]) -> dict[str, list[str]]:
     """{'text': everything but the reference list, 'references': the list (to the first caption)}."""
     low = [HEAD.sub("", p).strip().lower() for p in paras]
-    # the last heading that is just "References" (the header block's renumber table opens with "References" too)
+    # a heading that is just "References" (the header block's renumber table opens with "References" too)
     hits = [i for i, t in enumerate(low) if re.fullmatch(r"references?\s*:?", t)] \
         or [i for i, t in enumerate(low) if re.match(r"references?\b", t)]
-    r = hits[-1] if hits else len(paras)
+    # the one that opens the longest run of entries, the last on a tie: a reply to the reviewers left after the
+    # article (held for the editor) can have a short "References:" list of its own (IJO_888_26)
+    r = max(hits, key=lambda i: (_entry_run(paras, i), i)) if hits else len(paras)
     end = next((i for i in range(r + 1, len(paras)) if re.match(r"(table|figure|fig\.?)\s*\d", low[i])), len(paras))
     return {"text": paras[:r] + paras[end:], "references": paras[r:end]}
+
+
+_ENTRY = re.compile(r"\s*(?:[\[(]?\d{1,3}[.)\]]?\s*)?[^\W\d_][\w'’-]*(?: [^\W\d_][\w'’-]*){0,2},? [A-Z]{1,4}[,.]")
+
+
+def _entry_run(paras: list[str], head: int) -> int:
+    """How many paragraphs after `head` read as reference entries ("1. Lee K, ..." / "Lee K, ..."), in a row."""
+    n = 0
+    for p in paras[head + 1:]:
+        if not _ENTRY.match(HEAD.sub("", p)):
+            break
+        n += 1
+    return n
 
 
 _BODY = re.compile(r"(abstract|introduction|background|summary|dear\s+(?:editor|sir)|sir,|respected)\b", re.I)
