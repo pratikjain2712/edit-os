@@ -267,8 +267,13 @@ def _is_heading(p: Paragraph) -> bool:
     return bool(re.match(r"<H\d>", t)) or (len(t.split()) < 10 and not re.search(r"[.?!:]$", t))
 
 
+# The keywords line: MeSH terms keep their own commas ("Diabetes Mellitus, Type 2; Burnout, Psychological"), which
+# Claude took for list separators (JEHP 1580).
+_KEYWORDS = re.compile(r"^\s*(?:<H\d>\s*)?(?:key\s*-?\s*words?|index\s+terms|mesh\s+terms?)\b", re.I)
+
+
 def paragraphs(ms: Manuscript) -> list[Paragraph]:
-    return [p for p in prose_paragraphs(ms) if not _is_heading(p)]
+    return [p for p in prose_paragraphs(ms) if not _is_heading(p) and not _KEYWORDS.match(p.text)]
 
 
 def chunks(paras: list[Paragraph], max_words: int = 1500) -> list[list[Paragraph]]:

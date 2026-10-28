@@ -47,6 +47,8 @@ if [ -n "$SHEETS_S3" ] && aws s3 ls "$SHEETS_S3" --region "$REGION" >/dev/null 2
   SHEETS_ARGS=(-v "$SHEETS_DIR:/stylesheets:ro" -e EDITOS_STYLESHEETS=/stylesheets)
   GUIDE=$(ls "$SHEETS_DIR"/guide/*.txt 2>/dev/null | head -1 || true)
   [ -n "$GUIDE" ] && SHEETS_ARGS+=(-e "EDITOS_PREEDIT_GUIDE=/stylesheets/guide/$(basename "$GUIDE")")
+  # The copy editors' past edits: few-shot examples for the Claude copy-edit pass (deploy_aws.py --examples)
+  [ -f "$SHEETS_DIR/examples/changes.jsonl" ] && SHEETS_ARGS+=(-e EDITOS_CE_EXAMPLES=/stylesheets/examples/changes.jsonl)
   echo "stylesheets: $(ls "$SHEETS_DIR"/*.txt 2>/dev/null | wc -l) from $SHEETS_S3${GUIDE:+ (+ guide)}"
 else
   echo "stylesheets: none at ${SHEETS_S3:-<no prefix>}; rule quotes off"

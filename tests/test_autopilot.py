@@ -36,9 +36,10 @@ def test_plan_accepts_rules_and_judged_ai_edits():
 
 
 def test_jehp_holds_the_rules_its_editors_confirm():
-    # JEHP: stylesheet / guide rules the copy editors mostly skip stay suggestions; Claude's pass is off and held.
+    # JEHP: stylesheet / guide rules the copy editors mostly skip stay suggestions. Claude's pass (Opus 5.5) is on
+    # and its edits go to the second check like IJO's (owner, 2026-10-28).
     st = style.load("jehp")
-    assert st.get("copyedit.claude.enabled") is False
+    assert st.get("copyedit.claude.enabled") is True and st.get("copyedit.claude.model") == "claude-opus-5-5"
     changes = [ch("h1", "use abbreviation after its definition"), ch("h2", "sections_abstract.rename:methods"),
                ch("h3", "sections_back_matter.added"), ch("h4", "guide.unary_comparison"),
                ch("h7", "claude.grammar (agreement)", Source.AI, Layer.LANGUAGE), ch("k5", "fig_captions.case"),
@@ -46,8 +47,8 @@ def test_jehp_holds_the_rules_its_editors_confirm():
                ch("k3", "fig_captions.end_period"), ch("k4", "ref_year", layer=Layer.REFERENCES)]
     p = autopilot.plan(changes, [], st, judge=lambda items: {c.id: ("accept", "") for c in items})
     # the abstract's "Methods" renaming is no longer held (owner, 2026-10-26)
-    assert p.accept == ["h2", "k5", "k1", "k2", "k3", "k4"]
-    assert {d["id"] for d in p.left} == {"h1", "h3", "h4", "h7"}
+    assert p.accept == ["h2", "k5", "k1", "k2", "k3", "k4", "h7"]  # Claude's edit after the second check
+    assert {d["id"] for d in p.left} == {"h1", "h3", "h4"}
 
 
 def test_mjdrdypu_holds_prefixes_added_sections_and_abbreviation_use():

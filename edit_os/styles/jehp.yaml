@@ -272,7 +272,13 @@ copyedit:
   # 17 training articles: accepted after Autopilot's second check 22 of 50 in the final text (44%), all its
   # suggestions 25 of 62 (40%); tools/eval_ce.py: Haiku 36.0% of 89 edits, Opus 36.1% of 183; best kinds
   # (spelling, punctuation, article) 13 of 21 (62%, about one edit per article). Off (and held, if turned back on).
-  claude: {enabled: false}
+  claude:
+    # Owner, 2026-10-28: on, with Opus 5.5. 3 held-out articles (IJO 888, JEHP 1580, 1764; tools/eval_ce.py): Opus 64
+    # edits, the copy editors made 42 of them and most of the rest are slips they left ("et al ound", "trans
+    # diagnostic", missing full stops); 2 wrong (MeSH keywords, now skipped). Haiku: 37 edits, 50% the editors'.
+    # Autopilot's Haiku check accepted 52 of the 64 and stopped both wrong ones (an Opus check let them through).
+    enabled: true
+    model: claude-opus-5-5
   spelling:  # American as base (the sheet's "Spelling" line is empty). The editors keep "counselling" (4 of 5
              # articles) and "modelling" (3 of 3) while converting the rest (final text: 33 of 53 other conversions)
     skip: [acknowledgement, acknowledgements, counselling, counsellor, counsellors, counselled, counselling's,
@@ -323,7 +329,8 @@ autopilot:
   #   sections_back_matter.added  G283: "If information of SoS/CoI is not provided ... keep both as Source of support: Nil"
   #                      (the statements added with "Nil.": 0 of 3)
   #   guide.unary_comparison  G301: '"><space>10" -> ">10"' (0 of 5; editors keep the author's space)
-  #   claude             Claude's copy edits (not a stylesheet rule): 22 of 50 accepted ones in the final text
+  # Not held since 2026-10-28: claude (Opus 5.5 edits, accepted only when Autopilot's Haiku check agrees; owner).
+  # Before, with Haiku writing them: 22 of 50 accepted ones in the final text.
   # Accepted although the word-level count looks low (the final text rewrites the words around them, so the count
   # misreads them): table captions in sentence case and with a final period (S) -- the copy editors made Title Case
   # captions sentence case in 4 of the 4 articles that had them and added the period in 9 of 17; holding both cut
@@ -331,4 +338,4 @@ autopilot:
   # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
   # Not held: sections_abstract.rename:methods (S, struck through but live: owner, 2026-10-26).
   hold: [sections_back_matter.consent_added, fmt_color, figure_insert, use abbreviation,
-         sections_back_matter.added, guide.unary_comparison, claude]
+         sections_back_matter.added, guide.unary_comparison]

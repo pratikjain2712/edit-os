@@ -258,3 +258,9 @@ def test_prefix_closing_follows_journal_setting():
     ijo, ipj = style.load("ijo"), style.load("ipj")
     assert "postoperative" in claude_pass.prompt(ijo)[0]
     assert "as the author wrote them" in claude_pass.prompt(ipj)[0]
+
+
+def test_keywords_line_not_sent(tmp_path):
+    ms = make(tmp_path, ["Keywords: Diabetes Mellitus, Type 2; Burnout, Psychological; Adult, Partnership Care",
+                         "The patients was seen in the clinic every week for the whole of the study period."])
+    assert [p.text[:12] for p in claude_pass.paragraphs(ms)] == ["The patients"]
