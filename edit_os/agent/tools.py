@@ -195,11 +195,11 @@ class Workspace:
             return "edit adds a sentence (splitting a run-on sentence is fine; new content is not)"
         if not c.old.strip() and sum(added.values()) > 4 or sum(added.values()) > 12:
             return "edit adds too much text"
+        if re.search(r"\d", c.old) and len(re.findall(r"[A-Za-z]+", c.old + " " + c.new)) > 4:
+            return "rewording next to numbers: add a query instead"
         name = self._touches_name(p.text, c)
         if name:
             return f"edit touches a capitalised name ({name})"
-        if e.get("confidence") == "likely" and self.cfg.get("min_confidence", "likely") == "certain":
-            return "only certain edits are kept"
         if any(k.para_id == c.para_id and (c.start < k.end and k.start < c.end or c.start == k.start)
                for k in self.changes):
             return "overlaps an edit already kept in this paragraph"
@@ -268,8 +268,11 @@ class Workspace:
             why = "anchor must occur exactly once in the paragraph"
         else:
             missing = {int(n) for n in _REF_NUMBER.findall(text)} - self.checked_refs
+            listed = self._listed_names(text, q.get("anchor", ""))
             if missing:
                 why = f"call check_reference first for: {sorted(missing)}"
+            elif listed:
+                why = f"the reference list does contain {', '.join(listed)}: check it with search_text"
         if why:
             self.drops["query: " + why.split(":")[0]] += 1
             self.log.append({**entry, "kept": False, "why": why})
@@ -279,6 +282,15 @@ class Workspace:
         self.queries.append(made)
         self.log.append({**entry, "kept": True})
         return {"paragraph_id": q.get("paragraph_id"), "kept": True}
+
+    def _listed_names(self, text: str, anchor: str) -> list[str]:
+        """For a query saying a work is not in the reference list: the surnames of its anchor that the list does
+        contain (checked in code, so the claim never rests on the model alone)."""
+        if not re.search(r"(?:not|n't|never)\b[^.]{0,40}\breference list|missing from the reference", text, re.I):
+            return []
+        ref_text = " ".join(r.full_text for r in self.references().values())
+        names = re.findall(r"\b[A-Z][a-z]{2,}\b", anchor)
+        return [n for n in names if n.lower() not in _OPENERS and re.search(rf"\b{n}\b", ref_text)]
 
     # --- references ----------------------------------------------------------------------------
     def references(self):

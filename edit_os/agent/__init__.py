@@ -13,10 +13,14 @@ training articles, and works through tools (edit_os/agent/tools.py):
 Safeguards, all in code: an edit's `old` must occur exactly once in its paragraph and becomes exact offsets
 (Change.old carries the text); the change is trimmed to the words that change and refused when it touches digits,
 citations, symbols, acronyms, capitalised names, URLs or hidden content (claude_pass.verify / unsafe), spans more
-than one sentence, is longer than a clause (agent.max_words / max_chars), overlaps an edit already kept, or is in
-a paragraph that is not running text (headings, tables, the reference list). A query that names a reference
-number is refused until check_reference has been called for it, so no query about a reference rests on model
-output alone. Every kept edit is a Change with source AI and status suggested: editors decide.
+than one sentence, adds a sentence or much new text, rewords text that holds numbers, changes a capitalised word
+that may be a name, is only spacing, is longer than a clause (agent.max_words / max_chars), overlaps an edit
+already kept, or is in a paragraph that is not running text (headings, tables, the reference list). A query that
+names a reference number is refused until check_reference has been called for it, and one saying a work is not in
+the reference list is refused when the list holds the name it is anchored on, so no query about a reference rests
+on model output alone. Every kept edit is a Change with source AI and status suggested: editors decide. Edits
+Claude marks "likely" are held back unless agent.min_confidence is "likely" (on the tuning articles they agreed
+with the copy editor 39% of the time, "certain" ones 68%).
 
 Cost: each API call is priced as it happens; the loop stops at agent.budget_usd (default $2) or agent.max_turns.
 Responses are cached on disk keyed by the full request, so a rerun of the same article is free.

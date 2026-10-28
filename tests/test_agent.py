@@ -255,3 +255,29 @@ def test_splitting_a_run_on_sentence_is_allowed(tmp_path):
     fake = FakeClaude([[use("propose_edits", {"edits": [ed(p, "groups, this was", "groups. This was", "punctuation")]})]])
     res = agent.run(ms, journal(), call=fake)
     assert [(c.old, c.new) for c in res.changes.changes] == [(", this", ". This")]
+
+
+def test_rewording_next_to_numbers_is_refused(tmp_path):
+    ms = make(tmp_path, BODY[:1] + ["Of 36 people, 4 were excluded (2 were ill, 1 had moved, 1 was away, 2 declined)."]
+              + BODY[2:])
+    p = pid(ms, "Of 36")
+    fake = FakeClaude([[use("propose_edits", {"edits": [ed(p, "2 were ill, 1 had moved,",
+                                                          "2 were ill, of whom 1 had moved and", "other")]})]])
+    res = agent.run(ms, journal(), call=fake)
+    assert res.changes.changes == [] and "numbers" in res.log[0]["why"]
+
+
+def test_query_saying_a_listed_work_is_missing_is_refused(tmp_path):
+    ms = make(tmp_path)
+    p3 = pid(ms, "Brown")
+    q = {"paragraph_id": p3, "anchor": "Brown et al.", "text": "Brown et al. does not appear in the reference list."}
+    q_black = {"paragraph_id": pid(ms, "However"), "anchor": "the two groups",
+               "text": "Black and Grey is not in the reference list. Please add it."}
+    fake = FakeClaude([[use("add_queries", {"queries": [q, {**q_black, "anchor": "difference between"}]})]])
+    res = agent.run(ms, journal(), call=fake)
+    assert len(res.queries) == 2  # Brown is truly missing; the second anchor names no one the list holds
+    ms2 = make(tmp_path, BODY[:3] + ["Black et al. reported a similar outcome in a cohort [2]."] + BODY[4:])
+    q2 = {"paragraph_id": pid(ms2, "Black et al."), "anchor": "Black et al.",
+          "text": "Black et al. does not appear in the reference list."}
+    res2 = agent.run(ms2, journal(), call=FakeClaude([[use("add_queries", {"queries": [q2]})]]))
+    assert res2.queries == [] and "Black" in res2.log[0]["why"]

@@ -21,7 +21,7 @@ from . import context
 from .tools import TOOLS, Workspace
 
 DEFAULTS = {"enabled": False, "model": "claude-opus-5-5", "effort": "medium", "budget_usd": 2.0, "max_turns": 16,
-            "max_words": 20, "max_chars": 160, "min_confidence": "likely", "max_queries": 25, "examples": 60,
+            "max_words": 20, "max_chars": 160, "min_confidence": "certain", "max_queries": 25, "examples": 60,
             "max_tokens": 16000}
 
 
@@ -165,7 +165,12 @@ def run(ms: Manuscript, style: JournalStyle, call=None, article: str = "", resol
             results.append({"type": "text", "text": "Budget nearly used: send your last edits and queries now, "
                                                     "in this turn, then stop."})
         messages.append({"role": "user", "content": results})
+    # Held back after the loop, so the conversation (and its cache) is the same whatever the setting: on the tuning
+    # articles "likely" edits agreed with the copy editor 39% of the time against 68% for "certain".
     for c in ws.changes:
+        if cfg.get("min_confidence") == "certain" and c.provenance.get("confidence") != "certain":
+            ws.drops["held back: likely"] += 1
+            continue
         res.changes.add(c)
     res.queries = ws.queries
     res.log = ws.log

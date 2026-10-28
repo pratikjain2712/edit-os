@@ -74,8 +74,9 @@ def evaluate(article_dir: str, dump=None) -> dict:
         d_o = eval_ce.distance(o, t)
         u = eval_ce.apply(o, cs)
         d_u = eval_ce.distance(u, t)
-        r["dUT_certain"] += eval_ce.distance(eval_ce.apply(o, [c for c in cs if c.provenance.get("confidence") ==
-                                                               "certain"]), t)
+        u_c = eval_ce.apply(o, [c for c in cs if c.provenance.get("confidence") == "certain"])
+        r["dUT_certain"] += eval_ce.distance(u_c, t)
+        r["hurt_certain"] += eval_ce.distance(u_c, t) > d_o
         r["dOT"] += d_o
         r["dUT"] += d_u
         r["ce_paragraphs"] += o != t
@@ -145,7 +146,8 @@ def main(argv):
         clos = (r["dOT"] - r["dUT"]) / r["dOT"] if r["dOT"] else 0
         print(f"{out['name']:16s} {r['edits']:5d} {prec:6.1%} {clos:8.2%} {r['helped']:4d} {r['hurt']:4d} "
               f"{r['queries']:7d} {r['queries_matched']:7d} {r['queries_near']:6d} {out['cost']:7.3f} {r['turns']:5d} {out['stop']}"
-              f"   (CE comments {r['ce_comments']}, CE paragraphs {r['ce_paragraphs']})")
+              f"   (CE comments {r['ce_comments']}, CE paragraphs {r['ce_paragraphs']}; certain only: closure "
+              f"{(r['dOT'] - r['dUT_certain']) / max(1, r['dOT']):.2%}, hurt {r['hurt_certain']})")
         print(f"    usage {out['usage']}  refused {out['drops']}")
     n = max(1, len(dirs))
     clos_c = (tot["dOT"] - tot["dUT_certain"]) / tot["dOT"] if tot["dOT"] else 0
@@ -153,7 +155,8 @@ def main(argv):
     prec = hits["all"] / proposed["all"] if proposed["all"] else 0
     print(f"\nTOTAL articles {len(dirs)}  edits {tot['edits']}  precision {prec:.1%}  closure {clos:.2%}  helped "
           f"{tot['helped']} hurt {tot['hurt']}  queries {tot['queries']} matched {tot['queries_matched']} (near {tot['queries_near']})  "
-          f"cost ${cost:.2f} (${cost / n:.2f}/article; paid this run ${spent:.2f})")
+          f"cost ${cost:.2f} (${cost / n:.2f}/article; paid this run ${spent:.2f})\n"
+          f"certain edits only: closure {clos_c:.2%}  hurt {tot['hurt_certain']}")
     for k in sorted(proposed, key=lambda k: (k.split(":")[0], -proposed[k])):
         if k != "all":
             print(f"  {k:28s} proposed {proposed[k]:4d}  precision {hits[k] / proposed[k]:6.1%}")
