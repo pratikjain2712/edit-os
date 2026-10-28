@@ -48,12 +48,19 @@ def _claude(ms, style, claude_call=None, **_):
     return changes, queries, []
 
 
+def _agent(ms, style, **_):
+    from .. import agent  # the editing agent (prototype): off unless copyedit.agent.enabled
+    changes, queries = agent.collect(ms, style)
+    return changes, queries, []
+
+
 CHECKERS = {
     "spelling": _spelling,
     "text": _text,  # edit_os/rules_text.py: prefixes, number words, ranges, ... (settings under `text:`)
     "abbreviations": _abbreviations,
     "languagetool": _languagetool,
     "claude": _claude,  # needs EDITOS_ANTHROPIC_API_KEY and copyedit.claude.enabled; last, so it never wins an overlap
+    "agent": _agent,  # edit_os/agent: whole-manuscript editing agent; needs copyedit.agent.enabled (default off)
 }
 
 # Checkers whose suggestions carry no provenance of their own: the chip names the checker.
