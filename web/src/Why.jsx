@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen, ChevronDown, ExternalLink, FileText, Info, Mail, Sparkles, Wand2 } from "lucide-react";
+import { BookOpen, ChevronDown, ExternalLink, FileText, Globe, Info, Mail, Sparkles, Wand2 } from "lucide-react";
 import { show, whyLabel } from "./labels.js";
 
 // "Why" for one suggestion: the rule (label + the stylesheet / guide line it implements, expandable) and
 // a "Source" chip saying where its content came from (title page, XML field, PubMed record, checker, ...).
 // `rule` is the /rules entry for item.rule_key (may be missing).
 
-const SOURCE_ICONS = { pubmed: BookOpen, crossref: BookOpen, checked_online: BookOpen, ai: Sparkles, cover_letter: Mail,
+const SOURCE_ICONS = { pubmed: BookOpen, crossref: BookOpen, checked_online: BookOpen, web: Globe, ai: Sparkles, cover_letter: Mail,
   checker: Wand2, journal_style: Wand2, renumber: Wand2 };
 
 export function SourceChip({ p, small }) {

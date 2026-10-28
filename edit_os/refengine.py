@@ -1429,8 +1429,11 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         if not record and title_search and "points to a different article" not in why and DIFFERS not in why:
             record, title_why, queries = find_by_title(p)
             why = title_why or why
+        if not record:  # the databases gave up: a page Claude finds on the web, verified in code (refweb.py)
+            from . import refweb
+            record, why = refweb.fallback(p, style, why, queries)
         if not record:
-            return style_unverified(Resolution(QUERY, p, message=why), text, style, fields)
+            return style_unverified(Resolution(QUERY, p, message=why, queries=queries), text, style, fields)
         if not (record.volume and record.year):
             return style_unverified(Resolution(QUERY, p, record, message="Record has no volume yet (ahead of print?)"),
                                     text, style, fields)

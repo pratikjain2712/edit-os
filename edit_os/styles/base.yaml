@@ -128,6 +128,15 @@ references:
   label_period: false          # typed labels as "1. ": "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (per journal)
   label_auto_number: false     # typed labels removed, the entries numbered by Word instead: "1.<tab>Angus DC" ->
                                # "Angus DC" as item 1 of an automatic "1." list (per journal; wins over label_period)
+  web_search:                  # nothing found in the databases: Claude (web search) proposes candidate pages for a
+                               # journal-article entry; code opens each and accepts it only when the page's own
+                               # metadata has the entry's title, first author and year and no volume / page conflict
+                               # (refweb.py; owner, 2026-10-28). Nothing verified: styled and queried as before, with
+                               # "Possible source: <url>" when a page had the title but another field differs.
+    enabled: false
+    max_searches_per_ref: 2    # web searches Claude may make for one reference
+    max_per_article: 20        # ... for one manuscript
+    cost_cap_usd: 0.30         # per manuscript (searches $0.01 each + tokens); a call that could exceed it is not made
   title_search: true           # nothing found by first author: a title-only search, accepted only with the whole
                                # title, year, journal and the first author in the record's list (or a long title
                                # with the entry's volume and first page); an entry with no journal ("... study. 2024")

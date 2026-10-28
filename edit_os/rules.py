@@ -12,7 +12,7 @@ from itertools import count
 
 import difflib
 
-from . import journals, provenance, refengine, references, renumber, rules_figures, rules_format, rules_sections
+from . import journals, provenance, refengine, references, refweb, renumber, rules_figures, rules_format, rules_sections
 from . import rules_tables  # table body layout (indentation, cell paragraphs)
 from .changes import Change, ChangeSet, Layer, Source
 from .docmodel import Manuscript, Paragraph
@@ -1703,7 +1703,8 @@ def lookup_references(ms: Manuscript, style: JournalStyle) -> list[tuple[referen
     cached = getattr(ms, "_ref_resolutions", None)
     if cached is None:
         refs = references.extract(ms)
-        cached = list(zip(refs, refengine.resolve_all([refengine.corporate_author(r.full_text) for r in refs], style)))
+        with refweb.article(style):  # the web fallback's limits hold per manuscript
+            cached = list(zip(refs, refengine.resolve_all([refengine.corporate_author(r.full_text) for r in refs], style)))
         ms._ref_resolutions = cached
     return cached
 

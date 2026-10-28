@@ -4,7 +4,7 @@ Filled by the rules that know it, deterministically, when the suggestion is made
 as a "Source" chip next to the rule. Shape (every key but `kind` and `label` optional):
 
     kind     title_page | xml | manuscript | contribution_form | cover_letter | submission | figure_file |
-             pubmed | crossref | unverified | journal_style | inferred | checker | ai | renumber | multiple
+             pubmed | crossref | web | unverified | journal_style | inferred | checker | ai | renumber | multiple
     label    short text for the chip ("Title page", "XML: article type", "PubMed 12345678")
     detail   one line more (the input line it was read from, a checker's message)
     url      a link out (PubMed, doi.org, the LanguageTool rule)
@@ -79,6 +79,11 @@ def reference(res, original: str) -> dict:
         why = getattr(res, "message", "") or "no strict PubMed / CrossRef match"
         from .refstyle import PROVENANCE_LABEL
         return make("unverified", PROVENANCE_LABEL, why, **common)
+    web = getattr(rec, "web", None) if rec is not None else None
+    if web:  # a page Claude found, its metadata checked in code (refweb.py)
+        fields = ", ".join(web.get("verified_fields", []))
+        return make("web", f"Verified on {web.get('site', 'the web')}", f"Matches the page: {fields}" if fields else "",
+                    url=web.get("url", ""), record=record_fields(rec), web=web, **common)
     if rec is not None and getattr(rec, "source", "") == "pubmed" and rec.pmid:
         return make("pubmed", f"PubMed {rec.pmid}", url=pubmed_url(rec.pmid), record=record_fields(rec), **common)
     if rec is not None and rec.doi:

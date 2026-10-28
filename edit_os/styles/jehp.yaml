@@ -213,6 +213,7 @@ references:
   clear_formatting: true      # Vancouver sets no italic or bold in an entry: the author's EndNote / APA italics and
                                # bold volumes go (JEHP 1153, 1576: 35 entries; et al. italic stays per formatting)
   label_auto_number: true
+  web_search: {enabled: true}  # refweb.py: candidate pages from Claude's web search, verified in code (owner)
   # At most two initials per author: "Chandrasena PPCM" -> "Chandrasena PP" (the editors 6 of 8; owner, 2026-10-26)
   max_initials: 2
 

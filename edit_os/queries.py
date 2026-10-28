@@ -26,6 +26,7 @@ TEXT = {
     "references.missing_entry": "Citation [{n}] has no entry in the reference list. Kindly provide the reference.",
     "references.not_found_et_al": "Reference not found in PubMed. Hence kindly provide minimum 6 author names before et al.",
     "references.not_found": "Reference not found in PubMed or CrossRef. Kindly check and provide complete details.",
+    "references.possible_source": "Possible source: {url} — kindly check.",
     "references.wrong_id": "The {what} given points to a different article. Kindly check the reference.",
     "references.no_volume": "Kindly provide volume and page numbers.",
     "references.no_pages": "Kindly provide page numbers.",
