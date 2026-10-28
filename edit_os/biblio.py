@@ -1,7 +1,12 @@
-"""PubMed (NCBI E-utilities) and CrossRef lookups, with a local response cache.
+"""Bibliographic lookups -- PubMed (NCBI E-utilities), CrossRef, Europe PMC, OpenAlex, Semantic Scholar
+and DOAJ -- with a local response cache.
 
 NCBI allows 3 requests a second without a key (10 with NCBI_API_KEY); calls are spaced
-accordingly. Responses are cached in SQLite so re-running a manuscript costs nothing.
+accordingly, and so are the other services' (polite limits below). Responses are cached in SQLite so
+re-running a manuscript costs nothing. Requests carry a User-Agent with a contact address from
+EDITOS_MAILTO when it is set (never a hard-coded one); OPENALEX_API_KEY and SEMANTIC_SCHOLAR_API_KEY are
+optional keys. A service that refuses us (rate limit used up, key refused, down) is skipped for a while
+rather than retried on every reference.
 """
 
 from __future__ import annotations
@@ -25,12 +30,27 @@ from .journals import DEFAULT_DB
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 CROSSREF = "https://api.crossref.org/works"
+EUROPEPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+OPENALEX = "https://api.openalex.org/works"
+SEMANTIC_SCHOLAR = "https://api.semanticscholar.org/graph/v1/paper"
+DOAJ = "https://doaj.org/api/search/articles/"
+
+# Every database a reference is checked against, most trusted first (refengine prefers the first that agrees).
+# PubMed and CrossRef always run; the others only when those two found nothing (refengine.find), per journal
+# (`references.sources`).
+SOURCES = ("pubmed", "crossref", "europepmc", "openalex", "semantic_scholar", "doaj")
+EXTRA_SOURCES = SOURCES[2:]
+SOURCE_NAMES = {"pubmed": "PubMed", "crossref": "CrossRef", "europepmc": "Europe PMC", "openalex": "OpenAlex",
+                "semantic_scholar": "Semantic Scholar", "doaj": "DOAJ"}
+# Sources whose author names are one display string ("Zohreh Nabizadeh-Gharghozar"), split here by `split_name`;
+# refengine.align_names re-splits them the way the entry writes a compound surname.
+DISPLAY_NAME_SOURCES = frozenset({"openalex", "semantic_scholar", "doaj"})
 CACHE_DB = os.path.join(os.path.dirname(DEFAULT_DB), "http_cache.sqlite")
 
 
 @dataclass
 class Record:
-    source: str  # "pubmed" or "crossref"
+    source: str  # one of SOURCES (or "author": refstyle's record of the author's own fields)
     title: str
     authors: list[tuple[str, str]] = field(default_factory=list)  # (surname, initials) or (group name, "")
     journal: str = ""  # PubMed: MedlineTA; CrossRef: container title
@@ -43,6 +63,18 @@ class Record:
     issn: list[str] = field(default_factory=list)
     other_years: list[str] = field(default_factory=list)  # online / issued years besides `year`
     journal_full: str = ""  # CrossRef: the full container title ("Interactive Technology and Smart Education")
+    full_names: list[str] = field(default_factory=list)  # display-name sources: the names as given, for `authors`
+    found_via: str = ""  # a lower-priority source that found the paper this record (PubMed / CrossRef) was taken for
+
+
+BREAKER_SECONDS = 600  # how long a service that refused us is left alone
+
+
+def user_agent() -> str:
+    """"edit-os/0.1 (reference checking; mailto:...)", the address from EDITOS_MAILTO (polite pools of CrossRef /
+    OpenAlex); without one, no address at all."""
+    mail = os.environ.get("EDITOS_MAILTO", "").strip()
+    return f"edit-os/0.1 (reference checking; mailto:{mail})" if mail else "edit-os/0.1 (reference checking)"
 
 
 class _Http:
@@ -51,31 +83,50 @@ class _Http:
         self.con = sqlite3.connect(path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
         self.con.execute("CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, body TEXT)")
         self.last: dict[str, float] = {}
+        self.down: dict[str, float] = {}  # host -> until when it is skipped (breaker hosts only)
 
-    def get(self, url: str, host_gap: float) -> str | None:
+    def get(self, url: str, host_gap: float, headers: dict | None = None, timeout: float = 30,
+            breaker: bool = False) -> str | None:
+        """The body of `url` ("" for a 404 / 400: nothing there), cached; None when it could not be fetched.
+        API keys go in `headers`, never in the URL (the cache key). `breaker`: a host that rate-limits
+        us for long, refuses the request (401 / 403) or fails three times running is skipped for
+        BREAKER_SECONDS, so a service that is down or out of quota costs one try, not one per reference."""
         key = hashlib.sha256(url.encode()).hexdigest()
         row = self.con.execute("SELECT body FROM cache WHERE key = ?", (key,)).fetchone()
         if row:
             return row[0]
         host = urllib.parse.urlparse(url).netloc
+        if breaker and self.down.get(host, 0) > time.monotonic():
+            return None
         wait = self.last.get(host, 0) + host_gap - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         body = None
         for attempt in range(3):
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "edit-os/0.1 (reference checking)"})
-                with urllib.request.urlopen(req, timeout=30) as r:
+                req = urllib.request.Request(url, headers={"User-Agent": user_agent(), **(headers or {})})
+                with urllib.request.urlopen(req, timeout=timeout) as r:
                     body = r.read().decode("utf-8", errors="replace")
                 break
             except urllib.error.HTTPError as e:
-                if e.code == 404:
+                if e.code == 404 or breaker and e.code in (400, 410, 422):
                     body = ""
                     break
+                if breaker and e.code in (401, 403):
+                    break
+                if breaker and e.code == 429:
+                    try:
+                        retry = float(e.headers.get("Retry-After") or 0)
+                    except (TypeError, ValueError):
+                        retry = 0
+                    if retry > 30:  # a daily quota used up, not a burst
+                        break
                 time.sleep(1 + attempt * 2)  # 429 / 5xx: back off and retry
-            except (urllib.error.URLError, TimeoutError):
+            except (urllib.error.URLError, TimeoutError, OSError):
                 time.sleep(1 + attempt * 2)
         self.last[host] = time.monotonic()
+        if body is None and breaker:
+            self.down[host] = time.monotonic() + BREAKER_SECONDS
         if body is not None:
             self.con.execute("INSERT OR REPLACE INTO cache VALUES (?, ?)", (key, body))
             self.con.commit()
@@ -174,7 +225,8 @@ _MARKUP = re.compile(r"</?(?:scp|i|b|em|strong|sup|sub|u|span|mml:[a-z]+|jats:[a
 def _plain(s: str) -> str:
     """A CrossRef title without the publisher's markup: "Adapting <scp>parent-focused</scp> ..." -> "Adapting
     parent-focused ..."; entities ("&amp;") unescaped."""
-    return html.unescape(_MARKUP.sub("", s or "")).strip()
+    s = html.unescape(_MARKUP.sub("", s or ""))
+    return s.replace("\\'", "'").replace('\\"', '"').strip()  # DOAJ: "Participants\\' learning"
 
 
 def _with_subtitle(item: dict) -> str:
@@ -366,3 +418,318 @@ def fallback_candidates(title: str, first_author: str, year: str, text: str = ""
         if hint and left >= 1:  # with the journal: journals outside PubMed (APA lists: "Computers in Human Behavior")
             left -= 1
             yield crossref_search(" ".join(x for x in (flat, surname, year, hint) if x))
+
+
+# --- more bibliographic databases ----------------------------------------------------------
+#
+# Europe PMC (MEDLINE, PMC, Agricola and journals outside MEDLINE), OpenAlex, Semantic Scholar and DOAJ (open-access
+# journals, many of them not indexed in PubMed: Iranian / Indian journals). Each client returns biblio Records, its
+# results cached as above; refengine holds every record to the same strict acceptance as PubMed's and CrossRef's.
+
+EXTRA_TIMEOUT = 15  # seconds; these sources are a fallback and must not hold a manuscript up
+EXTRA_ROWS = 5
+_PARTICLE_WORDS = frozenset("van von der den de del della di da das dos du la le ter ten bin binti al el ibn zu af av".split())
+_SUFFIX = re.compile(r"^(?:Jr|Sr|II|III|IV)\.?$")
+
+
+def _initials(given: str) -> str:
+    """"John A." -> "JA"; "Jean-Pierre" -> "JP"; "M." -> "M"."""
+    return "".join(w[0] for w in re.split(r"[\s.\-‐]+", given) if w and w[0].isalpha()).upper()
+
+
+def split_name(name: str) -> tuple[str, str]:
+    """A display name as (surname, initials): "Zohreh Nabizadeh-Gharghozar" -> ("Nabizadeh-Gharghozar", "Z"),
+    "M. Adib-Hajbaghery" -> ("Adib-Hajbaghery", "M"), "Ludwig van Beethoven" -> ("van Beethoven", "L"),
+    "Smith, John A." -> ("Smith", "JA"), "Smith JA" (Vancouver) kept so, "Farhati Farhati" -> ("Farhati", "F"). A compound surname is cut to its last
+    word ("Seyed Saeed Naghavi Alhosseini" -> "Alhosseini SSN"); refengine.align_names takes the entry's cut where
+    the entry writes the same name. One word: a person known by one name ("Sulistyorini", "")."""
+    name = re.sub(r"\s+", " ", _plain(name)).strip().strip(",")
+    if not name:
+        return "", ""
+    if "," in name:
+        sur, _, given = name.partition(",")
+        return sur.strip(), _initials(given)
+    words = name.split(" ")
+    suffix = ""
+    if len(words) > 2 and _SUFFIX.match(words[-1]):
+        suffix = " " + words.pop().rstrip(".")
+    if len(words) == 1:
+        return words[0], suffix.strip()
+    if len(set(words)) == 1:  # "Farhati Farhati": a one-name author (Indonesia) entered twice; NLM's "Farhati F"
+        return words[0], words[0][0].upper()
+    if re.fullmatch(r"[A-Z]{1,3}", words[-1]) and not re.fullmatch(r"(?:[A-Z]\.?){1,3}", words[0]):
+        return " ".join(words[:-1]), words[-1] + suffix  # already "Smith JA"
+    k = len(words) - 1
+    while k > 1 and words[k - 1].lower() in _PARTICLE_WORDS and words[k - 1][:1].islower():
+        k -= 1
+    return " ".join(words[k:]), (_initials(" ".join(words[:k])) + suffix).strip()
+
+
+_SPLIT_HYPHEN = re.compile(r"(?<=[a-z])- (?=[a-z]+\b)(?!(?:and|or|to|nor)\b)")
+
+
+def _deposit_title(title: str) -> str:
+    """A publisher-deposited title as printed: "scenario- based" (a line-end hyphen kept) -> "scenario-based"."""
+    return _SPLIT_HYPHEN.sub("-", _plain(title))
+
+
+def _journal_fields(full: str, issns: list[str], abbr: str = "") -> tuple[str, str]:
+    """(journal, journal_full): NLM's abbreviation when NLM lists the journal (by ISSN), else the source's own
+    abbreviation, else the full name (a journal NLM does not index is written in full: refengine.journal_name)."""
+    from . import journals
+
+    full = re.sub(r"\s+", " ", html.unescape(full or "")).strip()
+    d = journals.directory()
+    j = next((x for x in map(d.lookup, issns) if x), None) if d else None
+    return (j.med_abbr if j else abbr or full), full
+
+
+def _pages(first: str, last: str = "") -> str:
+    first, last = (str(first or "").strip(), str(last or "").strip())
+    return f"{first}-{last}" if first and last and last != first else first
+
+
+def _year(v) -> str:
+    m = re.search(r"(?:19|20)\d{2}", str(v or ""))
+    return m.group(0) if m else ""
+
+
+def _year_range(year: str) -> tuple[int, int] | None:
+    return (int(year) - 1, int(year) + 1) if re.fullmatch(r"(?:19|20)\d{2}", year or "") else None
+
+
+def _search_words(title: str, n: int = 10) -> list[str]:
+    """Words to search a title by: its distinctive words (`title_words`), or all its plain words of three letters
+    or more for a title with too few of those; at most `n`, ASCII letters and digits only (query syntax)."""
+    words = title_words(title)
+    if len(words) < 3:
+        words = [w.lower() for w in re.findall(r"[A-Za-z0-9]{3,}", _fold(title)) if w.lower() not in STOPWORDS]
+    return [w for w in words if re.fullmatch(r"[a-z0-9]+", w)][:n]
+
+
+def _json(body: str | None):
+    if not body:
+        return None
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+
+# Europe PMC: https://europepmc.org/RestfulWebService (no key; be gentle)
+
+def _europepmc_record(item: dict) -> Record:
+    authors = []
+    for au in (item.get("authorList") or {}).get("author", []):
+        if au.get("lastName"):
+            authors.append((au["lastName"].strip(), (au.get("initials") or "").replace(".", "").replace(" ", "")))
+        elif au.get("collectiveName"):
+            authors.append((au["collectiveName"].strip(), ""))
+        elif au.get("fullName"):
+            authors.append(split_name(au["fullName"]))
+    ji = item.get("journalInfo") or {}
+    jn = ji.get("journal") or {}
+    issns = list(dict.fromkeys(x for x in (jn.get("issn"), jn.get("essn")) if x))
+    journal, full = _journal_fields(jn.get("title") or item.get("bookOrReportDetails", {}).get("publisher", ""),
+                                    issns, jn.get("medlineAbbreviation") or jn.get("isoabbreviation") or "")
+    year = _year(ji.get("yearOfPublication") or item.get("pubYear"))
+    online = _year(item.get("firstPublicationDate") or item.get("electronicPublicationDate"))
+    return Record(
+        source="europepmc", title=_plain(item.get("title") or ""), authors=authors, journal=journal, journal_full=full,
+        year=year, volume=str(ji.get("volume") or ""), issue=str(ji.get("issue") or ""),
+        pages=(item.get("pageInfo") or "").strip(), pmid=item.get("pmid") or "", doi=item.get("doi") or "",
+        issn=issns, other_years=[online] if online and online != year else [],
+    )
+
+
+def _europepmc(query: str, rows: int = EXTRA_ROWS) -> list[Record]:
+    url = EUROPEPMC + "?" + urllib.parse.urlencode(
+        {"query": query, "format": "json", "resultType": "core", "pageSize": rows})
+    data = _json(http().get(url, 0.2, timeout=EXTRA_TIMEOUT, breaker=True)) or {}
+    items = (data.get("resultList") or {}).get("result") or []
+    return [_europepmc_record(i) for i in items if i.get("title")]
+
+
+def europepmc_search(title: str, surname: str = "", year: str = "", rows: int = EXTRA_ROWS) -> list[Record]:
+    """Europe PMC by the title's words, with the first author and the year (one either side) when known."""
+    words = _search_words(title)
+    if len(words) < 2:
+        return []
+    q = f"TITLE:({' '.join(words)})"
+    if surname and re.fullmatch(r"[A-Za-z' -]+", _fold(surname)):
+        q += f' AND AUTH:"{_fold(surname)}"'
+    yr = _year_range(year)
+    if yr:
+        q += f" AND PUB_YEAR:[{yr[0]} TO {yr[1]}]"
+    return _europepmc(q, rows)
+
+
+def europepmc_doi(doi: str) -> list[Record]:
+    return _europepmc(f'DOI:"{doi.strip()}"', 2) if doi else []
+
+
+# OpenAlex: https://docs.openalex.org (key from OPENALEX_API_KEY; without one, the shared free budget)
+
+def _openalex_headers() -> dict:
+    key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def _openalex_record(w: dict) -> Record:
+    full_names, authors = [], []
+    for a in w.get("authorships") or []:
+        name = (a.get("author") or {}).get("display_name") or a.get("raw_author_name") or ""
+        if name:
+            full_names.append(name)
+            authors.append(split_name(name))
+    loc = w.get("primary_location") or {}
+    src = loc.get("source") or {}
+    issns = list(dict.fromkeys([x for x in [src.get("issn_l")] + list(src.get("issn") or []) if x]))
+    journal, full = _journal_fields(src.get("display_name") or "", issns)
+    b = w.get("biblio") or {}
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", w.get("doi") or "", flags=re.I)
+    pmid = re.sub(r"\D", "", ((w.get("ids") or {}).get("pmid") or "").rsplit("/", 1)[-1])
+    return Record(
+        source="openalex", title=_deposit_title(w.get("title") or w.get("display_name") or ""), authors=authors,
+        full_names=full_names, journal=journal, journal_full=full, year=_year(w.get("publication_year")),
+        volume=str(b.get("volume") or ""), issue=str(b.get("issue") or ""),
+        pages=_pages(b.get("first_page"), b.get("last_page")), pmid=pmid, doi=doi, issn=issns,
+    )
+
+
+def openalex_search(title: str, year: str = "", rows: int = EXTRA_ROWS) -> list[Record]:
+    """OpenAlex works by the title's words (and the year, one either side); the first author is checked on the
+    records (refengine), not searched (OpenAlex's author names are display names)."""
+    words = _search_words(title, 12)
+    if len(words) < 2:
+        return []
+    filt = "title.search:" + " ".join(words)
+    yr = _year_range(year)
+    if yr:
+        filt += f",publication_year:{yr[0]}-{yr[1]}"
+    url = OPENALEX + "?" + urllib.parse.urlencode({"filter": filt, "per-page": rows})
+    data = _json(http().get(url, 0.15, headers=_openalex_headers(), timeout=EXTRA_TIMEOUT, breaker=True)) or {}
+    return [_openalex_record(w) for w in data.get("results") or [] if w.get("title") or w.get("display_name")]
+
+
+def openalex_doi(doi: str) -> list[Record]:
+    if not doi:
+        return []
+    url = f"{OPENALEX}/https://doi.org/{urllib.parse.quote(doi.strip(), safe='/')}"
+    data = _json(http().get(url, 0.15, headers=_openalex_headers(), timeout=EXTRA_TIMEOUT, breaker=True))
+    return [_openalex_record(data)] if data and data.get("id") else []
+
+
+# Semantic Scholar Graph API: https://api.semanticscholar.org/api-docs/graph (key from SEMANTIC_SCHOLAR_API_KEY;
+# without one, a shared pool that often answers 429)
+
+S2_FIELDS = "title,authors,year,venue,journal,externalIds,publicationVenue,publicationDate"
+
+
+def _s2_headers() -> dict:
+    key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    return {"x-api-key": key} if key else {}
+
+
+def _s2_record(d: dict) -> Record:
+    full_names = [a.get("name") or "" for a in d.get("authors") or [] if a.get("name")]
+    j = d.get("journal") or {}
+    venue = d.get("publicationVenue") or {}
+    issns = [x for x in [venue.get("issn")] if x]
+    journal, full = _journal_fields(j.get("name") or venue.get("name") or d.get("venue") or "", issns)
+    ids = d.get("externalIds") or {}
+    year = _year(d.get("year"))
+    online = _year(d.get("publicationDate"))
+    return Record(
+        source="semantic_scholar", title=_deposit_title(d.get("title") or ""), authors=[split_name(n) for n in full_names],
+        full_names=full_names, journal=journal, journal_full=full, year=year, volume=str(j.get("volume") or "").strip(),
+        pages=re.sub(r"\s*[-–]\s*", "-", str(j.get("pages") or "").strip()), pmid=str(ids.get("PubMed") or ""),
+        doi=str(ids.get("DOI") or ""), issn=issns, other_years=[online] if online and online != year else [],
+    )
+
+
+def _s2_gap() -> float:
+    return 1.05  # one request a second, with or without a key
+
+
+def s2_match(title: str, year: str = "") -> list[Record]:
+    """Semantic Scholar's single best title match (its /paper/search/match), within a year either side."""
+    if len(_search_words(title)) < 2:
+        return []
+    params = {"query": re.sub(r"\s+", " ", title).strip()[:300], "fields": S2_FIELDS}
+    yr = _year_range(year)
+    if yr:
+        params["year"] = f"{yr[0]}-{yr[1]}"
+    body = http().get(f"{SEMANTIC_SCHOLAR}/search/match?" + urllib.parse.urlencode(params), _s2_gap(),
+                      headers=_s2_headers(), timeout=EXTRA_TIMEOUT, breaker=True)
+    data = _json(body) or {}
+    return [_s2_record(d) for d in data.get("data") or [] if d.get("title")]
+
+
+def s2_doi(doi: str) -> list[Record]:
+    if not doi:
+        return []
+    url = f"{SEMANTIC_SCHOLAR}/DOI:{urllib.parse.quote(doi.strip(), safe='/')}?" + urllib.parse.urlencode({"fields": S2_FIELDS})
+    data = _json(http().get(url, _s2_gap(), headers=_s2_headers(), timeout=EXTRA_TIMEOUT, breaker=True))
+    return [_s2_record(data)] if data and data.get("title") else []
+
+
+# DOAJ: https://doaj.org/api/docs (no key for searches; two requests a second)
+
+def _doaj_record(item: dict) -> Record:
+    b = item.get("bibjson") or {}
+    j = b.get("journal") or {}
+    full_names = [a.get("name") or "" for a in b.get("author") or [] if (a.get("name") or "").strip()]
+    issns = list(dict.fromkeys(list(j.get("issns") or []) + [i.get("id") for i in b.get("identifier") or []
+                                                              if i.get("type") in ("pissn", "eissn") and i.get("id")]))
+    journal, full = _journal_fields(j.get("title") or "", issns)
+    doi = next((i.get("id") or "" for i in b.get("identifier") or [] if (i.get("type") or "").lower() == "doi"), "")
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi.strip(), flags=re.I)
+    return Record(
+        source="doaj", title=_deposit_title(b.get("title") or ""), authors=[split_name(n) for n in full_names],
+        full_names=full_names, journal=journal, journal_full=full, year=_year(b.get("year")),
+        volume=str(j.get("volume") or ""), issue=str(j.get("number") or ""),
+        pages=_pages(b.get("start_page"), b.get("end_page")), doi=doi, issn=issns,
+    )
+
+
+def _doaj(query: str, rows: int = EXTRA_ROWS) -> list[Record]:
+    url = DOAJ + urllib.parse.quote(query, safe="") + "?" + urllib.parse.urlencode({"pageSize": rows})
+    data = _json(http().get(url, 0.5, timeout=EXTRA_TIMEOUT, breaker=True)) or {}
+    return [_doaj_record(i) for i in data.get("results") or [] if (i.get("bibjson") or {}).get("title")]
+
+
+def doaj_search(title: str, year: str = "", rows: int = EXTRA_ROWS) -> list[Record]:
+    """DOAJ articles whose title has all the title's search words (and of the year, one either side)."""
+    words = _search_words(title)
+    if len(words) < 2:
+        return []
+    q = "bibjson.title:(" + " AND ".join(words) + ")"
+    yr = _year_range(year)
+    if yr:
+        q += f" AND bibjson.year:[{yr[0]} TO {yr[1]}]"
+    return _doaj(q, rows)
+
+
+def doaj_doi(doi: str) -> list[Record]:
+    return _doaj(f'doi:"{doi.strip()}"', 2) if doi else []
+
+
+def extra_search(source: str, title: str, surname: str = "", year: str = "") -> list[Record]:
+    """One extra source's records for a title (first author and year where the source can search by them)."""
+    if source == "europepmc":
+        recs = europepmc_search(title, surname, year)
+        return recs or (europepmc_search(title, "", year) if surname else [])  # the author's name spelled otherwise
+    if source == "openalex":
+        return openalex_search(title, year)
+    if source == "semantic_scholar":
+        return s2_match(title, year)
+    if source == "doaj":
+        return doaj_search(title, year)
+    return []
+
+
+def extra_doi(source: str, doi: str) -> list[Record]:
+    """One extra source's record for a DOI."""
+    return {"europepmc": europepmc_doi, "openalex": openalex_doi, "semantic_scholar": s2_doi,
+            "doaj": doaj_doi}.get(source, lambda d: [])(doi)

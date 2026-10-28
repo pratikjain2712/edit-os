@@ -4,7 +4,7 @@ Filled by the rules that know it, deterministically, when the suggestion is made
 as a "Source" chip next to the rule. Shape (every key but `kind` and `label` optional):
 
     kind     title_page | xml | manuscript | contribution_form | cover_letter | submission | figure_file |
-             pubmed | crossref | web | unverified | journal_style | inferred | checker | ai | renumber | multiple
+             pubmed | crossref | europepmc | openalex | semantic_scholar | doaj | web | unverified | journal_style | inferred | checker | ai | renumber | multiple
     label    short text for the chip ("Title page", "XML: article type", "PubMed 12345678")
     detail   one line more (the input line it was read from, a checker's message)
     url      a link out (PubMed, doi.org, the LanguageTool rule)
@@ -69,7 +69,8 @@ def doi_url(doi: str) -> str:
 
 
 def reference(res, original: str) -> dict:
-    """A reference entry: the PubMed / CrossRef record it was checked against, or why it was not verified.
+    """A reference entry: the record it was checked against (PubMed, CrossRef, or "Verified in OpenAlex" and the
+    like for the other databases), or why it was not verified.
     `res` is a refengine.Resolution (or refs_other's); `original` the author's entry."""
     rec = getattr(res, "record", None)
     styled = getattr(res, "formatted", "") or ""
@@ -79,6 +80,8 @@ def reference(res, original: str) -> dict:
         why = getattr(res, "message", "") or "no strict PubMed / CrossRef match"
         from .refstyle import PROVENANCE_LABEL
         return make("unverified", PROVENANCE_LABEL, why, **common)
+    if rec is not None and getattr(rec, "found_via", ""):  # found in another database, taken from PubMed / CrossRef
+        common["found_via"] = biblio.SOURCE_NAMES.get(rec.found_via, rec.found_via)
     web = getattr(rec, "web", None) if rec is not None else None
     if web:  # a page Claude found, its metadata checked in code (refweb.py)
         fields = ", ".join(web.get("verified_fields", []))
@@ -86,10 +89,16 @@ def reference(res, original: str) -> dict:
                     url=web.get("url", ""), record=record_fields(rec), web=web, **common)
     if rec is not None and getattr(rec, "source", "") == "pubmed" and rec.pmid:
         return make("pubmed", f"PubMed {rec.pmid}", url=pubmed_url(rec.pmid), record=record_fields(rec), **common)
+    if rec is not None and rec.source == "crossref" and rec.doi:
+        return make("crossref", f"CrossRef {rec.doi}", url=doi_url(rec.doi), record=record_fields(rec), **common)
+    if rec is not None and rec.source in biblio.SOURCE_NAMES:  # Europe PMC, OpenAlex, Semantic Scholar, DOAJ
+        name = biblio.SOURCE_NAMES[rec.source]
+        url = pubmed_url(rec.pmid) if rec.pmid else doi_url(rec.doi) if rec.doi else ""
+        return make(rec.source, f"Verified in {name}", rec.doi or (f"PMID {rec.pmid}" if rec.pmid else ""), url=url,
+                    record=record_fields(rec), source_name=name, **common)
     if rec is not None and rec.doi:
-        name = "CrossRef" if rec.source == "crossref" else (rec.source or "Record").replace("_", " ").title()
-        return make("crossref" if rec.source == "crossref" else rec.source or "record", f"{name} {rec.doi}",
-                    url=doi_url(rec.doi), record=record_fields(rec), **common)
+        name = (rec.source or "Record").replace("_", " ").title()
+        return make(rec.source or "record", f"{name} {rec.doi}", url=doi_url(rec.doi), record=record_fields(rec), **common)
     if rec is not None:
         return make(rec.source or "record", (rec.source or "record").replace("_", " ").title(),
                     record=record_fields(rec), **common)

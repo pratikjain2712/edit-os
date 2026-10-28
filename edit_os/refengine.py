@@ -8,6 +8,7 @@ Anything less becomes a query for the editor; the entry text is never replaced o
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -419,7 +420,30 @@ def _confirmed(p: Parsed, r: biblio.Record) -> bool:
     return author and (fuzz.partial_ratio(fold(r.title), fold(p.text)) >= 90 or identified(p, r))
 
 
-def find(p: Parsed) -> tuple[biblio.Record | None, str]:
+def find(p: Parsed, sources: list[str] | tuple[str, ...] | None = None) -> tuple[biblio.Record | None, str]:
+    """(record, "") for the entry's paper, found in PubMed or CrossRef and, only when those two find nothing, in
+    the other databases of `sources` (biblio.EXTRA_SOURCES by default; `references.sources` per journal), each
+    record held to the same strict acceptance. (None, why) when no database has it: the hook for any later
+    fallback (a web search must still confirm a page in code)."""
+    found, why = _find_pubmed_crossref(p)
+    if found or "points to a different article" in why or DIFFERS in why:
+        return found, why
+    extra = [x for x in (biblio.EXTRA_SOURCES if sources is None else sources) if x in biblio.EXTRA_SOURCES]
+    if not extra:
+        return None, why
+    r, extra_why = find_extra(p, extra)
+    if r:
+        return r, ""
+    return None, extra_why or not_found_reason(extra)
+
+
+def not_found_reason(extra: list[str] | tuple[str, ...] = ()) -> str:
+    """"Not found in PubMed, CrossRef, Europe PMC or DOAJ": the databases searched."""
+    names = [biblio.SOURCE_NAMES[x] for x in ("pubmed", "crossref", *extra)]
+    return "Not found in " + ", ".join(names[:-1]) + " or " + names[-1]
+
+
+def _find_pubmed_crossref(p: Parsed) -> tuple[biblio.Record | None, str]:
     found, why = _find(p)
     if _usable(found) or why.endswith("points to a different article"):
         return found, why
@@ -435,6 +459,122 @@ def find(p: Parsed) -> tuple[biblio.Record | None, str]:
         if r:
             return r, ""
     return (found, "") if found else (None, why)
+
+
+# --- more databases ------------------------------------------------------------------------
+#
+# Europe PMC, OpenAlex, Semantic Scholar and DOAJ, tried in that order (most trusted first) when PubMed and
+# CrossRef found nothing. A record from them passes exactly what a PubMed record passes (`accept`, `_confirmed`:
+# first author, the title written in the entry, the year; no volume / first page or journal against the entry) and
+# must be the only paper of its source that does. When PubMed or CrossRef know the same paper (its PMID / DOI),
+# their record is used instead -- or, when theirs disagrees with the entry, none.
+
+def align_names(r: biblio.Record, p: Parsed) -> biblio.Record:
+    """A display-name record's authors cut where the entry cuts the same name: "Naghavi Alhosseini SS" (entry) for
+    "Seyed Saeed Naghavi Alhosseini" (split by default as "Alhosseini SSN"). The record's letters are kept."""
+    if r.source not in biblio.DISPLAY_NAME_SOURCES or not r.full_names or not p.authors:
+        return r
+    authors = list(r.authors)
+    for k, full in enumerate(r.full_names[:min(len(authors), len(p.authors))]):
+        m = re.fullmatch(r"(?P<sur>.*\S)\s+(?P<ini>[A-Z]{1,4})", p.authors[k].strip())
+        words = biblio._plain(full).split()
+        if not m:
+            continue
+        want = "".join(fold_name(m.group("sur")).split())
+        for n in range(2, len(words)):
+            tail = words[len(words) - n:]
+            if "".join(fold_name(" ".join(tail)).split()) == want:
+                sur = " ".join(tail)
+                if re.sub(r"[\s-]+", " ", sur).lower() == re.sub(r"[\s-]+", " ", m.group("sur")).lower():
+                    sur = m.group("sur")  # only a hyphen or space apart: "Alavi-Majd" as the author writes it
+                authors[k] = (sur, biblio._initials(" ".join(words[:len(words) - n])))
+                break
+        s, i = authors[k]
+        ws, rs = fold_name(m.group("sur")).split(), fold_name(s).split()
+        if len(ws) > len(rs) and ws[-len(rs):] == rs and i and m.group("ini").startswith(i):
+            # the record lost the first part of a compound surname: "S. Shum" for "Buckingham Shum S"
+            authors[k] = (m.group("sur"), m.group("ini"))
+            continue
+        if i and m.group("ini") != i and m.group("ini").startswith(i) and "".join(fold_name(s).split()) == want:
+            authors[k] = (s, m.group("ini"))  # a display name without the middle name: "Risna Yanti" for "Yanti RD"
+    return dataclasses.replace(r, authors=authors)
+
+
+# Letters a journal name cannot be written in here: another script ("حیات") or a romanisation's marks
+# ("Pizhūhish dar Āmūzish-i ̒ulūm-i Pizishkī"); the entry's own (English) journal name is used instead.
+_ROMANISED = re.compile("[āēīōūḥṣṭẓḍʿʾ\u0300-\u036f\u02b0-\u02ff]", re.I)
+
+
+def unwritable_journal(name: str) -> bool:
+    return bool(_ROMANISED.search(name or "")) or any(
+        c.isalpha() and "LATIN" not in unicodedata.name(c, "") for c in name or "")
+
+
+def _distinct(records: list[biblio.Record]) -> list[biblio.Record]:
+    out: list[biblio.Record] = []
+    for r in records:
+        if not any(_same_paper(r, q) for q in out):
+            out.append(r)
+    return out
+
+
+def _same_ids(a: biblio.Record, b: biblio.Record) -> bool:
+    return bool(a.doi and b.doi and a.doi.lower() == b.doi.lower() or a.pmid and b.pmid and a.pmid == b.pmid)
+
+
+def _prefer(p: Parsed, r: biblio.Record, by_id: bool = False) -> tuple[biblio.Record | None, str]:
+    """PubMed's (else CrossRef's) record of the paper `r` (found in another database) when it passes too; None when
+    theirs is the same paper and does not (title, year or citation against the entry): the trusted source wins."""
+    higher = biblio.pubmed_fetch([r.pmid]) if r.pmid else []
+    if not higher and r.doi:
+        higher = biblio.pubmed_fetch(biblio.pubmed_search(f'"{r.doi}"[aid]', retmax=1))
+        higher = higher or [x for x in [biblio.crossref_doi(r.doi)] if x]
+    for x in higher:
+        if not _same_ids(x, r) or not _usable(x):
+            continue
+        if accept(p, x, by_id=by_id) and (by_id or _confirmed(p, x)):
+            return dataclasses.replace(x, found_via=r.source), ""
+        if author_agrees(p, x):
+            name = biblio.SOURCE_NAMES.get(x.source, x.source)
+            return None, f"Found in {biblio.SOURCE_NAMES.get(r.source, r.source)}, but the {name} record {DIFFERS}"
+    return r, ""
+
+
+def _extra_terms(p: Parsed, r: biblio.Record) -> bool:
+    """What a record from these databases needs besides `accept`: the entry's own year (their dates are often the
+    upload's, so the year apart `accept` allows an epub is not allowed here), and a journal name that can be written
+    (or the entry's own: `unwritable_journal`)."""
+    if p.year and p.year != r.year and p.year not in r.other_years:
+        return False
+    return not unwritable_journal(r.journal) or bool(p.title and biblio.journal_hint(p.text, p.title))
+
+
+def find_extra(p: Parsed, sources: list[str] | tuple[str, ...]) -> tuple[biblio.Record | None, str]:
+    """The entry's paper from the extra databases, in the order given (the first that has it, under the strict
+    terms above), or (None, why)."""
+    surname = biblio.first_author_surname(p.authors[0]) if p.authors else ""
+    why = ""
+    for src in sources:
+        if p.doi:
+            for r in [align_names(x, p) for x in biblio.extra_doi(src, p.doi)][:1]:
+                if not accept(p, r, by_id=True):
+                    return None, _id_mismatch(p, r, f"DOI {p.doi}")
+                if _usable(r) and (not unwritable_journal(r.journal) or biblio.journal_hint(p.text, p.title)):
+                    found, why = _prefer(p, r, by_id=True)
+                    if found:
+                        return found, ""
+        if not p.title:
+            continue
+        recs = [align_names(x, p) for x in biblio.extra_search(src, p.title, surname, p.year)]
+        ok = [r for r in recs if r.title and _usable(r) and _extra_terms(p, r) and accept(p, r) and _confirmed(p, r)]
+        if len(_distinct(ok)) > 1:  # two papers pass: not ours to choose
+            why = why or f"Several papers in {biblio.SOURCE_NAMES[src]} match the entry"
+            continue
+        if ok:
+            found, why = _prefer(p, _best(p, ok) or ok[0])
+            if found:
+                return found, ""
+    return None, why
 
 
 # --- title-only search ---------------------------------------------------------------------
@@ -685,16 +825,21 @@ def format_pages(pages: str, style: JournalStyle) -> str:
     return f"{m.group(1)}{m.group(2)}{dash}{prefix2}{last}"
 
 
+# Sources whose records come from publishers' deposits (names, titles and journal names as the publisher gave
+# them), not from NLM's indexers: CrossRef and the databases built on such deposits.
+PUBLISHER_SOURCES = ("crossref", "openalex", "semantic_scholar", "doaj")
+
 # NLM abbreviations with a slip in NLM's own list, as ISO 4 and the editors write them (1209: "J Educ Techno Soc").
 NLM_FIXES = {"J Educ Techno Soc": "J Educ Technol Soc"}
 
 
-def journal_name(r: biblio.Record, style: JournalStyle) -> str:
+def journal_name(r: biblio.Record, style: JournalStyle, p: Parsed | None = None) -> str:
     """PubMed's MedlineTA; for a CrossRef record, NLM's abbreviation when NLM lists the journal, else
     (`references.non_indexed_journal: full`; stylesheets: "Use complete name of the journal for non-indexed
-    journals") the full title rather than CrossRef's short one ("ITSE")."""
+    journals") the full title rather than CrossRef's short one ("ITSE"). Records from the other databases
+    (Europe PMC, OpenAlex, Semantic Scholar, DOAJ) are named the same way, by their ISSN / journal title."""
     name = r.journal
-    if r.source == "crossref" and journals.directory():
+    if r.source in PUBLISHER_SOURCES + ("europepmc",) and journals.directory():
         j = None
         for issn in r.issn:
             j = journals.directory().lookup(issn)
@@ -707,12 +852,20 @@ def journal_name(r: biblio.Record, style: JournalStyle) -> str:
             j = by_name or (r.journal_full and journals.directory().lookup(r.journal_full))
         if j:
             name = NLM_FIXES.get(j.med_abbr, j.med_abbr)
+        elif r.source == "europepmc" and r.journal and r.journal != r.journal_full:
+            pass  # Europe PMC's own MEDLINE / ISO abbreviation of a journal the local NLM list lacks
         elif style.get("references.non_indexed_journal", "full") == "full" and r.journal_full:
             name = _ACRONYM_QUALIFIER.sub("", r.journal_full.strip())  # "... Public Health Science (IJPHS)": the
             # publisher's acronym is no part of the journal's name (NLM's "(Lausanne)", "(Basel)" are kept)
             if name.isupper() and len(name) > 6:  # "JOURNAL OF SUSTAINABILITY SCIENCE" -> "Journal of Sustainability Science"
                 name = " ".join(w.lower() if k and w.lower() in _MINOR_WORDS else w.capitalize()
                                 for k, w in enumerate(name.split()))
+    if r.source in biblio.EXTRA_SOURCES and re.fullmatch(r"[A-Za-z][a-z]+(?: [a-z&,:-]+){2,}", name):
+        # a catalogue title in sentence case ("Journal of caring sciences", "journal of e-learning and knowledge
+        # society") -> "Journal of Caring Sciences"
+        name = " ".join(w.capitalize() if k == 0 or w not in _MINOR_WORDS else w for k, w in enumerate(name.split()))
+    if r.source != "pubmed" and unwritable_journal(name) and p and p.title:
+        name = biblio.journal_hint(p.text, p.title) or name  # "حیات": the entry's "Hayat" (as the author wrote it)
     if style.get("references.journal_drop_qualifier", True):
         name = re.sub(r"\s*\([^)]*\)$", "", name)
     return name.replace(".", "")
@@ -916,9 +1069,9 @@ def _usable_authors(r: biblio.Record, p: Parsed | None, keep_compound: bool = Fa
                 names[k] = p.authors[k].strip()
     if p and p.authors and (malformed_authors(r) or not r.authors):
         return p.authors  # the record's list is broken: keep the author's names (and query them)
-    if p and r.source == "crossref" and len(names) < min(len(p.authors), 6):
+    if p and r.source in PUBLISHER_SOURCES and len(names) < min(len(p.authors), 6):
         return p.authors  # CrossRef author lists are often incomplete; keep the author's
-    if p and r.source == "crossref":
+    if p and r.source in PUBLISHER_SOURCES:
         # The author's own case of a particle where CrossRef's (the publisher's deposit) differs: "van den Berg G"
         # for "Van den Berg G". PubMed's names (NLM's) are kept: the JEHP editors wrote "de Sá TH" and "Ten
         # Ham-Baloyi W" from PubMed over the authors' "De Sá" and "ten". The order of a compound surname is
@@ -943,7 +1096,7 @@ def _usable_title(r: biblio.Record, p: Parsed | None) -> str:
         if own and fuzz.token_sort_ratio(fold(own.group(2)), fold(title)) >= 85:
             # the author gave the original (transliterated) title with the English one in brackets: both stay
             return f"{own.group(1)} [{own.group(2).strip()}]"
-    if p and p.title and (_mostly_upper(title) or r.source == "crossref" and len(title) < 0.6 * len(p.title)):
+    if p and p.title and (_mostly_upper(title) or r.source in PUBLISHER_SOURCES and len(title) < 0.6 * len(p.title)):
         return p.title  # ALL-CAPS (PubMed or CrossRef) or truncated CrossRef titles: keep the author's wording
     if _mostly_upper(title):  # no author title to fall back on: sentence case it, acronyms are lost
         return title[:1] + title[1:].lower()
@@ -988,6 +1141,7 @@ Islamic Muslim Muslims Christian Christians Hindu Hindus Buddhist Ramadan Quran 
 Fishbein Rogers Rosenberg Beck Erikson Maslow Freud Piaget Vygotsky Kolb Kirkpatrick Glasser Satir Bowen
 Minuchin Lazarus Folkman Pender Orem Roy Neuman Watson Peplau Nightingale Henderson Leininger Becker Prochaska
 DiClemente Kübler Ross Bronfenbrenner Seligman Csikszentmihalyi Goleman Sternberg Gardner
+Python MATLAB Excel Bluetooth
 """.split())
 
 # A word after a place's name that is part of the name: "Yazd City", "Fars Province", "Shiraz University".
@@ -1212,6 +1366,8 @@ def record_pages(r: biblio.Record, p: Parsed | None) -> str:
     if not c or not c[3] or not same_volume(p.text, r):
         return pages
     mine = c[3].strip()
+    if r.source in biblio.EXTRA_SOURCES and re.search(r"\d\s*[-–]", mine) and _first_page(mine) == _first_page(pages):
+        return mine  # the other databases' last pages are often off ("39-52" for the printed 39-51): the author's
     if not pages:
         return mine
     m = re.fullmatch(r"([A-Za-z]?\d+[A-Za-z]?)\s*[-–]\s*([A-Za-z]?\d+[A-Za-z]?)", mine)
@@ -1338,7 +1494,7 @@ def format_record(r: biblio.Record, style: JournalStyle, p: Parsed | None = None
     if style.get("references.drop_issue", True):  # PubMed's "50 Pt 1": the part goes with the issue (guide, e.g. 3)
         volume = re.sub(r"\s*\(?\s*(?:Pt|Part)\.?\s*\d+[A-Za-z]?\s*\)?\s*$", "", volume)
     pages = format_pages(record_pages(r, p), style)
-    cite = f"{journal_name(r, style)} {r.year};{volume}{issue}"
+    cite = f"{journal_name(r, style, p)} {r.year};{volume}{issue}"
     cite += f":{pages}" if pages else ""
     lead = f"{author_text}. " if author_text else ""  # a paper without authors starts with its title
     return f"{lead}{title}{end} {cite}."
@@ -1415,7 +1571,7 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         record = None
         if title_search and incomplete_article(text, p):  # no journal: completed only from a strict match
             q = Parsed(**{**p.__dict__, "title": _clean_title(p.title)})
-            record, _ = find(q)
+            record, _ = find(q, style.get("references.sources"))
             if not _usable(record) or not accept(q, record):
                 record, _, queries = find_by_title(q)
             if _usable(record) and author_agrees(q, record) and _only_paper(q, record):
@@ -1425,7 +1581,7 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
         if record is None:
             return refs_other.resolve(text, style, p)
     else:
-        record, why = find(p)
+        record, why = find(p, style.get("references.sources"))
         if not record and title_search and "points to a different article" not in why and DIFFERS not in why:
             record, title_why, queries = find_by_title(p)
             why = title_why or why

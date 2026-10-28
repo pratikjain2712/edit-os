@@ -124,7 +124,7 @@ def ol(monkeypatch, tmp_path):
     monkeypatch.setattr(biblio, "_http", biblio._Http(str(tmp_path / "cache.sqlite")))
     bodies = {}
 
-    def get(self, url, host_gap):
+    def get(self, url, host_gap, **kw):
         if "openlibrary.org" in url:
             return bodies.get("ol:" + ("main" if "title=Patterns+of+care&" in url else "full"))
         return None
@@ -149,7 +149,7 @@ def test_conference_paper_verified_in_crossref(monkeypatch, tmp_path):
     item = {"type": "proceedings-article", "title": ["Gradient trees for ward staffing"],
             "author": [{"family": "Okoro", "given": "Ada"}], "issued": {"date-parts": [[2016, 8]]},
             "container-title": ["Proceedings of the 22nd Conference on Hospital Data"]}
-    monkeypatch.setattr(biblio._Http, "get", lambda self, url, gap: json.dumps({"message": {"items": [item]}}))
+    monkeypatch.setattr(biblio._Http, "get", lambda self, url, gap, **kw: json.dumps({"message": {"items": [item]}}))
     assert refs_other.verify_paper("Gradient trees for ward staffing", ["Okoro"], "2016")
     assert not refs_other.verify_paper("Gradient trees for ward staffing", ["Tanaka"], "2016")
     assert not refs_other.verify_paper("Gradient trees for ward staffing", ["Okoro"], "2019")

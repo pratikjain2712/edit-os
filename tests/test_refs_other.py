@@ -32,7 +32,7 @@ def lookups(monkeypatch, tmp_cache):
     """Fake HTTP bodies by URL substring (CrossRef, Open Library) and PubMed calls."""
     bodies = {}
 
-    def get(self, url, host_gap):
+    def get(self, url, host_gap, **kw):
         return next((b for k, b in bodies.items() if k in url), None)
 
     monkeypatch.setattr(biblio._Http, "get", get)

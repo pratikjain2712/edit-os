@@ -160,7 +160,7 @@ def test_author_pages_of_another_volume_not_used_and_queried(jehp, monkeypatch):
                volume="11", pages="", year="2022", source="crossref", journal="Int J Public Health Sci")
     p = _p("2022;12(1):1-6")
     assert refengine.format_record(rec, jehp, p).endswith(" 2022;11.")
-    monkeypatch.setattr(refengine, "find", lambda parsed: (rec, ""))
+    monkeypatch.setattr(refengine, "find", lambda parsed, sources=None: (rec, ""))
     res = refengine.resolve(p.text, jehp)
     assert ("references.no_pages", {}) in res.queries
 

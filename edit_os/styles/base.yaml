@@ -141,6 +141,11 @@ references:
                                # title, year, journal and the first author in the record's list (or a long title
                                # with the entry's volume and first page); an entry with no journal ("... study. 2024")
                                # is completed only from its first author's paper (refengine.find_by_title)
+  sources: [pubmed, crossref, europepmc, openalex, semantic_scholar, doaj]
+                               # databases a reference is verified against, most trusted first. PubMed and CrossRef
+                               # always run; the others only for an entry those two cannot find (refengine.find), in
+                               # this order, each record under the same strict acceptance (per journal: drop one to
+                               # skip it). Keys: OPENALEX_API_KEY, SEMANTIC_SCHOLAR_API_KEY (optional); EDITOS_MAILTO
   page_range_dash: "-"
   drop_issue: true             # 2017;12(3):101-9 -> 2017;12:101-9
   no_period_before_year: true  # J Med Genet. 1987;24 -> J Med Genet 1987;24
