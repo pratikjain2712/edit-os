@@ -36,6 +36,9 @@ Edit OS never reads, copies or reuses any of those credentials.
 | `EDITOS_API_KEYS` | yes | Comma-separated API keys accepted in `X-API-Key` (one per caller, e.g. dashboard, admin). Secrets Manager. With none set the API refuses every request. |
 | `EDITOS_ANTHROPIC_API_KEY` | recommended | Claude Haiku for reference field splitting and front matter; the copy-edit Claude pass. Without it those steps are skipped (rules still run). Secrets Manager. |
 | `NCBI_API_KEY` | optional | Raises the PubMed E-utilities rate limit (3 -> 10 requests/s). Secrets Manager. |
+| `EDITOS_MAILTO` | optional | Contact address in the User-Agent of bibliographic lookups (CrossRef / OpenAlex polite pools). |
+| `OPENALEX_API_KEY` | recommended | OpenAlex searches (free key). Without it the shared free budget is often used up and OpenAlex is skipped. Secrets Manager. |
+| `SEMANTIC_SCHOLAR_API_KEY` | optional | Semantic Scholar's keyless pool often answers 429; the source is then skipped for 10 minutes. Secrets Manager. |
 | `EDITOS_CALLBACK_SECRET` | with the dashboard | HMAC key for job-completion callbacks (`X-EditOS-Signature`). Secrets Manager; same value in te_back. |
 | `EDITOS_S3_BUCKET` | on AWS | Job inputs/outputs are copied to `s3://$EDITOS_S3_BUCKET/$EDITOS_S3_PREFIX<job>/` (SSE-S3). |
 | `EDITOS_S3_PREFIX` | no | Default `edit-os/`. |
@@ -152,7 +155,7 @@ NAT instance, brings Option A under ~$95.
 Anthropic API usage is on top and scales with volume: Claude Haiku for reference splitting and front
 matter is cents per manuscript (results are cached); the Claude copy-edit pass dominates and depends on
 the model chosen and manuscript length (budget roughly $0.10-1.00 per manuscript; measure on real
-volume). PubMed / CrossRef are free (`NCBI_API_KEY` is free too).
+volume). PubMed / CrossRef / Europe PMC / DOAJ are free (`NCBI_API_KEY`, `OPENALEX_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY` are free too); the container only needs outbound HTTPS to eutils.ncbi.nlm.nih.gov, api.crossref.org, www.ebi.ac.uk, api.openalex.org, api.semanticscholar.org and doaj.org.
 
 ## Checklist
 

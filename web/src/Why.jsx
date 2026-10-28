@@ -7,7 +7,8 @@ import { show, whyLabel } from "./labels.js";
 // a "Source" chip saying where its content came from (title page, XML field, PubMed record, checker, ...).
 // `rule` is the /rules entry for item.rule_key (may be missing).
 
-const SOURCE_ICONS = { pubmed: BookOpen, crossref: BookOpen, checked_online: BookOpen, ai: Sparkles, cover_letter: Mail,
+const SOURCE_ICONS = { pubmed: BookOpen, crossref: BookOpen, europepmc: BookOpen, openalex: BookOpen, semantic_scholar: BookOpen,
+  doaj: BookOpen, checked_online: BookOpen, ai: Sparkles, cover_letter: Mail,
   checker: Wand2, journal_style: Wand2, renumber: Wand2 };
 
 export function SourceChip({ p, small }) {
@@ -38,7 +39,8 @@ function RefCompare({ p }) {
       <div><small>Author’s original</small><p>{p.original}</p></div>
       {p.styled && <div><small>Styled</small><p className="styled">{p.styled}</p></div>}
       {fields.length > 0 && (
-        <div><small>{p.kind === "pubmed" ? "PubMed record" : p.kind === "crossref" ? "CrossRef record" : "Record"}</small>
+        <div><small>{p.kind === "pubmed" ? "PubMed record" : p.kind === "crossref" ? "CrossRef record"
+          : p.source_name ? `${p.source_name} record` : "Record"}{p.found_via ? ` (found via ${p.found_via})` : ""}</small>
           <dl>{fields.map(([k, label]) => <React.Fragment key={k}><dt>{label}</dt><dd>{rec[k]}</dd></React.Fragment>)}</dl>
         </div>
       )}
