@@ -134,6 +134,8 @@ def test_table_of_studies_by_author_is_not_asked_for_expansions(tmp_path):
     path = str(tmp_path / "m.docx")
     doc.save(path)
     ms = docmodel.load(path)
-    asked = [fmt["abbrs"] for *_, check, fmt in rules_figures.footnote_queries(ms, jehp())
+    st = jehp()
+    st.settings["figures"]["table_footnote_abbreviation_queries"] = True  # off for JEHP since 2026-10-28 (owner)
+    asked = [fmt["abbrs"] for *_, check, fmt in rules_figures.footnote_queries(ms, st)
              if check.startswith("figures.footnote_abbreviations")]
     assert asked == ["XQR"]

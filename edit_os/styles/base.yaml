@@ -279,6 +279,7 @@ figures:                        # figure and table citations and captions (rules
   query_no_captions: false      # true: figures cited but no legend in the file at all -> one query (G244)
   query_uncaptioned_images: false  # true: a picture in the body with no caption beside it -> query (G244; JEHP)
   query_equation_images: false  # true: a display equation given as a picture -> the sheet's query (JEHP S292)
+  table_footnote_abbreviation_queries: true  # with table_footnote_queries: abbreviations the footnote lacks
   table_footnote_queries: false  # true: table abbreviations the footnote does not expand, a footnote symbol given two
                                  # meanings or none -> queries (JEHP: "Abbreviations should be first ...")
   legend_run_on: false          # true: a legend's parts typed as separate paragraphs ("Fig.1 A ...", "Fig.1 B ...",

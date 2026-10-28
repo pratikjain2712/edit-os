@@ -206,6 +206,8 @@ sections:
     heading_bold: true       # ... 'in bold style and left aligned' (an inline "ABSTRACT: We report ..." split off)
     unbold_text: true        # S: "Abstract text should not be in bold"
   keywords:
+    max_query: false         # owner, 2026-10-28: no "Kindly provide a maximum of 5 key words" (the sheet asks only
+                             # about too few; editors never asked it)
     after_abstract: true     # S: "Should appear in a separate line after the Abstract" (key words above it move)
     label_bold: true         # S176: 'Heading should be "Keywords:" followed by a colon, bold'
     run_on: true             # S182 "Keywords: Acceptability, Hall’s technique, ...": a list on the next line runs on

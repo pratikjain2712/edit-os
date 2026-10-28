@@ -125,7 +125,7 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
                 if key in defined or key in allow or key in missing or re.search(r"\b" + re.escape(key) + r"\b", foot):
                     continue
                 missing.append(key)
-        for key in missing:
+        for key in missing if style.get("figures.table_footnote_abbreviation_queries", True) else []:
             lacking.setdefault(key, []).append((anchor, cap))
         # symbols
         marks = [(q, m) for q in block for m in _MARKER.finditer(q.text)]

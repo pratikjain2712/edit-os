@@ -122,6 +122,9 @@ figures:
   # ... and asked of the author where the foot is short of it: abbreviations used in the table with no
   # "term = definition" (S "Abbreviations should be first and footnotes next"), a symbol given two meanings or none
   table_footnote_queries: true
+  # Owner, 2026-10-28: drop the "Kindly provide the expansion of SD in the table footnote" query (52 in 28 articles,
+  # the editors 0; no sheet line asks it). The symbol queries stay.
+  table_footnote_abbreviation_queries: false
   # "Table 1. Baseline characteristics (N=100). IQR, interquartile range; SD, standard deviation." -> caption +
   # footnote under the table (the editors in 1787; S: notes are table footnotes).
   table_caption_notes: split
@@ -153,6 +156,8 @@ tables:
   cell_rows_query: true
 
 sections:
+  keywords:
+    max_query: false  # owner, 2026-10-28: no "Kindly provide a maximum of 5 key words" (12 asked, the editors 0)
   # S: the reference list's heading is "REFERENCES" (set in title case as the other H1 heads): "Reference" ->
   # "<H1>References" (editors: 2 of 2 TRAIN articles with "Reference").
   headings:

@@ -72,7 +72,10 @@ def test_word_limit_and_keyword_queries(tmp_path):
                            "Introduction", BODY, "References"])
     ms = docmodel.load(path)
     checks = [q.check for q in queries.collect(ms, style.load("jehp")).queries]
-    assert "abstract.too_long" in checks and "keywords.too_many" in checks  # S: 150 words; at most five keywords
+    assert "abstract.too_long" in checks  # S: 150 words
+    assert "keywords.too_many" not in checks  # owner, 2026-10-28: not asked for IJO and JEHP
+    checks = [q.check for q in queries.collect(docmodel.load(path), style.load("mjdrdypu")).queries]
+    assert "keywords.too_many" in checks  # at most five keywords
     checks = [q.check for q in queries.collect(docmodel.load(path), style.load("ijo")).queries]
     assert "abstract.too_long" not in checks  # the IJO sheet has no word-limit line
 

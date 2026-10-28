@@ -98,8 +98,11 @@ def test_footnote_abbreviation_query_sits_on_the_footnote_or_the_caption(tmp_pat
         doc.add_paragraph(t)
     path = _save(doc, tmp_path)
     ms = docmodel.load(path)
-    qs = queries.collect(ms, jehp())
+    st = jehp()
+    st.settings["figures"]["table_footnote_abbreviation_queries"] = True  # off for JEHP since 2026-10-28 (owner)
+    qs = queries.collect(ms, st)
     on = [(ms.by_id(q.para_id).text, q.text) for q in qs.queries if q.check.startswith("figures.footnote_abbreviations")]
+    assert not [q for q in queries.collect(ms, jehp()).queries if q.check.startswith("figures.footnote_abbreviations")]
     # SD is missing under both tables: asked once, at the first table's footnote, naming both
     assert on == [("*Chi-square test, CI = confidence interval",
                    "Kindly provide the expansion of SD in the footnotes of Tables 1 and 2."),

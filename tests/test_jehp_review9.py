@@ -39,7 +39,9 @@ def test_year_then_citation_counts_for_the_uncited_query(tmp_path):
 
 def jehp_style():
     from test_jehp_citations import jehp
-    return jehp()
+    st = jehp()
+    st.settings["figures"]["table_footnote_abbreviation_queries"] = True  # off for JEHP since 2026-10-28 (owner)
+    return st
 
 
 # --- 2. "Table 3. summarizes ..." above its table -------------------------------------------------------------------
