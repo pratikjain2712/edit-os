@@ -624,6 +624,8 @@ def render(ms: Manuscript, inserts, base_dir: str, tracked: bool = True, statuse
         block = [p]
         if n.legend:
             block.append(_legend_paragraph(n.legend, tracked, ids, author, date, run_format, legend_align))
+        if n.legend:  # a figure with no legend in the text: legends.render puts it among the legends, in number order
+            ms.__dict__.setdefault("_back_figures", []).append((n.figure, block))
         if n.where == "after" and n.legend:  # a figure with no legend in the text, at the end of the document:
             body = ms.document.element.body     # after the First author block and the legends heading
             last = body[-1] if len(body) and body[-1].tag == qn("w:sectPr") else None

@@ -7,7 +7,7 @@ import zipfile
 from docx import Document
 from docx.shared import Inches
 
-from edit_os import docmodel, figures_insert, legends, pipeline, rules, style, tracked
+from edit_os import docmodel, figures_insert, legends, pipeline, rules, rules_figures, style, tracked
 from edit_os.changes import Status
 
 from test_figures_insert import picture
@@ -272,3 +272,66 @@ def test_legends_from_the_xml_and_a_legends_file(tmp_path):
                             "Figure 2: ???", "[picture] ",
                             "Figure 3: Anterior segment OCT. (a) Preoperative. (b) Postoperative."]
     assert out.summary["queries"]["by_check"].get("figures.legend_missing") == 1
+
+
+def test_a_label_naming_several_parts_is_a_legend_with_its_part_labels(tmp_path):
+    # "Fig 2a & 2b The ..." (no punctuation after the label): Figure 2's legend, its parts "(a and b)" (G263: part
+    # labels in small case within round brackets), not "Figure 2: a & 2b ..." and not left out as running text.
+    path = make(tmp_path, ["See [Fig. 1], [Fig. 2] and [Fig. 3].", *REFS, "Figure Legends",
+                           "Fig 1. A lamp on a desk", "Fig 2a & 2b The kettle seen from both sides",
+                           "Figure 3a-3c. Three cups in a row", "Figure 4b & 4a: Plates out of order"])
+    texts, _ = apply(path, ijo(), tmp_path)
+    assert texts[4:] == ["Figure 1: A lamp on a desk.", "Figure 2: (a and b) The kettle seen from both sides.",
+                         "Figure 3: (a–c) Three cups in a row.",
+                         "Figure 4b & 4a: Plates out of order"]  # letters out of order: not a part list
+    ms = docmodel.load(path)
+    assert [leg.number for leg in rules_figures.legends(ms)] == [1, 2, 3]
+    st = ijo()
+    assert rules_figures.legend_from_text("Fig 2a & 2b The kettle seen from both sides", 2, st) == \
+        "(a and b) The kettle seen from both sides."
+    assert rules_figures.legend_from_text("Figure 1. A lamp", 1, st) == "A lamp."
+
+
+XML2 = """<manuscript><images>
+<image><image_file_name>fig 2.png</image_file_name><image_type>Figures</image_type>
+<legend>Fig 2a &amp; 2b The kettle seen from both sides</legend></image>
+</images></manuscript>"""
+
+
+def test_a_supplied_figure_goes_under_the_legends_heading_in_number_order(tmp_path):
+    # Figure 2 is sent as a file, its legend only in the XML; Figures 1 and 3 have legends (and pictures) in the
+    # body that move to the end. Figure 2 goes under the heading, between them -- not above the heading.
+    paras = ["Introduction", "See [Fig. 1], [Fig. 2] and [Fig. 3].", ("picture", None), "Figure 1. A lamp on a desk",
+             "Results", "More text.", ("picture", None), "Figure 3. Three cups in a row", "Discussion", "It held.",
+             *REFS, "Table 1. Baseline data", ("table", [["Age", "Sex"], ["30", "M"]])]
+    z = _ijo_zip(tmp_path, paras, {"fig 2.png": picture(seed=5)}, XML2)
+    st = ijo(insert={**ijo().get("figures.insert"), "enabled": True})
+    out = pipeline.edit(z, st, str(tmp_path / "out"), stages=("style",), accept_all=True)
+    body = _body(out.path("clean"))
+    i = body.index("Figure Legends")
+    assert body[i - 1] != "Figure 2: (a and b) The kettle seen from both sides."
+    assert body[i + 1:] == ["[picture] ", "Figure 1: A lamp on a desk.", "[picture] ",
+                            "Figure 2: (a and b) The kettle seen from both sides.", "[picture] ",
+                            "Figure 3: Three cups in a row.", "TABLE: Table 1: Baseline data."]
+    # the tracked copy: the same order among the paragraphs that are not deleted
+    tr = Document(out.path("tracked")).element.body
+    live = ["".join(x.text or "" for x in p.iter(W + "t")) for p in tr.iter(W + "p")
+            if p.find(f"{W}pPr/{W}rPr/{W}del") is None]
+    live = [t for t in live if t.strip()]
+    k = live.index("Figure Legends")
+    assert [t for t in live[k + 1:k + 4]] == ["Figure 1: A lamp on a desk.",
+                                             "Figure 2: (a and b) The kettle seen from both sides.",
+                                             "Figure 3: Three cups in a row."]
+
+
+def test_a_supplied_figure_with_a_higher_number_goes_after_the_legends(tmp_path):
+    paras = ["Introduction", "See [Fig. 1] and [Fig. 2].", ("picture", None), "Figure 1. A lamp on a desk",
+             "Discussion", "It held.", *REFS, "Table 1. Baseline data", ("table", [["Age", "Sex"], ["30", "M"]])]
+    xml = XML2.replace("Fig 2a &amp; 2b The kettle seen from both sides", "Figure 2. A kettle")
+    z = _ijo_zip(tmp_path, paras, {"fig 2.png": picture(seed=5)}, xml)
+    st = ijo(insert={**ijo().get("figures.insert"), "enabled": True})
+    out = pipeline.edit(z, st, str(tmp_path / "out"), stages=("style",), accept_all=True)
+    body = _body(out.path("clean"))
+    i = body.index("Figure Legends")
+    assert body[i + 1:] == ["[picture] ", "Figure 1: A lamp on a desk.", "[picture] ", "Figure 2: A kettle.",
+                            "TABLE: Table 1: Baseline data."]
