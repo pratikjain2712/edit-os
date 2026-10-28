@@ -406,3 +406,21 @@ def test_an_appendix_file_is_merged_as_supplementary_material(tmp_path):
     got, out = _accepted_run(z, journal("jehp"), tmp_path)
     i = got.index("<H2>Supplementary Material")
     assert got[i + 1:i + 4] == ["Appendix 1.", "Item one", "Item two"]
+
+
+def test_several_supplementary_files_go_under_one_heading_in_file_order(tmp_path):
+    # Three Supplementary Word files: one "Supplementary Material" heading (S372), the files under it in order --
+    # not a heading per file, nor the last file first.
+    files = {"05_Supplementary_File1_Checklist.docx": _docx(["CHECKLIST", "Item one is listed here"]),
+             "06_Supplementary_File2_Search.docx": _docx(["SEARCH TERMS", "Kettle OR teapot"]),
+             "07_Supplementary_File3_Details.docx": _docx(["DETAILS", "The kettle was boiled twice"])}
+    z = _zip(tmp_path, files)
+    got, out = _accepted_run(z, journal("jehp"), tmp_path)
+    assert got.count("<H2>Supplementary Material") == 1
+    i = got.index("<H2>Supplementary Material")
+    assert got[i - 1] == "We thank the schools."
+    assert got[i + 1:i + 7] == ["CHECKLIST", "Item one is listed here", "SEARCH TERMS", "Kettle OR teapot", "DETAILS",
+                                "The kettle was boiled twice"]
+    tr = texts(out.path("tracked"))
+    assert tr.count("<H2>Supplementary Material") == 1 and \
+        tr.index("CHECKLIST") < tr.index("SEARCH TERMS") < tr.index("DETAILS")
