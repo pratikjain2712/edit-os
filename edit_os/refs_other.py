@@ -667,7 +667,7 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
         if res.formatted:
             res.status = OTHER_FIXED
             res.message = f"{kind}: styled as an article from the author's fields (not verified)"
-            if cfg("query_unverified") and not any(k == "references.unverified" for k, _ in res.queries):
+            if cfg("query_unverified_articles") and not any(k == "references.unverified" for k, _ in res.queries):
                 res.queries.append(("references.unverified", {}))
             return res
         res = refengine.Resolution(refengine.NOT_JOURNAL, p)
@@ -719,7 +719,7 @@ def resolve(text: str, style: JournalStyle, p: refengine.Parsed) -> refengine.Re
                 res.queries.append(("references.publisher_name", {}))
             elif not parts["city"]:
                 res.queries.append(("references.publisher_location", {}))
-        if not verified and not fixed.url:
+        if not verified and not fixed.url and cfg("query_unverified_books"):
             res.queries.append(("references.book_unverified", {}))
     elif kind == CONFERENCE and not verified and cfg("verify_books") and p.title:
         found = verify_paper(p.title, _surnames(p, {}), p.year)

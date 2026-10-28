@@ -104,7 +104,7 @@ def test_abbreviation_defined_again_is_asked_once(tmp_path):
                          "Later the mean arterial pressure (MAP) fell. MAP fell.",
                          "Again the mean arterial pressure (MAP) was low. MAP was low.",
                          "Discussion", "MAP matters. " + BODY])
-    st = style.load("ijo")
+    st = style.load("mjdrdypu")  # IJO and JEHP shorten them instead (redefinition: change)
     _, qs = abbrev.collect(ms, st)
     twice = [q for q in qs if q.check == "abbrev.defined_twice"]
     assert len(twice) == 1 and ms.by_id(twice[0].para_id).text.startswith("Later")

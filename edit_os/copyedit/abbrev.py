@@ -503,6 +503,20 @@ def _title_like(p: Paragraph) -> bool:
 _MINOR = {"a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for", "with", "by", "from", "vs", "versus", "among"}
 
 
+def _names_in_capitals(ms: Manuscript) -> set[str]:
+    """Words in capitals the article shows to be names, not acronyms (S: "Look for undefined acronyms"): a brand
+    or product marked ® / ™ ("ZEISS®", "CIRRUS™"), or a maker the article names in its manufacturer brackets
+    ("ZEISS" and "(Carl Zeiss Meditec, Jena, Germany)"). These are not queried as undefined (owner, 2026-10-28: no
+    queries the editors would not add). Not any capitalised word: "MINI" next to "Mini Ward Interview" is an acronym."""
+    text = "\n".join(p.text for p in ms.paragraphs)
+    marked = {m.group(1) for m in re.finditer(r"\b([A-Z][A-Z]{2,})\s?[®™]", text)}
+    makers = {w.upper() for b in re.findall(r"\(([^()]*\b(?:Inc|Ltd|LLC|GmbH|AG|Corp|Co|Meditec|Medical|"
+                                             r"Pharmaceuticals?|Laboratories|Technologies)\b[^()]*)\)", text)
+              for w in re.findall(r"\b([A-Z][a-z]{2,})\b", b)}
+    caps = set(re.findall(r"\b([A-Z]{3,})\b", text))
+    return marked | (caps & makers)
+
+
 def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Query]]:
     cfg = style.get("copyedit.abbreviations", {}) or {}
     if not cfg.get("enabled", True):
@@ -534,6 +548,7 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
             for m in _NAMED_IN_BRACKETS.finditer(p.text):
                 if (k := _abbr_key(m.group(1))):
                     known.add(k)
+    names = _names_in_capitals(ms)
     kw_lists = set(_keyword_lists([p for p in ms.paragraphs if p.text.strip() and not p.in_table]).values())
     for n_scope, scope in enumerate(all_scopes):
         defs: dict[str, list[Definition]] = {}
@@ -617,7 +632,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                         queries.append(Query(p.id, s, e, TEXT["abbrev.before_definition"].format(abbr=key),
                                              "abbrev.before_definition"))
             elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \
-                    and key not in expanded and key not in known:
+                    and key not in expanded and key not in known \
+                    and not (cfg.get("skip_names", True) and key in names):
                 # Codes with digits or hyphens (gene names, scales such as GDS-15) are rarely queried.
                 queried.add(key)  # once per manuscript
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))

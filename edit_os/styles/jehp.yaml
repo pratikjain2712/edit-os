@@ -214,6 +214,12 @@ references:
                                # bold volumes go (JEHP 1153, 1576: 35 entries; et al. italic stays per formatting)
   label_auto_number: true
   web_search: {enabled: true}  # refweb.py: candidate pages from Claude's web search, verified in code (owner)
+  other:
+    # Owner, 2026-10-28: reports, conference papers, theses and books no database or catalogue confirms are not
+    # queried (the sheet asks a PubMed check for journal articles only; editors queried none of 65). Articles
+    # still are (query_unverified_articles, as base).
+    query_unverified: false
+    query_unverified_books: false
   # At most two initials per author: "Chandrasena PPCM" -> "Chandrasena PP" (the editors 6 of 8; owner, 2026-10-26)
   max_initials: 2
   # A journal NLM does not list: its ISO 4 abbreviation, as the editors write it (13 of 15: "Interact Technol Smart
@@ -285,6 +291,8 @@ copyedit:
            modelling, modelled, modeller, modellers]
   abbreviations:
     defined_in_article: true
+    redefinition: change  # "full form (ABBR)" again -> "ABBR" (S: "only abbreviation should be used thereafter"),
+                          # made rather than queried (owner, 2026-10-28)
     allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD]
     # S302 "Look for undefined acronyms and raise query": the questionnaire-validation and model-fit indices the common
     # list lets pass are not general terms ("content validity was CVI 0.9, CVR 0.8")

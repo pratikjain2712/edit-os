@@ -151,7 +151,8 @@ def test_abbreviation_queries(tmp_path):
         "References",
         "1. Lee K. The PQRS study. Eye 2001;1:1-2.",
     ])
-    changes, qs = abbrev.collect(ms, journal(abbreviations={"allow": []}))  # not IJO's ophthalmic allowlist
+    # base settings (IJO and JEHP shorten a second definition and skip ones defined elsewhere: owner, 2026-10-28)
+    changes, qs = abbrev.collect(ms, journal("mjdrdypu", abbreviations={"allow": []}))
     got = sorted((q.check, q.text) for q in qs)
     assert got == [
         ("abbrev.before_definition", "RNFL: Kindly expand the abbreviation at first use."),
@@ -447,7 +448,7 @@ def test_abbreviation_false_queries_cut(tmp_path):
     got = sorted(q.text.split(":")[0] for q in abbrev.collect(ms, st)[1] if q.check == "abbrev.undefined")
     assert got == ["QZR", "XDQ"]
     # Without `defined_in_article` (other journals) the abstract's and the list's definitions and institutions count.
-    st = journal("ijo", abbreviations={"allow": []})
+    st = journal("mjdrdypu", abbreviations={"allow": []})  # IJO too has defined_in_article (owner, 2026-10-28)
     got = sorted(q.text.split(":")[0] for q in abbrev.collect(ms, st)[1] if q.check == "abbrev.undefined")
     assert got == ["KAP", "MINI", "QVF", "QZR", "QoC", "WRX", "XDQ"]
 
@@ -476,3 +477,31 @@ def test_full_form_kept_in_an_abbreviation_list(tmp_path):
     changes = [c for c in abbrev.collect(ms, on)[0] if c.reason == "use abbreviation after its definition"]
     assert apply(ms, changes)[2:] == ["Students liked CBE.", "CE = Concrete Experience; CBE = Competency-Based Education.",
                                       "Competency-Based Education: CBE"]
+
+
+def test_names_in_capitals_are_not_undefined_acronyms(tmp_path):
+    # owner, 2026-10-28: "ZEISS" next to "Carl Zeiss", or a brand marked ®, is a name, not an acronym to expand
+    ms = make(tmp_path, [
+        "Introduction",
+        "Scans used the ZEISS platform (Carl Zeiss Meditec) and the LUMORA® analyser; the QPX index rose.",
+        "References",
+        "1. Lee K. A study. Eye 2001;1:1-2.",
+    ])
+    _, qs = abbrev.collect(ms, journal("mjdrdypu", abbreviations={"allow": []}))
+    assert [q.text for q in qs if q.check == "abbrev.undefined"] == ["QPX: Kindly expand the abbreviation."]
+
+
+def test_ijo_jehp_shorten_a_second_definition_instead_of_asking(tmp_path):
+    ms = make(tmp_path, [
+        "Introduction",
+        "Optical coherence tomography (OCT) was used.",
+        "Later, optical coherence tomography (OCT) was repeated.",
+        "OCT showed thinning.",
+        "References",
+        "1. Lee K. A study. Eye 2001;1:1-2.",
+    ])
+    for code in ("ijo", "jehp"):
+        changes, qs = abbrev.collect(ms, journal(code, abbreviations={"allow": []}))
+        assert not [q for q in qs if q.check == "abbrev.defined_twice"]
+        assert [(c.old, c.new) for c in changes if c.reason == "abbreviation defined twice"] == \
+            [("optical coherence tomography (OCT)", "OCT")]

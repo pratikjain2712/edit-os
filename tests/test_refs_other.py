@@ -191,7 +191,7 @@ def test_book_verified_in_crossref(st, lookups):
 def test_wrong_book_is_not_accepted(st, lookups):
     lookups["openlibrary.org"] = json.dumps({"docs": [
         {"title": "Leadership for nurses", "author_name": ["Someone Else"], "publish_year": [1996]}]})
-    res = refengine.resolve(BOOK, st)
+    res = refengine.resolve(BOOK, style.load("mjdrdypu"))  # IJO and JEHP do not query it (owner, 2026-10-28)
     assert res.status == refengine.NOT_JOURNAL
     assert [q for q, _ in res.queries] == ["references.book_unverified"]
 
@@ -222,6 +222,10 @@ def test_statpearls_chapter_verified_in_pubmed_bookshelf(st, monkeypatch, tmp_ca
 def test_conference_gets_unverified_query(st):
     res = refengine.resolve("Pena IG. Tuberculosis treatment in Caloocan City. A paper presented in the 8th Asian "
                             "Conference on Clinical Pharmacy, Surabaya, Indonesia, July 01 - 04, 2008.", st)
+    assert [q for q, _ in res.queries] == []  # IJO: no query (owner, 2026-10-28)
+    res = refengine.resolve("Pena IG. Tuberculosis treatment in Caloocan City. A paper presented in the 8th Asian "
+                            "Conference on Clinical Pharmacy, Surabaya, Indonesia, July 01 - 04, 2008.",
+                            style.load("mjdrdypu"))
     assert [q for q, _ in res.queries] == ["references.unverified"]
 
 
@@ -257,3 +261,10 @@ def test_rules_and_queries_end_to_end(tmp_path, monkeypatch, tmp_cache):
     qs = [q.text for q in queries.collect(ms, st).queries]
     assert queries.TEXT["references.link_dead"] in qs
     assert queries.TEXT["references.book_et_al"] in qs  # et al. with fewer than 6 authors in a book
+
+
+def test_unverified_book_is_queried_only_where_the_journal_asks(lookups):
+    # IJO and JEHP: no query for a book or report no catalogue confirms (owner, 2026-10-28); base journals still ask
+    lookups["openlibrary.org"] = json.dumps({"docs": []})
+    assert "references.book_unverified" not in [q for q, _ in refengine.resolve(BOOK, style.load("jehp")).queries]
+    assert [q for q, _ in refengine.resolve(BOOK, style.load("mjdrdypu")).queries] == ["references.book_unverified"]

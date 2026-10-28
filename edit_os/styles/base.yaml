@@ -161,6 +161,8 @@ references:
     check_links: true          # open each URL: dead links, soft 404s and redirects become queries
     verify_books: true         # look books up in CrossRef and Open Library
     query_unverified: true     # conference papers, reports, theses: query that they could not be verified
+    query_unverified_articles: true  # an entry written as a journal article that no database confirms
+    query_unverified_books: true  # books and chapters no catalogue confirms: "This book could not be verified ..."
 
 keywords:
   min: 3
@@ -624,6 +626,8 @@ copyedit:
                                # only in the main text, when the author uses ABBR more often than the full form
     allow: []                  # extra abbreviations that need no expansion
     query: []                  # abbreviations of the common list still asked for in this journal (JEHP: CVI, CVR)
+    skip_names: true           # a word in capitals the article shows to be a name ("ZEISS®", "ZEISS" next to "Carl
+                               # Zeiss") is no undefined acronym: not queried
     defined_in_article: false  # true: no "Kindly expand" for an abbreviation the article expands elsewhere (the
                                # abstract, an abbreviation list or table note, "(SCOFF)" after its description)
   languagetool:

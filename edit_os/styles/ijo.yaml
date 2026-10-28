@@ -80,6 +80,12 @@ references:
   clear_formatting: true      # Vancouver sets no italic or bold in an entry: the author's EndNote / APA italics and
                                # bold volumes go (JEHP 1153, 1576: 35 entries; et al. italic stays per formatting)
   web_search: {enabled: true}  # refweb.py: candidate pages from Claude's web search, verified in code (owner)
+  other:
+    # Owner, 2026-10-28: reports, conference papers, theses and books no database or catalogue confirms are not
+    # queried (the sheet asks a PubMed check for journal articles only; editors queried none of 65). Articles
+    # still are (query_unverified_articles, as base).
+    query_unverified: false
+    query_unverified_books: false
   label_period: true           # "1.Angus DC" -> "1. Angus DC", "1)" -> "1." (sheet silent; the IJO editors, 4 of 4)
   non_indexed_journal: iso4    # a journal NLM does not list: its ISO 4 abbreviation as the editors write it, over
                                # S "complete name of the journal for non-indexed journals" (owner, 2026-10-28)
@@ -233,6 +239,11 @@ copyedit:
   # in parentheses (only abbreviation should be used thereafter)" and "Look for undefined acronyms and raise query":
   # the ophthalmic allow-list (OCT, BCVA, IOP, ...) and full_form_after_definition: off are gone (the IJO copy
   # editors never query them: owner's list).
+  abbreviations:
+    defined_in_article: true  # an acronym the article expands elsewhere (abstract, list, table note) is not queried
+                              # as undefined (owner, 2026-10-28: no queries the editors would not add; 119 -> 96)
+    redefinition: change      # "full form (ABBR)" again -> "ABBR" (S: "only abbreviation should be used thereafter"),
+                              # made rather than queried (owner, 2026-10-28)
   claude:
     model: claude-opus-5-5  # owner, 2026-10-28: IJO 888 (held out) 19 edits, 18 the copy editor's; Haiku 10 (see jehp.yaml)
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article
