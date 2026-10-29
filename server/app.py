@@ -37,6 +37,7 @@ from .worker import compact_summary, input_file, job_lock, out_dir, process, rev
 
 log = logging.getLogger("editos.api")
 
+_SIGNED = "_signed.json"  # the last render's final flag and signing editor
 DOWNLOADS = {  # kind -> (pipeline file kind, media type)
     "tracked": ("tracked", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
     "clean": ("clean", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
@@ -460,6 +461,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         pipeline.save_records(outdir, changes, inserts, qdicts)
         editor = editor or store.last_editor(job_id, skip=(autopilot.EDITOR,)) or None
         out = pipeline.render_outputs(outdir, include_pending=not final, editor=editor)
+        with open(os.path.join(outdir, _SIGNED), "w", encoding="utf-8") as f:  # what the files were rendered with
+            json.dump({"final": final, "editor": editor or ""}, f)
         storage.save(job_id)
         store.update(job_id, summary=compact_summary(out.summary))
         return out.summary
@@ -529,10 +532,22 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             return json.load(f)
 
     @app.get("/api/jobs/{job_id}/files/{kind}")
-    def download(kind: str, job: dict = Depends(require_done)):
+    def download(kind: str, job: dict = Depends(require_done), x_editor: str | None = Header(None)):
         if kind not in DOWNLOADS:
             raise HTTPException(404, f"kind must be one of {sorted(DOWNLOADS)}")
         outdir = out_dir(storage, job["id"])
+        editor = _ed(x_editor)
+        if editor and kind in ("tracked", "clean"):
+            # Signed with the downloading editor's name: a file rendered without one ("... done on <date>:- ???")
+            # or by someone else is rendered again, as it was (final or not), before it leaves.
+            try:
+                with open(os.path.join(outdir, _SIGNED), encoding="utf-8") as f:
+                    signed = json.load(f)
+            except (OSError, ValueError):
+                signed = {"final": False, "editor": ""}
+            if signed.get("editor") != editor:
+                with job_lock(job["id"]):
+                    _render(job["id"], bool(signed.get("final")), editor)
         fkind, media = DOWNLOADS[kind]
         path = pipeline.file_paths(outdir, pipeline.load_manifest(outdir)["stem"])[fkind]
         if not os.path.exists(path):

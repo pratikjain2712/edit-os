@@ -80,6 +80,13 @@ export const api = {
 };
 
 export async function download(id, kind) {
+  // The edited files carry the sign-off "Technical Editing done on <date>:- <name>": never "???" in a file that may
+  // go to the client, so ask for the name first when none is set.
+  if ((kind === "tracked" || kind === "clean") && !getEditor()) {
+    const v = window.prompt("Your name, for the sign-off (\"Technical Editing done on <date>:- <name>\")", "");
+    if (!v || !v.trim()) throw new Error("Add your name first: it signs the edited file");
+    setEditor(v.trim());
+  }
   const r = await fetch(`/api/jobs/${id}/files/${kind}`, { headers: headers() });
   if (!r.ok) throw new Error(`Download failed (${r.status})`);
   const blob = await r.blob();

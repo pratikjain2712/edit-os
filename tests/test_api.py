@@ -319,3 +319,19 @@ def test_journals_list_the_file_name_prefixes(client):
     js = {j["code"]: j for j in client.get("/api/journals", headers=KEY).json()}
     assert js["ijo"]["prefixes"] == ["ijo"]
     assert "neurol" in js["ni"]["prefixes"] and js["ni"]["prefixes"][0] == "ni"
+
+
+def test_download_signs_with_the_editor_name(client, tmp_path):
+    # a file rendered with nobody's name ("Technical Editing done on <date>:- ???") is signed by whoever downloads
+    # it, as it was rendered (final or not); a client file never carries "???"
+    job_id = upload(client, tmp_path).json()["id"]
+    wait(client, job_id)
+
+    def first_line(headers):
+        doc = client.get(f"/api/jobs/{job_id}/files/clean", headers=headers).content
+        xml = zipfile.ZipFile(io.BytesIO(doc)).read("word/document.xml").decode()
+        return re.sub(r"<[^>]+>", "", xml.split("</w:p>")[0])
+
+    assert first_line(KEY).endswith("???")
+    assert first_line({**KEY, "X-Editor": "Asha%20Rao"}).endswith("Asha Rao")
+    assert first_line(KEY).endswith("Asha Rao")  # stays signed
