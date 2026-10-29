@@ -133,12 +133,21 @@ def back_slot(ms: Manuscript) -> tuple[str, str] | None:
     legs = {index[leg.para.id] for leg in rules_figures.legends(ms)}
     if end is not None:  # after the references, a legend in a heading style or written as a sentence counts too
         legs |= {i for i in range(end + 1, len(paras)) if not paras[i].in_table and _LEGEND_START.match(paras[i].text)}
+    if end is not None and paras[end].in_table:
+        # a reference list laid out as a table (references._reference_table): the back starts after that table,
+        # never inside its last cell
+        while end + 1 < len(paras) and paras[end + 1].in_table:
+            end += 1
     if end is not None:
         for i in range(end + 1, len(paras)):
             p = paras[i]
             if p.in_table:
                 above = [j for j in range(end, i) if not paras[j].in_table and (paras[j].text.strip() or
                                                                                    has_picture(paras[j].element))]
+                if not above and paras[end].in_table:  # between the reference table and the next one
+                    gap = [j for j in range(end + 1, i) if not paras[j].in_table]
+                    if gap:
+                        return paras[gap[0]].id, "before"
                 return paras[above[-1] if above else end].id, "after"
             if i in legs:
                 h = legend_heading(ms, _block_start(ms, i))

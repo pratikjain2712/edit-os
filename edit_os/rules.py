@@ -45,8 +45,8 @@ _SPACE_SEP = re.compile(r"(?<=\d)\s+(?=\d)")
 # "[14.15]": a full stop typed for the comma between two reference numbers (the second the larger, no leading zero;
 # after a word only when they are consecutive).
 _SQUARE_DOT = re.compile(r"(\s*)\[([1-9]\d{0,2})\.([1-9]\d{0,2})\]([.,;:]?)")
-# A year right before a round-bracket number: "previously reported in 2008 (7), presented" cites (a count after a
-# number, "45 (12)", does not).
+# A year right before a bracketed number: "previously reported in 2008 (7), presented", "by 2030 [4, 8]." cites (a
+# count after a number, "45 (12)", does not).
 _YEAR_BEFORE_ROUND = re.compile(r"(?:\b(?:in|since|from|until|by|during)|\bet\.?\s+al\.?,?)\s+(?:1[89]|20|21)\d{2}$", re.I)
 
 
@@ -559,7 +559,8 @@ def _citation_candidates(ms: Manuscript, style: JournalStyle) -> tuple[int, list
                 prev = p.text[:m.start()].rstrip()
                 if not prev or not_citation_before(prev, is_round, m.group(2)):
                     continue  # (the rule leaves a paragraph's opening "[23, 39]" as written)
-                cites_after = (prev.endswith("%") and not is_round) or (is_round and _YEAR_BEFORE_ROUND.search(prev))
+                # (a year cites in square brackets too: "expected to quadruple by 2030 [4, 8]." -- jehp_1728)
+                cites_after = (prev.endswith("%") and not is_round) or _YEAR_BEFORE_ROUND.search(prev)
                 if re.search(r"[\d%]$", prev) and not cites_after:  # "2% [4]," and "in 2008 (7)," cite
                     if is_round and re.search(r"\d\.\d+$", prev):
                         after_number.append((p, m))
@@ -1560,7 +1561,8 @@ def _label_changes(p: Paragraph, ref: references.Reference, style: JournalStyle)
         return []
     if not ref.label:
         return []
-    m = re.match(r"(\s*)([\[(]?)(\d+)([\])]?\.?)(\s*)$", ref.label)
+    # (".13 " is "13." typed right to left: its leading period goes like a bracket and the period follows the number)
+    m = re.match(r"(\s*)([\[(.]?)(\d+)([\])]?\.?)(\s*)$", ref.label)
     if not m:
         return []
     if style.get("references.label_auto_number"):

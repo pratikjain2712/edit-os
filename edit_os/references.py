@@ -59,12 +59,15 @@ _STOP = re.compile(
     re.I,
 )
 # (a bare number is a label, but not a year opening the rest of an entry: "2025 Feb;39:238-50.")
-_LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|(?!(?:19|20)\d{2}\s+(?:[A-Z][a-z]{2}|\d))\d+(?=\s))\s*")
+# ".13 Adamson KA": "13." typed with a right-to-left keyboard layout, its period ahead of the number (jehp_1781).
+_LABEL = re.compile(r"^\s*(\[\d+\]|\(\d+\)|\d+[.)]|\.\d{1,3}(?=\s)|(?!(?:19|20)\d{2}\s+(?:[A-Z][a-z]{2}|\d))\d+(?=\s))\s*")
 # Not an entry: Word's form-field markers ("Bottom of Form") and rule lines ("______") under the list.
 _NOT_ENTRY = re.compile(r"^\s*(?:(?:top|bottom)\s+of\s+form|[_\-–—=*~.\s]+)\s*$", re.I)
 # "Riazi-Esfahani H, Masoomian B, ...": a surname and initials, as a reference entry starts.
 _LOOKS_LIKE_REFERENCE = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}[,.]")
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# "Rasha Mohammed Hussien.": an entry that is only the author's name, its rest on the next paragraph.
+_NAME_ONLY = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+){0,4}\s*[.,]?\s*$")
 # "doi:10.1016/...", "https://doi.org/10...", "10.4103/...", "PMID: 123; PMCID: PMC456": identifiers only.
 _ID_ONLY = re.compile(
     r"^\s*[.,;]?\s*(?:(?:doi\s*:?\s*|https?://(?:dx\.)?doi\.org/|doi\.org/)?10\.\d{4,9}/\S+"
@@ -75,7 +78,10 @@ _CITATION = re.compile(r"\b(?:19|20)\d{2}[^;:\n]{0,20};\s*\d+\s*(?:\([^)]*\))?\s
 _PARTICLE_START = re.compile(r"^\s*(?:(?:van|von|de|der|den|da|di|del|della|dos|das|du|la|le|ten|ter|al|el)[\s-]+)+[A-Z]")
 _APA_START = re.compile(r"^\s*[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?,\s*(?:[A-Z]\.\s*-?)+[,(&]")
 _NOTE = re.compile(r"^\s*(?:conflicts? of interests?|funding|financial support|sources? of support|IEC|ethic|"
-                   r"declaration|data availability|author'?s?'? contributions?)\b", re.I)
+                   r"declaration|data availability|author'?s?'? contributions?|first[\s-]+author)\b", re.I)
+# A note under a table left after the list: "* Cases cited in Mada et al. (2018). AmB = Amphotericin B; ..." (IJO_489),
+# "† P < 0.05", "Abbreviations: ...", "Note: ...".
+_FOOTNOTE = re.compile(r"^\s*(?:[*†‡§¶#]|abbreviations?\s*[:\-–]|notes?\s*[:\-–])", re.I)
 _AUTHORS_ONLY = re.compile(r"^\s*(?:[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}\s*,\s*)+"
                            r"(?:[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?\s[A-Z]{1,3}|et al)\s*[.,]?\s*$")
 _PAGES_OR_YEAR = re.compile(r"\b(?:19|20)\d{2}\b|\d+\s*[-–]\s*\d+")
@@ -141,9 +147,41 @@ def ends_list(raw: str, refs: list[Reference]) -> bool:
     numbered list ("Declaration of patient consent", "Conflicts of interest: None"), not an entry."""
     if _NOTE.match(raw):
         return not _LOOKS_LIKE_REFERENCE.match(raw)
+    if _FOOTNOTE.match(raw) and refs and refs[-1].number is not None and refs[-1].label:
+        return True  # a table's note after a labelled list (an author-year list can open with "*": meta-analyses)
     if not refs or any(r.number is None for r in refs) or continues(refs[-1].full_text, raw):
         return False  # an author-year list: every entry is unlabelled
     return not (_YEAR.search(raw) or _LOOKS_LIKE_REFERENCE.match(raw) or _ID_ONLY.match(raw) or _URL_ONLY.match(raw))
+
+
+def _ancestor(p, tag: str):
+    """The outermost `w:<tag>` element holding paragraph `p` (None outside tables)."""
+    from docx.oxml.ns import qn
+
+    out = None
+    for a in p.element.iterancestors(qn("w:" + tag)):
+        out = a
+    return out
+
+
+def _reference_table(ms: Manuscript, head: int):
+    """The table (`w:tbl`) holding the reference list when the author laid it out as one -- a "1." cell and the entry
+    beside it on each row (IJO_1899) -- right under the heading; None otherwise."""
+    paras = ms.paragraphs
+    for i in range(head + 1, len(paras)):
+        p = paras[i]
+        if not p.in_table:
+            if p.text.strip():
+                return None
+            continue
+        tbl = _ancestor(p, "tbl")
+        cells = [q.text for q in paras[i:] if q.in_table and _ancestor(q, "tbl") is tbl and q.text.strip()]
+        if not cells:
+            return None
+        first = cells[0]
+        ok = _LABEL.match(first) or _LOOKS_LIKE_REFERENCE.match(first)
+        return tbl if ok and sum(bool(_YEAR.search(c)) for c in cells) * 3 >= len(cells) else None
+    return None
 
 
 def find_heading(ms: Manuscript) -> int | None:
@@ -189,8 +227,33 @@ def extract(ms: Manuscript) -> list[Reference]:
         return []
     refs: list[Reference] = []
     auto = 0
+    table = _reference_table(ms, start)
+    pending: tuple[int, object] | None = None  # (number, row) from a label cell of the reference table
     for p in ms.paragraphs[start + 1:]:
         if p.in_table:
+            if table is None or _ancestor(p, "tbl") is not table:
+                continue  # a data table placed after the list
+            raw = p.text
+            if not raw.strip() or _NOT_ENTRY.match(raw):
+                continue
+            m = _LABEL.match(raw)
+            row = _ancestor(p, "tr")
+            if m and not raw[m.end():].strip():  # the row's label cell ("1.") with the entry in the next cell
+                pending = (int(re.sub(r"\D", "", m.group(1))), row)
+                continue
+            if m:
+                number, label = int(re.sub(r"\D", "", m.group(1))), m.group(0)
+            elif pending is not None and pending[1] is row:
+                number, label = pending[0], ""
+            elif refs and (_ancestor(p, "tr") is _ancestor(ms.by_id(refs[-1].para_id), "tr")
+                           or continues(refs[-1].full_text, raw)):
+                refs[-1].continuation.append((p.id, raw))  # a second paragraph in the entry's cell
+                continue
+            else:
+                number, label = None, ""
+            pending = None
+            refs.append(Reference(para_id=p.id, number=number, label=label, text=raw[len(label):].rstrip(),
+                                  offset=len(label)))
             continue
         raw = p.text
         if not raw.strip() or _NOT_ENTRY.match(raw):
@@ -204,6 +267,12 @@ def extract(ms: Manuscript) -> list[Reference]:
         if not m and not p.numbered and ends_list(raw, refs):
             break  # "Declaration of patient consent" and its text after the list
         if not m and refs and continues(refs[-1].full_text, raw):
+            refs[-1].continuation.append((p.id, raw))
+            continue
+        if not m and not p.numbered and refs and refs[-1].label and not refs[-1].continuation \
+                and _NAME_ONLY.match(refs[-1].text) and _YEAR.search(raw) and not _LOOKS_LIKE_REFERENCE.match(raw):
+            # ".21 Rasha Mohammed Hussien." / "The association between ... 2022. doi:...": the author's name, then
+            # the rest of the entry after a hard return (jehp_1781)
             refs[-1].continuation.append((p.id, raw))
             continue
         if m:
