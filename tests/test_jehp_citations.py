@@ -237,3 +237,16 @@ def test_guide_replacements_in_table_cells(tmp_path):
     assert got == ["P", "Vigorous activity ≥30 min/day", "Aged 18–59 years", "−5.47", "Care and support"]
     xml = zipfile.ZipFile(out).read("word/document.xml").decode()
     assert '<w:sym w:font="Symbol" w:char="F0B3"/>' in xml and '<w:sym w:font="Symbol" w:char="F02D"/>' in xml
+
+
+def test_bracket_holding_only_name_and_year_becomes_the_number(tmp_path):
+    # "[A. Sorte,(2025)]": the whole bracket is the citation; numbering the year alone left "[A. Sorte,[2]]"
+    body = [INTRO,
+            "These items were adopted from the validated tools in the existing literature [S. Sorte,(2025)].",
+            "A second line cites the earlier study (E. Wagner et al. (2016)) in round brackets.",
+            "A third line names the authors in its text: Castillo and Ross (2021) found the same."]
+    _, _, t = run(make(tmp_path, body + REFS), only=["author_year"])
+    assert t[1] == "These items were adopted from the validated tools in the existing literature [2]."
+    assert t[2] == "A second line cites the earlier study [5] in round brackets."  # not "(E. Wagner et al.[5])"
+    assert t[3] == "A third line names the authors in its text: Castillo and Ross[6] found the same."
+    assert not any("[[" in x or "]]" in x or "([" in x for x in t)

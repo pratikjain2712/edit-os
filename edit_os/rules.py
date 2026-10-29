@@ -1138,10 +1138,30 @@ def author_year_mentions(ms: Manuscript, style: JournalStyle) -> list[AuthorYear
                 continue
             if keep_in:  # "Gupta et al.[13] in 2024"
                 out.append(AuthorYear(p.id, m.start(), m.start(), "{n}", n))
-            else:
-                out.append(AuthorYear(p.id, m.start(), m.end(), "{n}", n))
-            taken.append((m.start(), m.end()))
+                taken.append((m.start(), m.end()))
+                continue
+            whole = _ay_enclosing(text, m.start(), m.end())
+            s, e = whole or (m.start(), m.end())
+            out.append(AuthorYear(p.id, s, e, "{n}", n))
+            taken.append((s, e))
     return out
+
+
+_AY_OPEN_NAME = re.compile(r"[\[(](?P<name>[^\[\]()]{2,80}?)$")
+_AY_CLOSE = re.compile(r"[  ]*(?P<close>[\])])")
+
+
+def _ay_enclosing(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """The span of a bracket holding nothing but the name and its year: "[M. Nguyen,(2020)]", "(Lee et al., 2019)".
+    The whole bracket is the citation, so it becomes the number; the year alone would leave "[M. Nguyen,[23]]"."""
+    m = _AY_OPEN_NAME.search(text, max(0, start - 82), start)
+    c = _AY_CLOSE.match(text, end)
+    if not m or not c or {"[": "]", "(": ")"}[text[m.start()]] != c.group("close"):
+        return None
+    name = m.group("name").strip().rstrip(",").strip()
+    if not re.fullmatch(r"(?:[A-Z]\.\s*){0,3}(?:[A-ZÀ-Ý][\w’'\-]+|and|&|\s)+(?:\s*et\.?\s+al\b\.?)?", name):
+        return None
+    return m.start(), c.end()
 
 
 def rule_author_year(ms: Manuscript, style: JournalStyle) -> list[Change]:
