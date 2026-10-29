@@ -1097,10 +1097,15 @@ def recase(text: str, mode: str, keep: list[str], colon_capital: bool = True) ->
         if core:
             pieces = re.split(r"([-\u2010\u2011\u2013\u2014])", core)
             parts, seps = pieces[::2], pieces[1::2]
+            # An em dash inside a word starts a new phrase ("Interventions—A Systematic Review"); an en dash does
+            # only before an article ("Interventions–A Review"), otherwise it joins a compound as a hyphen does
+            # ("School Health–Related Outcomes" -> "school health–related outcomes": the author's dash kept).
+            brk = [sep == "\u2014" or sep == "\u2013" and parts[k + 1].casefold() in ("a", "an", "the")
+                   for k, sep in enumerate(seps)]
             new = []
             for i, part in enumerate(parts):
                 low = part.casefold()
-                if i and seps[i - 1] in "\u2013\u2014":  # "Interventions—A Systematic Review": a new phrase
+                if i and brk[i - 1]:
                     start = True
                 if low in known:
                     w = known[low]
@@ -1110,9 +1115,9 @@ def recase(text: str, mode: str, keep: list[str], colon_capital: bool = True) ->
                     w = part[:1].upper() + part[1:].lower() if caps or part[:1].islower() else part
                 else:
                     w = part.lower()
-                if start and (i == 0 or seps[i - 1] in "\u2013\u2014") and (first or colon_capital):
+                if start and (i == 0 or brk[i - 1]) and (first or colon_capital):
                     w = w[:1].upper() + w[1:]
-                if i == 0 or seps[i - 1] in "\u2013\u2014":
+                if i == 0 or brk[i - 1]:
                     start = False
                 new.append(w)
             core = "".join(w + (seps[i] if i < len(seps) else "") for i, w in enumerate(new))
@@ -1208,6 +1213,34 @@ def _token_fits(short: str, full: str) -> bool:
     """A name word and its fuller form: the same word, or an initial of it ("A." / "Andi")."""
     s, f = short.strip(".").casefold(), full.strip(".").casefold()
     return s == f or len(s) == 1 and f[:1] == s
+
+
+def unglued_name(a: Author, xml_names: list[Author]) -> tuple[str, str] | None:
+    """(given, surname) for a name the title page runs together ("KavyaRaman") that the submission XML / notice
+    gives as the same letters in more words (given "Kavya", surname "Raman"): the title page's letters, spaced and
+    split as the XML has them ("Kavya", "Raman"). A glued name is a typo; only the same letters in the same order
+    (case and spaces aside) count, and only when the XML has more words."""
+    written = f"{a.given} {a.surname}".strip()
+    letters = re.sub(r"\s+", "", written)
+    if not letters or not re.fullmatch(r"[^\W\d_]+(?:[\s'’.-]+[^\W\d_]+)*", written):
+        return None
+    for x in xml_names:
+        if not x.given.strip() or not x.surname.strip():
+            continue
+        xml = f"{x.given.strip()} {x.surname.strip()}"
+        if re.sub(r"\s+", "", xml).casefold() != letters.casefold() or len(xml.split()) <= len(written.split()):
+            continue
+        out, k = [], 0
+        for c in xml:
+            if c.isspace():
+                out.append(" ")
+            else:
+                out.append(letters[k])
+                k += 1
+        spaced = re.sub(r" +", " ", "".join(out))
+        n = len(" ".join(x.given.split()))
+        return spaced[:n].strip(), spaced[n:].strip()
+    return None
 
 
 def _expand_from(short: Author, full_names: list[Author]) -> Author | None:
@@ -2386,6 +2419,11 @@ def plan(ms: Manuscript, style: JournalStyle, src: Sources | None = None) -> Pla
         xml_names = [Author(a.get("given", ""), a.get("surname", "")) for a in src.meta.authors]
         xml_names += [Author(g, sn) for g, sn in submission.notice_names(ms)]  # the portal's copyright notice
         written = _norm(" ".join(t for t in src.first_page + [p.text for p in lead] if not submission._COPYRIGHT.match(t)))
+        for a in f.authors:  # "KavyaRaman": the submission XML gives "Kavya" "Raman"
+            if (split_name := unglued_name(a, xml_names)) is not None:
+                f.notes.append(f"name {a.given} {a.surname!r} spaced as the submission XML / notice has it: "
+                               f"{split_name[0]} {split_name[1]!r}")
+                a.given, a.surname = split_name
         for a in f.authors:  # "Meera K R": the submission XML has the surname in full
             if _initial_after_name(a) and not any(
                     _norm(f"{x.given}{x.surname}") in written for x in xml_names if x.surname and len(x.surname) > 1

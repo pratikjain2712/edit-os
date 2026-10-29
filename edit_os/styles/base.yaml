@@ -411,6 +411,8 @@ sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.
     sort: true                   # with keywords.alphabetical
     case: true                   # first keyword capitalised, others lower case unless proper nouns
     drop_final_period: true
+    strip_quotes: true           # '“Sleep quality”, “Asthma ”' -> 'Asthma, sleep quality': every sheet's
+                                 # example lists bare words (the JEHP editors: no quoted key word in 35 articles)
     dedupe: true
     add_missing: true            # add the "Keywords:" line after the abstract and query
     max_query: true              # S (41 sheets): "minimum three keywords and a maximum of five keywords" -> query

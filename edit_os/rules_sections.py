@@ -114,6 +114,17 @@ def _levels(style: JournalStyle) -> dict[str, str]:
     return levels
 
 
+def acknowledgement_name(label: str, ack_heading: str | None) -> str:
+    """The acknowledgement heading the journal writes for the author's `label` (back_matter.acknowledgement_heading):
+    "singular" drops the final "s" in the author's spelling ("Acknowledgments" -> "Acknowledgment"), a heading given
+    is used as it is, null keeps the label."""
+    if not ack_heading:
+        return label
+    if ack_heading == "singular":
+        return label[:-1] if label[-1:] in "sS" else label
+    return ack_heading
+
+
 def _match_case(src: str, new: str) -> str:
     """Write `new` in the case style of `src` (ALL CAPS stays caps)."""
     letters = [c for c in src if c.isalpha()]
@@ -313,6 +324,7 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
     ref_i = references.find_heading(ms) if ref_name else None
     ref_id = ms.paragraphs[ref_i].id if ref_i is not None else None
     mains = main_heading_keys(style)
+    ack_heading = _cfg(style, "back_matter.acknowledgement_heading")
     out = []
     for p in ms.paragraphs:
         full = p.text
@@ -361,6 +373,10 @@ def rule_headings(ms: Manuscript, style: JournalStyle) -> list[Change]:
         new = core
         if key in rename:
             new = _match_case(core, rename[key])
+        elif re.fullmatch(_ACK, key, re.I) and (ack_name := acknowledgement_name(core, ack_heading)) != core:
+            # S: 'If heading "Acknowledgements" is present, then please delete "s"': the heading on its own line
+            # ("ACKNOWLEDGEMENTS") takes the journal's acknowledgement heading here, as the back matter's label does
+            new = _match_case(core, ack_name) if case in (None, "keep") else ack_name
         if case and case != "keep" and levels.get(key, "H1") == "H1":
             new = _cased(new, case)
         elif _on(style, "headings.title_minor_words") and not new.isupper():
@@ -838,12 +854,13 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 
         w = m.group(0)
         if m.start() < start or w.startswith("<H") or re.fullmatch(r"[\d.]+", w):
             continue  # before `start`: a caption's "Table 1:" label
-        hyphened = re.fullmatch(r"\(?[A-Za-z0-9]+(?:[-‐‑][A-Za-z0-9]+)+\W*", w)
+        # a hyphen or an en dash joining the parts ("Health–Related Quality": the author's dash is kept)
+        hyphened = re.fullmatch(r"\(?[A-Za-z0-9]+(?:[-‐‑–][A-Za-z0-9]+)+\W*", w)
         if hyphen_parts and hyphened and m.start() not in keep and p.text[:m.start()].count("(") <= p.text[:m.start()].count(")"):
             # "Within-Group Comparison", "Cross-Sectional Study": the parts after a hyphen too, unless the text
             # writes them capitalised after a hyphen ("Kaplan-Meier", "Mann-Whitney").
             after = p.text[m.end():].lstrip()
-            parts = list(re.finditer(r"[^-‐‑]+", w))
+            parts = list(re.finditer(r"[^-‐‑–]+", w))
             head0 = re.search(r"[A-Za-z]+", parts[0].group(0))
             # "Kaplan-Meier", "Mann-Whitney": a name (never lower case in the text) keeps its capitals;
             # "Activity Inventory-7 (CAHAI-7)": an expansion before its abbreviation keeps its capitals.
@@ -863,9 +880,9 @@ def sentence_case_changes(ms: Manuscript, p: Paragraph, rule: str, start: int = 
                 if k == 0:
                     lower, caps = _counts(head, body)
                 else:
-                    lower = len(re.findall(r"[-‐‑]" + head.lower() + r"\b", body))
-                    caps = len(re.findall(r"[-‐‑]" + head + r"\b", body)) \
-                        - len(re.findall(r"[-‐‑]" + head + r"\b", p.text))  # not the heading itself
+                    lower = len(re.findall(r"[-‐‑–]" + head.lower() + r"\b", body))
+                    caps = len(re.findall(r"[-‐‑–]" + head + r"\b", body)) \
+                        - len(re.findall(r"[-‐‑–]" + head + r"\b", p.text))  # not the heading itself
                 if caps <= lower:
                     i = m.start() + part.start() + text_part.index(head[0])
                     out.append(_change(p, i, i + 1, head[0].lower(), Layer.STRUCTURE, rule))
@@ -1151,9 +1168,18 @@ def xml_keywords(ms: Manuscript) -> list[str]:
     return _split_keywords(getattr(meta, "keywords", "") or "")
 
 
+def _unquoted(kw: str) -> str:
+    """A key word the author put in quotation marks ('“Sleep quality ”') without them and the spaces inside them
+    ("Sleep quality"); the journal lists bare words (S: "Keywords: Acceptability, Hall’s technique, ...")."""
+    m = re.fullmatch(r"\s*[“\"‘'](.*?)[”\"’']\s*", kw)
+    return m.group(1).strip() if m and m.group(1).strip() else kw
+
+
 def _styled_keywords(kws: list[str], ms: Manuscript, style: JournalStyle, skip: set[str]) -> list[str]:
     """The key words as the journal writes them: no final period, no repeats, case, order."""
     kws = list(kws)
+    if _on(style, "keywords.strip_quotes"):
+        kws = [_unquoted(k) for k in kws]
     if _on(style, "keywords.drop_final_period") and kws and kws[-1].endswith(".") \
             and not re.search(r"\b[A-Za-z]\.$", kws[-1]):
         kws[-1] = kws[-1][:-1].rstrip()
@@ -2200,7 +2226,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 label = p.text[s:e]
                 # "singular": the stylesheets' 'If heading "Acknowledgements" is present, then please delete "s"'
                 # (the author's spelling otherwise kept: "Acknowledgments" -> "Acknowledgment").
-                want = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else ack_heading
+                want = acknowledgement_name(label, ack_heading)
                 if label != want:
                     out.append(_change(p, s, e, want, Layer.STRUCTURE, "sections_back_matter", hfmt))
                 bold_line(p, "sections_back_matter")
@@ -2353,7 +2379,7 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
         got = acknowledgement_from_sources(ms)
         if got:
             label, text = got
-            want = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else ack_heading
+            want = acknowledgement_name(label, ack_heading)
             ack_tag = f"<{levels[want.lower()]}>" if tag and want.lower() in levels else tag  # IJO, JEHP: <H1>
             new["ack"] = [f"{ack_tag}{_sentence_label(want)}", text]
             fsrc = getattr(ms, "front_sources", None)
@@ -2633,7 +2659,7 @@ def _split_run_in(style: JournalStyle, nonempty: list[Paragraph], std: dict, lev
                 name = label if low in kept else std[kind]["heading"]
                 satisfied.add(kind)
             elif kind == "ack":
-                name = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else (ack_heading or label)
+                name = acknowledgement_name(label, ack_heading)
                 name = _sentence_label(name)
             elif _CONTRIB.match(label + ":"):
                 name = contrib_heading
@@ -2744,7 +2770,7 @@ def _move_acknowledgement(ms: Manuscript, style: JournalStyle, ack_at, sections:
         return None
     label = m.group("ack")
     ack_heading = _cfg(style, "back_matter.acknowledgement_heading")
-    name = (label[:-1] if label[-1:] in "sS" else label) if ack_heading == "singular" else (ack_heading or label)
+    name = acknowledgement_name(label, ack_heading)
     name = _sentence_label(name)
     head = (f"<{levels.get(name.lower(), 'H2')}>" if tag else "") + name
     inline = p.text[m.end():].strip()
