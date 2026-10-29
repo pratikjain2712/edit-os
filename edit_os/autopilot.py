@@ -142,6 +142,7 @@ def plan(changes: list[Change], inserts, style: JournalStyle, judge=None, texts:
             out.accept.append(item.id)
         else:
             out.left.append({"id": item.id, "category": cat, "why": "not an automatic suggestion"})
+    _with_its_figures(inserts, out)
     if not ai:
         return out
     if not cfg.get("ai_judge", True):
@@ -163,6 +164,25 @@ def plan(changes: list[Change], inserts, style: JournalStyle, judge=None, texts:
         else:
             out.left.append({"id": c.id, "category": "ai", "why": f"second check: {why}" if why else "second check"})
     return out
+
+
+def _with_its_figures(inserts, out: Plan) -> None:
+    """A "Figure Legends" heading added over the figures sent as files (their pictures and legends inserted at the
+    same place) is one decision with them: while those inserts are left for the editor, so is the heading (else the
+    clean copy ends with a heading over nothing: IJO_2938_25)."""
+    from .figures_insert import REASON as FIGURE
+    from .legends import HEADING
+
+    accepted = set(out.accept)
+    figs = [n for n in inserts if n.reason == FIGURE and getattr(n, "legend", "")]
+    for h in inserts:
+        if h.reason != HEADING or h.id not in accepted:
+            continue
+        under = [f for f in figs if f.anchor == h.anchor]
+        if under and not any(f.status == Status.ACCEPTED or f.id in accepted for f in under):
+            out.accept.remove(h.id)
+            out.left.append({"id": h.id, "category": out.categories.get(h.id, "style"),
+                             "why": "goes with the figure inserts it heads, left for the editor"})
 
 
 # --- the judge: a second Claude check of Claude's copy edits ------------------------------------

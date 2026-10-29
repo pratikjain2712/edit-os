@@ -120,3 +120,21 @@ def test_autopilot_endpoint_and_undo(client, tmp_path):
     assert client.get(f"/api/jobs/{job_id}/autopilot", headers=KEY).status_code == 404
     again = client.post(f"/api/jobs/{job_id}/autopilot", headers=KEY).json()  # after an undo it runs again
     assert again["accepted"] == rep["accepted"]
+
+
+def test_legends_heading_waits_for_the_figure_inserts_it_heads():
+    from edit_os.figures_insert import REASON, FigureInsert
+
+    st = style.load("ijo")  # figure inserts are held for the editor
+    fig = FigureInsert(id="fig_ins1", anchor="p0009", where="after", runs=[], role="figure", reason=REASON,
+                       figure=1, legend="Figure 1: A slit-lamp view.")
+    head = NewParagraph("legends_heading", "p0009", "after", [("Figure Legend", {"bold": True})], "legends_heading",
+                        reason="fig_legends_heading")
+    p = autopilot.plan([], [fig, head], st, judge=lambda items: {})
+    assert "legends_heading" not in p.accept and "fig_ins1" not in p.accept
+    assert any(d["id"] == "legends_heading" and "figure" in d["why"] for d in p.left)
+    fig.status = Status.ACCEPTED  # the editor took the figure: the heading goes with it
+    assert "legends_heading" in autopilot.plan([], [fig, head], st, judge=lambda items: {}).accept
+    other = NewParagraph("legends_heading", "p0004", "before", [("Figure Legends", {})], "legends_heading",
+                         reason="fig_legends_heading")  # over the manuscript's own legends
+    assert "legends_heading" in autopilot.plan([], [other], st, judge=lambda items: {}).accept

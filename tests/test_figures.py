@@ -151,3 +151,22 @@ def test_no_caption_query_without_any_captions(tmp_path):
                            "1. Author A. Title. J Test 2001;1:1-2."])
     qs = queries.collect(docmodel.load(path), _style("ijo"))
     assert not [q for q in qs.queries if q.check.startswith("figures.")]
+
+
+def test_image_labels_are_figure_labels(tmp_path):
+    # G402: the label is "Figure #: " -- "Image 1:" legends under "Image legend:" and "(Image 2)" citations, like
+    # "Picture" (G387 / G417)
+    paras = ["Introduction", "The cornea was clear (Image 1) and the lids were normal (Image 2).", "References",
+             "1. Author A. Title. J Test 2001;1:1-2.", "Image legend:", "Image 1: (a) Right eye before surgery",
+             "Image 2: (a) and (b) Hands of the patient"]
+    t = _apply(_doc(tmp_path, paras), _style("ijo"), tmp_path)
+    assert t[1] == "The cornea was clear [Fig. 1] and the lids were normal [Fig. 2]."
+    assert t[5].startswith("Figure 1: (a) Right eye") and t[6].startswith("Figure 2: (a) and (b) Hands")
+    ms = docmodel.load(_doc(tmp_path, paras, "g.docx"))
+    assert [leg.number for leg in rules_figures.legends(ms)] == [1, 2]
+
+
+def test_legend_from_xml_without_its_label():
+    # the submission system cut "Image 1" and left its colon: "<legend>: (a) and (b) ..."
+    got = rules_figures.legend_from_text(": (a) and (b) – Right eye before surgery", 1, _style("ijo"))
+    assert got.startswith("(a) and (b)")
