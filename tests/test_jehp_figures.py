@@ -64,6 +64,18 @@ def test_tables_move_to_the_end_after_the_legends(tmp_path):
     assert legends.BlockMove.from_dict(d).to_dict() == d
 
 
+def test_table_caption_typed_over_the_text_that_discusses_it_moves_with_the_table(tmp_path):
+    # "Table 1. ..." / two paragraphs on the results / the table: the caption goes with the table, the text stays
+    path = make(tmp_path, ["Introduction", BODY + " See Table 1.", "Table 1. Scores by school and year group",
+                           "Table 1 presents the scores by school. " + BODY, BODY,
+                           ("table", [["School", "Score"], ["A", "2"]]), "Discussion", BODY, *REFS])
+    _, _, body = _render(path, jehp(), tmp_path, False)
+    got = _blocks(body)
+    i = next(k for k, t in enumerate(got) if "Lee K" in t)
+    assert got[i + 1:] == ["Tables", "Table 1. Scores by school and year group", "TABLE: SchoolScore"]
+    assert got[2].startswith("Table 1 presents the scores") and got[3] == BODY
+
+
 def test_tables_heading_not_doubled(tmp_path):
     path = make(tmp_path, [BODY + " See Table 1 and Table 2.", "Table 1: Baseline data",
                            ("table", [["Age", "Sex"], ["1", "2"]]), BODY, *REFS, "Tables", "Table 2: Outcomes",

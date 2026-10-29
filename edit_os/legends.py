@@ -42,7 +42,7 @@ from docx.oxml.ns import qn
 
 from . import provenance, references, rules_figures
 from .changes import Layer, Source, Status
-from .docmodel import Manuscript, has_picture, paragraph_text
+from .docmodel import Manuscript, Paragraph, has_picture, paragraph_text
 from .frontmatter import NewParagraph
 from .style import JournalStyle
 
@@ -235,6 +235,32 @@ def _split_notes(ms: Manuscript, style: JournalStyle) -> list[str]:
     return out
 
 
+def _caption_over_prose(kids, k: int, by_el: dict, taken: set[str], numbers: set) -> Paragraph | None:
+    """The caption of the table kids[k] typed above the text that discusses it ("Table 4. Comparison of ..." / "Table
+    4 presents group comparisons ..." / one more paragraph / the table: jehp_1602): the nearest table caption above,
+    over at most two paragraphs of text, with no heading, table or picture between and not another table's. The text
+    between stays where it is; the caption goes with the table."""
+    seen, j = 0, k - 1
+    while 0 <= j < len(kids) and seen <= 2:
+        x = kids[j]
+        if x.tag != qn("w:p") or x not in by_el or has_picture(x):
+            return None
+        if _empty(x):
+            j -= 1
+            continue
+        q = by_el[x][0]
+        if re.match(r"\s*<H\d>", q.text) or (q.style or "").lower().startswith(("heading", "title")):
+            return None
+        m = rules_figures.caption_match(q)
+        if m is not None:
+            if not m.group("word").lower().startswith("tab") or q.id in taken or _num(m.group("num")) in numbers:
+                return None
+            return q
+        seen += 1
+        j -= 1
+    return None
+
+
 def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: list[str]) -> list[NewParagraph]:
     """Captioned tables in the body (before the reference list's end) move to the end of the article, after the
     figure legends (G195), each with its caption and the notes under it, under a "Tables" heading. A table with no
@@ -285,6 +311,9 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
                             break
         tr = el.find(qn("w:tr"))
         in_row = tr is not None and _CAPTION_START.match(_row_text(tr))
+        if cap is None and not in_row:
+            cap = _caption_over_prose(kids, k, by_el, {i for b in blocks for i in b}, set(numbers))
+            side = "above" if cap is not None else ""
         if cap is None and not in_row:
             continue
         ids = ([cap.id] if cap is not None and side == "above" else []) + ([title.id] if title is not None else []) \
