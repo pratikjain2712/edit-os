@@ -165,3 +165,12 @@ def test_manuscript_preferred_over_figure_file_named_after_it(tmp_path):
         z.writestr("Manuscript.docx", b"x")
         z.writestr("FirstPage.docx", b"x")
     assert pipeline.manuscript_member(zipfile.ZipFile(zp)) == "Manuscript.docx"
+
+
+def test_statistics_spacing_not_checked_in_supplementary_material(tmp_path):
+    # S372 / G151: the supplementary material is retained as it is; the body is still checked
+    body = ["Patients were grouped (n=12) by block type.", "<H2>Supplementary Material", "ANNEXURE",
+            "Appendix Table 1: Block cases (n=7)", "<H1>Acknowledgement", "Staff counted (n=3) cases."]
+    ms = docmodel.load(_doc(tmp_path, body))
+    got = _issues(ms, _style("ijo"), "statistics.spacing")
+    assert len(got) == 2 and not any("n=7" in m for m in got)

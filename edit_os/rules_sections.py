@@ -153,7 +153,10 @@ def _cased(text: str, case: str) -> str:
 
 # --- structure: where the abstract, key words and back matter are ---------------------
 
-_KW = re.compile(r"^(\s*(?:<H\d>)?\s*)(key\s*-?\s*words?)(\s*[:.\-–]?\s*)", re.I)
+# A qualifier the author typed after the label, "Keywords (MeSH) :" / "Key words (3-5):", is part of the label: the
+# journal's "Keywords:" replaces it all (never "Keywords: (MeSH) :" with the list after it).
+_KW = re.compile(r"^(\s*(?:<H\d>)?\s*)(key\s*-?\s*words?)(\s*(?:\([^()]{1,25}\)(?=\s*(?:[:.\-–]|$)))?\s*[:.\-–]?\s*)",
+                 re.I)
 _ABSTRACT = re.compile(r"^(\s*)(abstract)\b(\s*[:.\-–]?\s*)", re.I)
 _SUBHEADS = ("purpose|aims?|aims? and objectives?|background(?: and aims?| and objectives?)?|objectives?|"
              "introduction|context|importance|design|settings?(?: and design)?|study design|participants|"

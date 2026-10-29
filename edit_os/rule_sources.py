@@ -120,6 +120,8 @@ RULES: dict[str, Locator] = {
                           "caption placed end document before table", first="guide"),
     # no stylesheet line: the journal's editors' heading over the legends
     "fig_legends_heading": L("Figure Legends heading", "A heading over the figure legends"),
+    # no stylesheet line: the editors leave one caption per table (18 of 18 JEHP tables captioned twice)
+    "table_caption_duplicate": L("Table captioned twice", "A table's second caption deleted (queried when it says more)"),
     # no stylesheet line: the journal's editors put the caption in a merged first row of the table
     "table_caption_row": L("Table caption in the table", "The table caption in a merged first row of its table"),
     # the guide's TABLE section (owner, 2026-10-27: follow the guide)

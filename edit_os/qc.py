@@ -127,6 +127,27 @@ def _queried_refs(queries) -> tuple[set[int], set[int]]:
     return uncited, missing
 
 
+_SUPP_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*(?:supplementary|supplemental)\s+(?:materials?|information|data|files?)\s*:?\s*$",
+                        re.I)
+
+
+def supplementary_ids(ms: Manuscript) -> set[str]:
+    """Ids of the paragraphs under a "Supplementary Material" heading, up to the next tagged heading: the supporting
+    material the stylesheets keep as it is (S372 'retain the supplementary material as it is', G151), merged from
+    the submission's own file (supplied.py) or the author's."""
+    out: set[str] = set()
+    inside = False
+    for p in ms.paragraphs:
+        if not p.in_table and _SUPP_HEAD.match(p.text):
+            inside = True
+            continue
+        if inside and not p.in_table and re.match(r"\s*<H\d>", p.text):
+            inside = False
+        if inside:
+            out.add(p.id)
+    return out
+
+
 def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = None, changes=None, inserts=None,
           statuses=None, queries=None) -> Report:
     """QC of `ms` (the rendered output) against the journal's rules. With `source` (the manuscript as received),
@@ -234,9 +255,12 @@ def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = No
                 break
             seen += new
 
-    # Statistics spacing.
+    # Statistics spacing (not in supplementary material: retained as it is, S372 / G151).
     if style.get("statistics.space_around_operators"):
+        supp = supplementary_ids(ms)
         for p in body_paragraphs(ms):
+            if p.id in supp:
+                continue
             for m in re.finditer(r"(?<=[A-Za-z0-9)])[=<>≤≥](?=\d|\.\d)|(?<=[A-Za-z0-9)])[=<>≤≥] (?=\d)|(?<=[A-Za-z0-9)]) [=<>≤≥](?=\d)", p.text):
                 if _unary_after_word(p.text, m):  # "showed >90°": a sign before a number, no space after (guide)
                     continue

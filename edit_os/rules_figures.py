@@ -34,6 +34,9 @@ QUERY_TEXT = {
     "figures.no_caption": "Kindly provide the caption for Figure {n}.",
     "figures.no_table": "Table {n} is cited in the text but not provided. Kindly provide.",
     "figures.uncited": "{kind} {n} has not been cited in the text part. Kindly cite.",
+    # a table captioned twice: the second caption deleted (legends.duplicate_table_captions)
+    "figures.table_caption_duplicate": "Table {n} had a second caption, which has been deleted: “{text}”. Kindly "
+                                       "check that the caption kept is complete.",
     "figures.part_case": "Figure part labels have been changed to lower case. Kindly check.",
     "figures.no_captions": "Kindly provide the captions for {figs}.",
     # G244 / S: a figure with no caption (and here no citation either)
@@ -236,11 +239,11 @@ def roman_to_int(s: str) -> int | None:
 _SUPP = r"(?P<supp>(?:Suppl[ei]m[ae]nt(?:ary|al)|Suppl\.?)\s+)?"
 _LABEL = re.compile(
     _SUPP +
-    r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Tables?|TABLES?)(?![A-Za-z])(?P<dot>\.?)",
+    r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Images?|IMAGES?|Tables?|TABLES?)(?![A-Za-z])(?P<dot>\.?)",
 )
 _LABEL_ANYCASE = re.compile(
     _SUPP +
-    r"(?P<word>fig(?:ure)?s?|pictures?|tables?)(?![a-z])(?P<dot>\.?)", re.I)
+    r"(?P<word>fig(?:ure)?s?|pictures?|images?|tables?)(?![a-z])(?P<dot>\.?)", re.I)
 _NUM = re.compile(r"\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z])")
 _PART = re.compile(r"\(([a-zA-Z])\)|-?([A-Za-z])(?![A-Za-z0-9])")
 _BARE_PART = re.compile(r"\(([A-Za-z])\)|([A-Za-z])(?=\s*(?:[)\]},;.:]|and\b|&|$))")
@@ -536,7 +539,8 @@ def _diff(p: Paragraph, base: int, old: str, new: str, rule: str) -> list[Change
 
 _CAPTION_HEAD = (
     r"^(?P<lead>\s*)(?P<pre>(?:Legends?\s*(?:\s(?:to|for|of)\s+(?:the\s+)?|[:\-–]\s*|\s(?=Fig)))?)"
-    r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Graphs?|GRAPHS?|Tables?|TABLES?|Tabels?|TABELS?)"
+    r"(?P<word>Fig(?:ure)?s?|FIG(?:URE)?S?|Pictures?|PICTURES?|Images?|IMAGES?|Graphs?|GRAPHS?|Tables?|TABLES?|Tabels?|"
+    r"TABELS?)"
     r"(?![A-Za-z])\.?(?P<sp>\s*(?:[-_]\s*)?(?:No\.?\s*)?)"
     r"(?P<num>\d{1,2}(?!\d)|[IVX]{1,5}(?![A-Za-z]))(?P<part>[A-Za-z](?![A-Za-z]))?")
 _CAPTION_TAIL = r"(?P<sep>\s*[.:\-–—]+\s*|\s+|(?=\(\s*[A-La-l]\s*[),&–-]))(?P<rest>\S.*)$"
@@ -2451,9 +2455,13 @@ def legend_from_text(text: str, number: int, style: JournalStyle) -> str:
         head, t = label_parts(lm, style)[2], lm.group("rest")  # "Fig 2a & 2b The goat's eye" -> "(a and b) The ..."
         last = label_parts(lm)[1].lower()
     else:
-        m = re.match(r"(?:fig(?:ure)?s?\.?)\s*(?:no\.?\s*)?" + str(number) + r"(?!\d)\s*(?:[.:\-–—]+\s*)?", t, re.I)
+        m = re.match(r"(?:fig(?:ure)?s?\.?|pictures?|images?)\s*(?:no\.?\s*)?" + str(number) +
+                     r"(?!\d)\s*(?:[.:\-–—]+\s*)?", t, re.I)
         if m:
             t = t[m.end():]
+        # the separator left over from a label the submission system cut (XML "<legend>: (a) and (b) ..."):
+        # never "Figure 1: : (a)"
+        t = re.sub(r"^[\s.:;,\-–—]+(?=\S)", "", t)
     if not t:
         return ""
     if head:

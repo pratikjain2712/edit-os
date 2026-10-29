@@ -238,3 +238,16 @@ def test_query_moves_off_a_deleted_paragraph(tmp_path):
                   source=Source.RULE, reason="front_matter")
     assert queries.keep_anchors_live(ms, qs, [gone]) == 1
     assert qs.queries[0].para_id == p1.id
+
+
+def test_query_on_the_last_paragraph_deleted_moves_to_the_one_before(tmp_path):
+    # a figure query put at the end of the document, on a declaration line the back-matter rule moves away
+    from edit_os.changes import Change, Layer, Source
+
+    ms = docmodel.load(make(tmp_path, ["Legend of the first image.", "", "Declaration: consent was given."]))
+    p0, _, p2 = ms.paragraphs
+    qs = queries.QuerySet([queries.Query(p2.id, 0, 0, "Figure 1 has not been cited.", "figures.uncited")])
+    gone = Change(id="c1", para_id=p2.id, start=0, end=len(p2.text), old=p2.text, new="", layer=Layer.STRUCTURE,
+                  source=Source.RULE, reason="sections_consent")
+    assert queries.keep_anchors_live(ms, qs, [gone]) == 1
+    assert qs.queries[0].para_id == p0.id

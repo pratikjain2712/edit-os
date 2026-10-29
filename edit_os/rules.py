@@ -1145,10 +1145,30 @@ def author_year_mentions(ms: Manuscript, style: JournalStyle) -> list[AuthorYear
                 continue
             if keep_in:  # "Gupta et al.[13] in 2024"
                 out.append(AuthorYear(p.id, m.start(), m.start(), "{n}", n))
-            else:
-                out.append(AuthorYear(p.id, m.start(), m.end(), "{n}", n))
-            taken.append((m.start(), m.end()))
+                taken.append((m.start(), m.end()))
+                continue
+            whole = _ay_enclosing(text, m.start(), m.end())
+            s, e = whole or (m.start(), m.end())
+            out.append(AuthorYear(p.id, s, e, "{n}", n))
+            taken.append((s, e))
     return out
+
+
+_AY_OPEN_NAME = re.compile(r"[\[(](?P<name>[^\[\]()]{2,80}?)$")
+_AY_CLOSE = re.compile(r"[  ]*(?P<close>[\])])")
+
+
+def _ay_enclosing(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """The span of a bracket holding nothing but the name and its year: "[M. Nguyen,(2020)]", "(Lee et al., 2019)".
+    The whole bracket is the citation, so it becomes the number; the year alone would leave "[M. Nguyen,[23]]"."""
+    m = _AY_OPEN_NAME.search(text, max(0, start - 82), start)
+    c = _AY_CLOSE.match(text, end)
+    if not m or not c or {"[": "]", "(": ")"}[text[m.start()]] != c.group("close"):
+        return None
+    name = m.group("name").strip().rstrip(",").strip()
+    if not re.fullmatch(r"(?:[A-Z]\.\s*){0,3}(?:[A-ZÀ-Ý][\w’'\-]+|and|&|\s)+(?:\s*et\.?\s+al\b\.?)?", name):
+        return None
+    return m.start(), c.end()
 
 
 def rule_author_year(ms: Manuscript, style: JournalStyle) -> list[Change]:
@@ -1845,6 +1865,13 @@ def _reference_provenance(ms: Manuscript, style: JournalStyle, changes: list[Cha
             c.provenance = provenance.reference(res, ref.full_text)
 
 
+def rule_table_caption_duplicate(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """A table the author captioned twice keeps the caption that moves with it (legends.duplicate_table_captions)."""
+    from . import legends
+
+    return legends.rule_duplicate_captions(ms, style)
+
+
 RULES = {
     "heading_tags": rule_heading_tags,
     "author_citations": rule_author_citations,  # before "renumber" and "citations": it moves whole citations
@@ -1857,6 +1884,7 @@ RULES = {
     "sections_back_matter": rules_sections.rule_back_matter,
     "sections_salutation": rules_sections.rule_salutation,
     "citations": rule_citations,
+    "table_caption_duplicate": rule_table_caption_duplicate,  # before the caption rules: their edits on it go with it
     "fig_renumber": rules_figures.rule_renumber,  # before fig_citations / fig_captions: renumbered numbers win
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,
@@ -1908,7 +1936,8 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
         for c in rule(ms, style):
             if name == "references" and c.para_id in resolved and c.reason not in ("ref_label", "ref_format"):
                 continue
-            if c.reason.startswith("sections_") and _drops_paragraph(c, lengths):
+            if (c.reason.startswith("sections_") or c.reason == "table_caption_duplicate") \
+                    and _drops_paragraph(c, lengths):
                 # A back-matter section moved or deleted as a whole: the heading rules' tag and case edits on its
                 # heading line go with it (nothing is left to tag).
                 kept = [k for k in kept if not (k.para_id == c.para_id and k.reason in _HEADING_RULES)]
@@ -1937,8 +1966,9 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     # paragraph deleted) go together: when one of them lost an overlap, all of them go.
     kept = [c for c in kept if getattr(c, "_group", None) not in dropped_groups]
     # A template leftover deleted whole (leftovers.py): no other edit stays on its paragraph.
-    gone = {c.para_id for c in kept if c.reason == leftovers.REASON}
-    kept = [c for c in kept if c.para_id not in gone or c.reason == leftovers.REASON]
+    # Likewise a table's second caption deleted (legends.duplicate_table_captions).
+    gone = {c.para_id for c in kept if c.reason in (leftovers.REASON, "table_caption_duplicate")}
+    kept = [c for c in kept if c.para_id not in gone or c.reason in (leftovers.REASON, "table_caption_duplicate")]
     # Formatting on text that a kept change replaces is moot (the replacement carries its own
     # format), and showing it would split one edit into two suggestions.
     replaced = [k for k in kept if not k.format_only and k.end > k.start]

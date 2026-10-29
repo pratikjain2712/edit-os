@@ -198,7 +198,7 @@ class QuerySet:
 def keep_anchors_live(ms: Manuscript, qs: QuerySet, changes, inserts=()) -> int:
     """Move each query off a paragraph that is empty or that a change deletes whole (a running-title line, a "Title:"
     line the front matter rewrites as a new paragraph): onto the paragraph inserted in its place when there is one,
-    else onto the next paragraph that stays. Returns how many moved."""
+    else onto the next paragraph that stays (the one before, at the end of the document). Returns how many moved."""
     gone = set()
     if changes:
         writes = {c.para_id for c in changes if c.new.strip()}
@@ -231,6 +231,8 @@ def keep_anchors_live(ms: Manuscript, qs: QuerySet, changes, inserts=()) -> int:
             moved += 1
             continue
         nxt = next((x for x in paras[index[p.id] + 1:] if x.text.strip() and x.id not in gone), None)
+        if nxt is None:  # the document's last paragraph (a declaration moved into the back matter): the one before
+            nxt = next((x for x in reversed(paras[:index[p.id]]) if x.text.strip() and x.id not in gone), None)
         if nxt is not None:
             qs.queries[k] = Query(nxt.id, 0, 0, q.text, q.check, q.id)
             moved += 1
@@ -435,6 +437,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
     from . import renumber, rules_figures
     renumber.add_queries(ms, style, qs)
     rules_figures.add_queries(ms, style, qs)
+    from . import legends
+    legends.add_queries(ms, style, qs)  # a table captioned twice: the deleted caption said more
     from . import rules_tables
     rules_tables.add_queries(ms, style, qs)  # G206 empty head cells to merge, G196 entries on lines of their own
     from .rules import add_author_queries  # "Radziwill et al. [6]" where reference 6 is Bae: S "Match author names"

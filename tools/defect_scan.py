@@ -686,6 +686,8 @@ def check_content(a: Article, out: list):
             kind, sev = "content.para_lost", ERROR
         elif all(_EXPECTED_DELETION.match(r) for r in reasons):
             continue
+        elif reasons == ["table_caption_duplicate"] and a.query_checks.get("figures.table_caption_duplicate"):
+            continue  # a table's second caption, deleted with a query quoting it (legends.duplicate_table_captions)
         elif all(r.startswith("sections_back_matter") for r in reasons) and _STANDARD_SECTION.search(p.text[:80]):
             continue  # a funding / conflicts statement the journal's standard wording replaces
         elif all(r.startswith("sections_back_matter") for r in reasons) and _nil_ethics(a, p.text):
@@ -740,6 +742,11 @@ _RESIDUE = ("ins", "del", "moveFrom", "moveTo", "rPrChange", "pPrChange", "sectP
 _SPACE_PUNCT = re.compile(r"(?<=[^\s(\[])[  ]+([,;:)\]]|\.(?![\d.]))")
 
 
+def _dbl_context(t: str, i: int) -> str:
+    """The words round a "[[" / "]]" at t[i], to find it in the submission's own text."""
+    return t[max(0, i - 12):i + 14]
+
+
 @check
 def check_clean(a: Article, out: list):
     """Leftovers in the clean copy: "???" placeholders, stray tags, "[[", tracked-change residue, double spaces, a space
@@ -752,6 +759,7 @@ def check_clean(a: Article, out: list):
         out.append(Finding(a.name, "clean.residue", ERROR, None, "comments part"))
     has_rh = False
     dbl = a.style.get("guide_replace.double_space", False)
+    src_dbl = [p.text for p in a.source.paragraphs if "[[" in p.text or "]]" in p.text]
     for i, p in enumerate(a.clean.paragraphs):
         t = p.text
         if not t.strip():
@@ -772,7 +780,11 @@ def check_clean(a: Article, out: list):
                 out.append(Finding(a.name, "clean.stray_tag", ERROR, i, f"{m.group(0)} " + snippet(t, 6)))
                 break
         if "[[" in t or "]]" in t:
-            out.append(Finding(a.name, "clean.double_bracket", ERROR, i, snippet(t)))
+            # A "]]" the author typed ("[CrossRef][PubMed]] arrest ...": a reference pasted over another) is theirs,
+            # queried with the entry: counted (info). One our changes made is an error.
+            theirs = all(any(_dbl_context(t, m.start()) in s for s in src_dbl)
+                         for m in re.finditer(r"\[\[|\]\]", t))
+            out.append(Finding(a.name, "clean.double_bracket", INFO if theirs else ERROR, i, snippet(t)))
         if re.search(r"\S {2,}\S", t):  # an error where the journal's guide rule removes them, else a note
             out.append(Finding(a.name, "clean.double_space", WARNING if dbl else INFO, i, snippet(t)))
         m = _SPACE_PUNCT.search(t)
@@ -834,9 +846,18 @@ def check_figures_tables(a: Article, out: list):
     caption_bold = a.style.get("formatting.table_caption_bold", False)
     in_row = a.style.get("figures.table_caption_row", False)  # the caption goes into a merged first row
     to_end = a.style.get("figures.tables_to_end", False) or a.style.get("tables.to_end", False)
+    from edit_os import qc as qc_mod
+    supp_ids = qc_mod.supplementary_ids(ms)
+    supp = {id(p.element) for p in ms.paragraphs if not p.in_table and
+            (p.id in supp_ids or qc_mod._SUPP_HEAD.match(p.text))}
+    in_supp = False
     for k, el in enumerate(body):
+        if el.tag == W + "p":
+            in_supp = id(el) in supp
         if el.tag != W + "tbl" or k < rh_pos:
             continue  # the header block's tables (renumbering) sit above the running head
+        if in_supp:
+            continue  # supplementary material, retained as it is (S372, G151): its tables are the author's
         rows = _tbl_text(el)
         first = " ".join(rows[0]).strip() if rows else ""
         if not any(c.strip() for r in rows for c in r):
