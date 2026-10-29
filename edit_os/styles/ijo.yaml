@@ -264,7 +264,14 @@ copyedit:
                               # as undefined (owner, 2026-10-28: no queries the editors would not add; 119 -> 96)
     redefinition: change      # "full form (ABBR)" again -> "ABBR" (S: "only abbreviation should be used thereafter"),
                               # made rather than queried (owner, 2026-10-28)
+  # Owner, 2026-10-28: the editing agent (edit_os/agent) on for IJO as a pilot: its edits are left for the editor
+  # (autopilot.hold: agent) and grouped as one rule ("Reject all like this" clears them). Held-out IJO 2134: 71% of
+  # its edits the copy editor's, closure 9.6% (the Claude pass 56%, 2.4%); $0.12-0.56 per article.
+  agent:
+    enabled: true
+    max_queries: 5             # owner, 2026-10-28: cap the judgement queries (it asked 2-19 per article)
   claude:
+    max_queries_per_article: 3  # "awkward or confusing" queries capped (owner, 2026-10-28; 33 in 38 articles)
     model: claude-opus-5-5  # owner, 2026-10-28: IJO 888 (held out) 19 edits, 18 the copy editor's; Haiku 10 (see jehp.yaml)
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article
 
@@ -272,3 +279,8 @@ text:  # copy-edit text rules (rules_text.py), measured on the IJO copy editors'
   prefixes: {enabled: true}         # 98 proposed, 93% (with copyedit.claude.close_prefixes)
   number_words: {enabled: true}     # "three months" -> "3 months": 61, 77%
   stat_semicolons: {enabled: true}  # "(p = 0.065); at 3 months": 2 of 2
+
+autopilot:
+  # base's holds, and the editing agent's edits (pilot, owner 2026-10-28): the editor judges them, Autopilot never
+  # accepts them
+  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, submission_reviewer_reply, agent]

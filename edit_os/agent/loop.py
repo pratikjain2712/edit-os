@@ -119,7 +119,7 @@ def run(ms: Manuscript, style: JournalStyle, call=None, article: str = "", resol
     editable = editable_paragraphs(ms)
     text, ids = context.manuscript_text(ms, editable)
     ws = Workspace(ms, style, ids, editable, cfg, resolver=resolver)
-    rules = context.rules_text(style, cfg.get("examples_path"), int(cfg.get("examples", 60)),
+    rules = f"At most {int(cfg['max_queries'])} author queries for this article: ask only the most important.\n\n" + context.rules_text(style, cfg.get("examples_path"), int(cfg.get("examples", 60)),
                                exclude={article} if article else set())
     system = [{"type": "text", "text": context.INSTRUCTIONS},
               {"type": "text", "text": rules, "cache_control": {"type": "ephemeral"}}]

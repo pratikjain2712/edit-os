@@ -281,3 +281,17 @@ def test_query_saying_a_listed_work_is_missing_is_refused(tmp_path):
           "text": "Black et al. does not appear in the reference list."}
     res2 = agent.run(ms2, journal(), call=FakeClaude([[use("add_queries", {"queries": [q2]})]]))
     assert res2.queries == [] and "Black" in res2.log[0]["why"]
+
+
+def test_ijo_pilot_settings_and_one_reject_group():
+    # owner, 2026-10-28: on for IJO, at most 5 queries, its edits left for the editor and grouped as one rule
+    from edit_os import autopilot, rule_sources, style
+    from edit_os.changes import Change, Layer, Source
+    st = style.load("ijo")
+    assert st.get("copyedit.agent.enabled") is True and st.get("copyedit.agent.max_queries") == 5
+    assert not style.load("jehp").get("copyedit.agent.enabled")
+    assert rule_sources.key_for("agent.grammar (subject-verb)") == rule_sources.key_for("agent.word_choice") == "agent"
+    c = Change(id="a1", para_id="p", start=0, end=1, old="a", new="b", layer=Layer.LANGUAGE, source=Source.AI,
+               reason="agent.grammar (x)")
+    p = autopilot.plan([c], [], st, judge=lambda items: {i.id: ("accept", "") for i in items})
+    assert p.accept == [] and p.left[0]["id"] == "a1"

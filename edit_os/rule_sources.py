@@ -253,12 +253,15 @@ RULES: dict[str, Locator] = {
                        (r"abbreviation",), "abbreviations expanded first instance parentheses"),
     "claude": L("Claude copy edit", "Grammar, punctuation, articles and word choice; checked in code",
                 (r"grammar|subject-verb|punctuation",), (r"grammar|punctuation",), "grammar punctuation agreement"),
+    "agent": L("Editing agent (pilot)", "Opus 5.5 reading the whole article; checked in code, left for the editor",
+               (r"grammar|punctuation",), (r"grammar|punctuation",), "grammar punctuation"),
     "editor_edit": L("Your edit", "Typed into the paragraph by an editor"),
 }
 
 # Reasons whose wording differs from the key ("spelling (american)", "languagetool:EN_A_VS_AN", "claude.grammar (...)").
 _ALIASES = [(re.compile(r"^(?:expand abbreviation|use abbreviation|abbreviation )"), "abbreviations"),
-            (re.compile(r"^fm\d"), "front_matter")]
+            (re.compile(r"^fm\d"), "front_matter"),
+            (re.compile(r"^agent\."), "agent")]  # every agent edit in one group: "Reject all like this" clears the layer
 
 
 def key_for(reason: str, provenance: dict | None = None) -> str:

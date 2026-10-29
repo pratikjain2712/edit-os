@@ -683,9 +683,14 @@ copyedit:
     max_words: 6               # longest edit (words in old, after trimming to what changes)
     max_chars: 60
     max_queries_per_chunk: 1   # copy editors query rarely; only real ambiguity
+    max_queries_per_article: null  # a cap over the whole article (IJO, JEHP: 3)
     min_confidence: certain    # certain | likely: keep only edits Claude marks certain
     skip_kinds: []             # e.g. [word_choice] to turn a kind of suggestion off
     close_prefixes: false      # close up prefixed compounds (postoperative); on where the journal's copy editors do
+
+  agent:                       # the editing agent (edit_os/agent): Opus 5.5 reading the whole article (pilot)
+    enabled: false             # IJO on (owner, 2026-10-28); off without EDITOS_ANTHROPIC_API_KEY
+    max_queries: 25            # judgement queries per article (IJO: 5)
 
 autopilot:  # "Autopilot" on the review screen (edit_os/autopilot.py): accepts pending suggestions it is sure of
   accept_sources: [rule]       # rules, verified references, NLM abbreviations, spelling, LanguageTool, front matter

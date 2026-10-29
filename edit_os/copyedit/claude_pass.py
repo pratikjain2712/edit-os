@@ -629,6 +629,9 @@ def collect(ms: Manuscript, style: JournalStyle, call=None) -> tuple[list[Change
             changes.append(c)
         per_para: Counter = Counter()
         for q in got.get("queries", [])[:cfg.get("max_queries_per_chunk", 1)]:
+            cap = cfg.get("max_queries_per_article")
+            if cap is not None and len(queries) >= int(cap):
+                break  # "awkward or confusing" queries: a few per article (owner, 2026-10-28)
             p = local.get(q["paragraph_id"].strip("[] "))
             if p is None or per_para[p.id]:
                 continue

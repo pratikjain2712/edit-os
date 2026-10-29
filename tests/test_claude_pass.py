@@ -264,3 +264,16 @@ def test_keywords_line_not_sent(tmp_path):
     ms = make(tmp_path, ["Keywords: Diabetes Mellitus, Type 2; Burnout, Psychological; Adult, Partnership Care",
                          "The patients was seen in the clinic every week for the whole of the study period."])
     assert [p.text[:12] for p in claude_pass.paragraphs(ms)] == ["The patients"]
+
+
+def test_awkward_sentence_queries_capped_per_article(tmp_path):
+    # owner, 2026-10-28: a few "awkward or confusing" queries per article (IJO, JEHP: 3), not one per chunk
+    ms = make(tmp_path, [S1, S2, "The third sentence of the article is plain.", "A fourth sentence follows here.",
+                         "And the fifth sentence ends the article."])
+    fake = FakeClaude({"edits": [], "queries": [{"paragraph_id": "P1", "anchor": "", "text": "Please clarify."}]})
+    st = style.load("ijo")
+    st.settings["copyedit"]["claude"]["chunk_words"] = 1  # one paragraph per request
+    _, queries = claude_pass.collect(ms, st, call=fake)
+    assert len(fake.calls) == 5 and len(queries) == 3
+    st.settings["copyedit"]["claude"]["max_queries_per_article"] = None
+    assert len(claude_pass.collect(ms, st, call=fake)[1]) == 5
