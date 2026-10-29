@@ -303,7 +303,11 @@ def rule_duplicate_captions(ms: Manuscript, style: JournalStyle) -> list[Change]
 
     out = []
     for dup, keep, n in duplicate_table_captions(ms, style):
-        c = _change(dup, 0, len(dup.text), "", Layer.TABLES_FIGURES, DUPLICATE_CAPTION)
+        # one that says more than the caption kept (a "Note: ..." only it has) is its own reason, which Autopilot
+        # holds: the editor decides, with the query quoting it (owner's rule: no content lost unseen)
+        differs = bool(_caption_words(dup.text) - _caption_words(keep.text))
+        c = _change(dup, 0, len(dup.text), "", Layer.TABLES_FIGURES,
+                    DUPLICATE_CAPTION + (".differs" if differs else ""))
         c.provenance = provenance.make("journal_style", "Journal practice", f"Table {n} captioned twice: the "
                                        "caption that goes with the table stays (the editors keep one)")
         out.append(c)

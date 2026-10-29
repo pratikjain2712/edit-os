@@ -686,7 +686,7 @@ def check_content(a: Article, out: list):
             kind, sev = "content.para_lost", ERROR
         elif all(_EXPECTED_DELETION.match(r) for r in reasons):
             continue
-        elif reasons == ["table_caption_duplicate"] and a.query_checks.get("figures.table_caption_duplicate"):
+        elif len(reasons) == 1 and reasons[0].startswith("table_caption_duplicate") and a.query_checks.get("figures.table_caption_duplicate"):
             continue  # a table's second caption, deleted with a query quoting it (legends.duplicate_table_captions)
         elif all(r.startswith("sections_back_matter") for r in reasons) and _STANDARD_SECTION.search(p.text[:80]):
             continue  # a funding / conflicts statement the journal's standard wording replaces

@@ -694,6 +694,6 @@ copyedit:
 
 autopilot:  # "Autopilot" on the review screen (edit_os/autopilot.py): accepts pending suggestions it is sure of
   accept_sources: [rule]       # rules, verified references, NLM abbreviations, spelling, LanguageTool, front matter
-  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, submission_reviewer_reply]  # left for the editor: boilerplate consent text; colour (editors keep it in ~half); pictures from the zip; reply-to-reviewer text removed from the manuscript (a wrong boundary once took half an article)
+  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, submission_reviewer_reply, table_caption_duplicate.differs]  # left for the editor: boilerplate consent text; colour (editors keep it in ~half); pictures from the zip; reply-to-reviewer text removed from the manuscript (a wrong boundary once took half an article)
   ai_judge: true               # Claude's copy edits: accepted only when a second Claude check agrees; else left
   model: claude-haiku-5-5      # EDITOS_AUTOPILOT_MODEL overrides

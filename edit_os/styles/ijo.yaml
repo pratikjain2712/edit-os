@@ -283,4 +283,4 @@ text:  # copy-edit text rules (rules_text.py), measured on the IJO copy editors'
 autopilot:
   # base's holds, and the editing agent's edits (pilot, owner 2026-10-28): the editor judges them, Autopilot never
   # accepts them
-  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, submission_reviewer_reply, agent]
+  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, submission_reviewer_reply, agent, table_caption_duplicate.differs]

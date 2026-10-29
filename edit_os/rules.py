@@ -1936,7 +1936,7 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
         for c in rule(ms, style):
             if name == "references" and c.para_id in resolved and c.reason not in ("ref_label", "ref_format"):
                 continue
-            if (c.reason.startswith("sections_") or c.reason == "table_caption_duplicate") \
+            if (c.reason.startswith(("sections_", "table_caption_duplicate"))) \
                     and _drops_paragraph(c, lengths):
                 # A back-matter section moved or deleted as a whole: the heading rules' tag and case edits on its
                 # heading line go with it (nothing is left to tag).
@@ -1967,8 +1967,9 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     kept = [c for c in kept if getattr(c, "_group", None) not in dropped_groups]
     # A template leftover deleted whole (leftovers.py): no other edit stays on its paragraph.
     # Likewise a table's second caption deleted (legends.duplicate_table_captions).
-    gone = {c.para_id for c in kept if c.reason in (leftovers.REASON, "table_caption_duplicate")}
-    kept = [c for c in kept if c.para_id not in gone or c.reason in (leftovers.REASON, "table_caption_duplicate")]
+    whole = lambda c: c.reason == leftovers.REASON or c.reason.startswith("table_caption_duplicate")  # noqa: E731
+    gone = {c.para_id for c in kept if whole(c)}
+    kept = [c for c in kept if c.para_id not in gone or whole(c)]
     # Formatting on text that a kept change replaces is moot (the replacement carries its own
     # format), and showing it would split one edit into two suggestions.
     replaced = [k for k in kept if not k.format_only and k.end > k.start]

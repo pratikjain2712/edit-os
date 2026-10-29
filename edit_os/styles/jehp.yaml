@@ -384,4 +384,4 @@ autopilot:
   # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
   # Not held: sections_abstract.rename:methods (S, struck through but live: owner, 2026-10-26).
   hold: [sections_back_matter.consent_added, fmt_color, figure_insert, use abbreviation,
-         sections_back_matter.added, guide.unary_comparison]
+         sections_back_matter.added, guide.unary_comparison, table_caption_duplicate.differs]
