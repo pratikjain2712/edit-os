@@ -206,6 +206,16 @@ def test_keywords_list_on_next_line_and_mixed_delimiters(tmp_path):
     assert "keywords.missing" not in {q.check for q in queries.collect(docmodel.load(path), style.load("base")).queries}
 
 
+def test_keywords_label_with_a_qualifier(tmp_path):
+    # "Keywords (MeSH) :" over the list: the journal's label replaces it all (not "Keywords: (MeSH) :")
+    path = make(tmp_path, ["Abstract", BODY, "Keywords (MeSH) : ", "Fluoxetine; Child health; Pediatrics",
+                           "Introduction", BODY])
+    t, _, _ = run(path, style.load("jehp"), only=["sections_keywords"])
+    assert t[2].startswith("Keywords:") and "MeSH" not in t[2] and t[2].count(":") == 1
+    assert t[2:4] == ["Keywords:", "Child health, fluoxetine, pediatrics"]
+    assert rules_sections._KW.match("Keywords (e.g., digital tools) were searched").group(3) == " "
+
+
 def test_jehp_abstract_and_headings(tmp_path):
     path = make(tmp_path, ["Title of the paper", "Abstract:", "Background: " + BODY, "Methods and Material: " + BODY,
                            "Conclusions: " + BODY, "Keywords: Cataract, glaucoma, retina", "Introduction", BODY,
