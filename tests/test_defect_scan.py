@@ -200,6 +200,15 @@ def test_clean_copy_leftovers(tmp_path):
     assert {"clean.no_running_head", "clean.residue"} <= set(_checks(out))
 
 
+def test_double_bracket_made_by_us_is_an_error_the_authors_is_info(tmp_path):
+    clean = ["Adopted from the earlier tools [B. Lee,[4]].", "4. Lee B. A review. J Test. 2021. [Link][Index]] more."]
+    source = ["Adopted from the earlier tools [B. Lee,(2021)].", "4. Lee B. A review. J Test. 2021. [Link][Index]] more."]
+    out = []
+    ds.check_clean(_article(tmp_path, clean, source), out)
+    got = sorted((f.para, f.severity) for f in out if f.check == "clean.double_bracket")
+    assert got == [(0, "error"), (1, "info")]
+
+
 def test_legend_label_and_table_caption(tmp_path):
     texts = ["<RH>Lee, et al.: Title", "Figure Legends", "Figure 1: A fine legend.", "Fig. 2. A legend typed wrong.",
              "Table 1", "<H1>References", "1. Lee K. Back pain. Spine 1997;22:1380-4."]
@@ -218,6 +227,19 @@ def test_legend_label_and_table_caption(tmp_path):
     out = []
     ds.check_figures_tables(a, out)
     assert _checks(out)["figtab.empty_table"] == 1
+
+
+def test_tables_in_supplementary_material_are_not_checked(tmp_path):
+    # S372 / G151: the supplementary material is retained as it is ("Appendix Table 1: ..." over its table)
+    texts = ["<RH>Lee, et al.: Title", "Body text.", "<H2>Supplementary Material", "Appendix Table 1: Cases",
+             "<H1>References", "1. Lee K. Back pain. Spine 1997;22:1380-4."]
+    a = _article(tmp_path, texts)
+    t = a.clean.document.add_table(rows=1, cols=2)
+    t.cell(0, 0).text = "Case"
+    a.clean.paragraphs[3].element.addnext(t._tbl)
+    out = []
+    ds.check_figures_tables(a, out)
+    assert not [f for f in out if f.check.startswith("figtab.table")]
 
 
 def test_reference_numbers_shown_and_entries(tmp_path):
