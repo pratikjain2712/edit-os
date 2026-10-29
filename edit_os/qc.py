@@ -154,8 +154,9 @@ def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = No
         issues.append(Issue(ERROR, "citations.brackets", f"Citation in round brackets: {m.group(0).strip()}", p.id))
     for p in body_paragraphs(ms):
         for m in _SQUARE.finditer(p.text):
-            if re.search(r"\s", m.group(2)) and not not_citation_before(p.text[:m.start()].rstrip(), False):
-                issues.append(Issue(ERROR, "citations.format", f"Space inside citation: [{m.group(2)}]", p.id))
+            what = "Space" if re.search(r"\s", m.group(2)) else "“&”" if "&" in m.group(2) else None
+            if what and not not_citation_before(p.text[:m.start()].rstrip(), False):
+                issues.append(Issue(ERROR, "citations.format", f"{what} inside citation: [{m.group(2)}]", p.id))
     uncited_q, missing_q = _queried_refs(queries)
     blocked_q = any((q.get("check") if isinstance(q, dict) else q.check) == "references.renumber_blocked"
                     for q in queries or ())

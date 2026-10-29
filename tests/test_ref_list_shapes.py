@@ -2,6 +2,8 @@
 entry beside it), labels typed right to left (".13 Adamson KA"), an entry broken after the author's name, a table's
 note left under the list, and a year before a square-bracket citation. Invented text only."""
 
+import re
+
 import pytest
 from docx import Document
 
@@ -176,3 +178,29 @@ def test_first_author_block_is_never_put_inside_the_reference_table(tmp_path, af
         assert (p.text, where) == ("Figure Legends", "before")
     pl = first_author.plan(ms, st, fm.plan(ms, st))
     assert pl.inserts and all(not ms.by_id(n.anchor).in_table for n in pl.inserts)
+
+
+@pytest.mark.parametrize("journal", ["jehp", "ijo"])
+def test_ampersand_or_and_inside_a_citation_is_a_comma(tmp_path, journal):
+    st = _style(journal)
+    paras = ["Original Article", "Introduction",
+             "Shocks matter [1&2]. Teams train [3,4&5] .drills help [6 and 7]. Logs count [1, 8 & 9].",
+             "References"] + [f"{i}. Alder PQ. Topic {i}. J Eye Res. 2001;12:{i}0-4." for i in range(1, 10)]
+    path = _doc(tmp_path, paras)
+    ms0 = docmodel.load(path)
+    assert [i.message for i in qc.check(ms0, st).issues if i.check == "citations.format"]  # QC sees them
+    cs = rules.run_all(ms0, st, only=["citations"])
+    for c in cs.changes:
+        c.status = Status.ACCEPTED
+    out = tmp_path / "out.docx"
+    tracked.render(docmodel.load(path), cs, tracked=False).save(out)
+    ms = docmodel.load(str(out))
+    body = next(p.text for p in ms.paragraphs if p.text.startswith("Shocks"))
+    assert "&" not in body and " and 7" not in body, body
+    assert "[3-5]" in body and "[6,7]" in body and "[1,8,9]" in body, body
+    assert re.search(r"\[3-5\] drills", body, re.I), body  # the stray stop moved, the next word keeps its space
+    assert not [i for i in qc.check(ms, st).issues if i.check == "citations.format"]
+
+
+def test_ampersand_citation_counts_for_renumbering(tmp_path):
+    assert renumber.expand("23,24&25") == [23, 24, 25] and renumber.expand("2 and 3") == [2, 3]

@@ -40,7 +40,9 @@ def body_paragraphs(ms: Manuscript) -> list[Paragraph]:
 _NUMS = r"\d{1,3}(?:\s*[,–—\-]\s*\d{1,3})*"
 _ROUND = re.compile(r"(\s*)\((" + _NUMS + r")\)([.,;:]?)")
 # In square brackets a space alone may stand for the comma: "[31,34 35, 36]" (IJO_2623).
-_SQUARE = re.compile(r"(\s*)\[(\d{1,3}(?:\s*[,–—\-]\s*\d{1,3}|\s+\d{1,3})*)\]([.,;:]?)")
+# "[23,24&25]", "[2 and 3]": the author's "&" / "and" for the last comma (jehp_994).
+_SQUARE = re.compile(r"(\s*)\[(\d{1,3}(?:\s*(?:[,–—\-]|,?\s*&|,?\s+and(?=\s))\s*\d{1,3}|\s+\d{1,3})*)\]([.,;:]?)")
+_AND_SEP = re.compile(r"\s*,?\s*(?:&|\band\b)\s*")
 _SPACE_SEP = re.compile(r"(?<=\d)\s+(?=\d)")
 # "[14.15]": a full stop typed for the comma between two reference numbers (the second the larger, no leading zero;
 # after a word only when they are consecutive).
@@ -81,7 +83,7 @@ def _dot_citations(text: str) -> list[_DotCitation]:
 
 
 def normalise_citation(inner: str, style: JournalStyle) -> str | None:
-    inner = _SPACE_SEP.sub(",", inner)
+    inner = _SPACE_SEP.sub(",", _AND_SEP.sub(",", inner))
     parts = []
     for item in re.split(r"\s*,\s*", inner.strip()):
         m = re.fullmatch(r"(\d+)\s*[–—\-]\s*(\d+)", item)
@@ -630,6 +632,7 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
         norm = normalise_citation(inner, style)
         if norm is None:
             continue
+        stray = None
         if not punct and (stray := _SPACED_PUNCT.match(p.text, end)):
             end, punct = stray.end(), stray.group(1)  # "untreated [1] .Subthreshold": the stop typed after a space
         prev = p.text[:start].rstrip()
@@ -639,6 +642,9 @@ def rule_citations(ms: Manuscript, style: JournalStyle) -> list[Change]:
         # "outcomes. [31,34 35, 36]," closing the paragraph or a sentence: the comma is a stray (IJO_2623)
         # A sentence ending at the citation needs a space before the next one: "1964.[1]These" (IJO_505, 2623).
         space = bool(re.match(r"[A-Z]", p.text[end:end + 1])) and (punct in ".?!" and punct or prev.endswith((".", "?", "!")))
+        # "described by [23,24&25] .may": the word after the stray stop keeps its space ("by.[23-25] may", not
+        # "by.[23-25]may": jehp_994)
+        space = space or bool(stray) and bool(re.match(r"[a-z]", p.text[end:end + 1]))
         out += _superscript_space_after(p, end, sup)
         if doubled:
             new = f"[{norm}]"  # "older. (1). CVDs", "features.[1]. On" -> "older.[1] CVDs": the stop is there already

@@ -43,6 +43,7 @@ def _key(text: str) -> str:
 
 def expand(inner: str) -> list[int] | None:
     out: list[int] = []
+    inner = re.sub(r"\s*,?\s*(?:&|\band\b)\s*", ",", inner)  # "[23,24&25]", "[2 and 3]": "&" / "and" for a comma
     inner = re.sub(r"(?<=\d)\s+(?=\d)", ",", inner)  # "[34 35]": a space for the comma
     for part in re.split(r"\s*,\s*", inner.strip()):
         r = re.fullmatch(r"(\d+)\s*[-–—]\s*(\d+)", part)
