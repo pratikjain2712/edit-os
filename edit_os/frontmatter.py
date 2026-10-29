@@ -41,7 +41,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from lxml import etree
 
-from . import ai_refs, provenance, queries, submission
+from . import ai_refs, provenance, queries, spend, submission
 from .changes import Change, Layer, Source, Status
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle, _merge
@@ -563,6 +563,7 @@ def _call(text: str) -> dict | None:
     USAGE["calls"] += 1
     USAGE["input_tokens"] += response.usage.input_tokens
     USAGE["output_tokens"] += response.usage.output_tokens
+    spend.add_usage("front_matter", MODEL, response.usage)
     if response.stop_reason in ("refusal", "max_tokens"):
         return None
     try:

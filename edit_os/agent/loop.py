@@ -10,7 +10,7 @@ import threading
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .. import ai_refs
+from .. import ai_refs, spend
 from ..changes import Change, ChangeSet
 from ..copyedit import claude_pass
 from ..copyedit.cache import cache_dir
@@ -138,6 +138,7 @@ def run(ms: Manuscript, style: JournalStyle, call=None, article: str = "", resol
             got = (call or _api_call)(params)
             _cache_db().put(key, got)
             res.spent += price(model, got["usage"])
+            spend.add_usage("editing_agent", model, got["usage"])
         res.turns += 1
         res.usage["calls"] += 1
         for k, v in got["usage"].items():

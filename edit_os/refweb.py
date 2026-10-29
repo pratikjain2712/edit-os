@@ -44,7 +44,7 @@ from dataclasses import asdict, dataclass, field
 
 from rapidfuzz import fuzz
 
-from . import ai_refs, biblio, journals, refengine
+from . import ai_refs, biblio, journals, refengine, spend
 
 MODEL = ai_refs.MODEL
 # The basic search tool: the _20260209 variant (dynamic filtering) runs code execution, ~100 s a call on Haiku
@@ -267,6 +267,7 @@ def candidates(text: str, budget: Budget) -> list[Candidate]:
     USAGE["input_tokens"] += tin
     USAGE["output_tokens"] += tout
     USAGE["cost_usd"] += cost
+    spend.add("reference_web_search", MODEL, input_tokens=tin, output_tokens=tout, cost=cost, searches=searches)
     if tin:  # an answer (even an empty list) is kept; a failed request is not
         store.put("candidates", key, got)
     return _clean(got)

@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from edit_os import autopilot, docview, pipeline, rule_sources, style as style_mod
+from edit_os import autopilot, docview, pipeline, rule_sources, spend, style as style_mod
 from edit_os.changes import Layer, Source, Status
 
 from . import db, sessions
@@ -174,6 +174,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         d = {k: job[k] for k in ("id", "status", "stage", "journal", "stages", "input_name", "external_id",
                                  "error", "summary", "created_at", "updated_at")}
         d["links"] = {k: f"/api/jobs/{job['id']}/files/{k}" for k in DOWNLOADS} if job["status"] == db.DONE else {}
+        sp = spend.load(out_dir(storage, job["id"]))  # what Claude cost for this article (edit_os/spend.py)
+        d["spend"] = {k: sp[k] for k in ("usd", "words", "pages", "usd_per_page") if k in sp} if sp else None
         if with_token:
             d["review_token"] = job["review_token"]
             d["review_url"] = review_url(settings, job)
@@ -292,6 +294,40 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
     @app.get("/api/jobs", dependencies=[Depends(require_key)])
     def list_jobs(limit: int = 50, external_id: str | None = None):
         return [public(j) for j in store.list(min(limit, 500), external_id)]
+
+    def _parts(sp: dict) -> dict:
+        parts: dict[str, float] = {}
+        for step in sp.get("steps", []):
+            for k, v in step.get("parts", {}).items():
+                parts[k] = round(parts.get(k, 0) + v.get("usd", 0), 4)
+        return parts
+
+    @app.get("/api/spend", dependencies=[Depends(require_key)])
+    def spend_report(month: str | None = None, limit: int = 5000):
+        """What Claude cost, per article and in total: `month` "2026-10" (else every job kept), by journal, with
+        words, pages of 300 words and the cost per page. Server costs (AWS) are fixed per month and not in here."""
+        rows, tot = [], {}
+        for j in store.list(min(limit, 20000)):
+            if month and not str(j.get("created_at", "")).startswith(month):
+                continue
+            sp = spend.load(out_dir(storage, j["id"]))
+            if not sp:
+                continue
+            rows.append({"id": j["id"], "input_name": j["input_name"], "journal": j["journal"],
+                         "created_at": j["created_at"], "usd": sp.get("usd", 0), "words": sp.get("words"),
+                         "pages": sp.get("pages"), "usd_per_page": sp.get("usd_per_page"),
+                         "parts": _parts(sp)})
+            t = tot.setdefault(j["journal"], {"articles": 0, "usd": 0.0, "pages": 0.0})
+            t["articles"] += 1
+            t["usd"] += sp.get("usd", 0)
+            t["pages"] += sp.get("pages") or 0
+        for t in tot.values():
+            t["usd"] = round(t["usd"], 2)
+            t["pages"] = round(t["pages"], 1)
+            t["usd_per_article"] = round(t["usd"] / t["articles"], 3)
+            t["usd_per_page"] = round(t["usd"] / t["pages"], 4) if t["pages"] else None
+        all_usd = sum(t["usd"] for t in tot.values())
+        return {"month": month, "articles": len(rows), "usd": round(all_usd, 2), "by_journal": tot, "jobs": rows}
 
     @app.get("/api/jobs/{job_id}")
     def job_status(job: dict = Depends(require_job), x_api_key: str | None = Header(None)):
@@ -499,7 +535,10 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
                     or dec.get(c.id, {}).get("status") == "suggested" and dec[c.id].get("new_text") is None]
             todo_ins = [n for n in inserts if n.status == Status.SUGGESTED and n.id not in dec
                         or dec.get(n.id, {}).get("status") == "suggested" and dec[n.id].get("new_text") is None]
-            p = autopilot.plan(todo, todo_ins, style_mod.load(man["journal"]), texts=paragraphs(job["id"]))
+            with spend.track() as led:  # the second check's Claude calls go on the article's bill
+                p = autopilot.plan(todo, todo_ins, style_mod.load(man["journal"]), texts=paragraphs(job["id"]))
+            if led.parts:
+                spend.record(out_dir(storage, job["id"]), "autopilot", led)
             kinds = {c.id: "change" for c in todo} | {n.id: "insert" for n in todo_ins}
             store.decide(job["id"], [(i, kinds[i]) for i in p.accept], "accepted", autopilot.EDITOR)
             summary = _render(job["id"])

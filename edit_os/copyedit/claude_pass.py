@@ -37,7 +37,7 @@ from collections import Counter
 from dataclasses import dataclass
 from itertools import count
 
-from .. import ai_refs, provenance
+from .. import ai_refs, provenance, spend
 from ..changes import Change, Layer, Source
 from ..docmodel import Manuscript, Paragraph
 from ..queries import Query
@@ -365,6 +365,7 @@ def _call(params: dict) -> dict:
     u["calls"] += 1
     for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"):
         u[k] += getattr(response.usage, k, 0) or 0
+    spend.add_usage("copy_edit", params["model"], response.usage)
     if response.stop_reason in ("refusal", "max_tokens"):
         u[response.stop_reason] += 1
         return {"edits": [], "queries": []}
@@ -601,6 +602,7 @@ def batch_prefetch(jobs: list[tuple[Manuscript, JournalStyle]], client=None, pol
         u["calls"] += 1
         for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"):
             u[k] += getattr(msg.usage, k, 0) or 0
+        spend.add_usage("copy_edit", todo[res.custom_id]["model"], msg.usage, batch=True)
         got = {"edits": [], "queries": []} if msg.stop_reason in ("refusal", "max_tokens") else \
             parse(next((b.text for b in msg.content if b.type == "text"), ""))
         _cache_db().put(res.custom_id, got)

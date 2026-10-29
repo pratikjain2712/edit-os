@@ -343,3 +343,18 @@ def test_download_named_after_the_upload():
     assert download_name("IJO 1415_26 (rev).docx", "IJO 1415_26 (rev)", "/x/IJO 1415_26 (rev)_queries.xlsx") \
         == "IJO 1415_26 _rev_queries.xlsx"
     assert download_name(None, "Manuscript", "/x/Manuscript_clean.docx") == "Manuscript_clean.docx"
+
+
+def test_spend_per_article_and_month(client, tmp_path):
+    job_id = upload(client, tmp_path).json()["id"]
+    wait(client, job_id)
+    sp = client.get(f"/api/jobs/{job_id}", headers=KEY).json()["spend"]
+    assert sp["usd"] == 0 and sp["words"] > 0  # no Claude in tests: nothing spent, the words still counted
+    rep = client.get("/api/spend", params={"month": db_month()}, headers=KEY).json()
+    assert rep["articles"] == 1 and rep["jobs"][0]["id"] == job_id and "ijo" in rep["by_journal"]
+    assert client.get("/api/spend", params={"month": "1999-01"}, headers=KEY).json()["articles"] == 0
+
+
+def db_month():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m")

@@ -24,7 +24,7 @@ import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 
-from . import ai_refs
+from . import ai_refs, spend
 from .changes import Change, Layer, Source, Status
 from .copyedit.cache import cache_dir
 from .style import JournalStyle
@@ -247,6 +247,7 @@ def _call(model: str, payload: str) -> dict:
     USAGE["calls"] += 1
     USAGE["input_tokens"] += response.usage.input_tokens
     USAGE["output_tokens"] += response.usage.output_tokens
+    spend.add_usage("autopilot_check", model, response.usage)
     if response.stop_reason in ("refusal", "max_tokens"):
         return {"verdicts": []}
     try:

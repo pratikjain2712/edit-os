@@ -37,6 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
+from . import spend
 from . import docmodel, revisions, rules_guide, figures_insert, first_author, frontmatter, header, legends, leftovers, qc, queries, rules, rules_format, style as style_mod, submission, supplied, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
@@ -234,11 +235,25 @@ def _unique_ids(changes: list[Change]) -> None:
         seen.add(c.id)
 
 
-def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGES, *,
-         first_page: str | None = None, xml: str | None = None, lt_client=_DEFAULT,
-         copyedit_only: list[str] | None = None, rules_only: list[str] | None = None,
-         accept_all: bool = False, progress: Callable[[str], None] | None = None,
-         counts: Callable[[dict], None] | None = None, editor: str | None = None) -> Outputs:
+def edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGES, **kw) -> Outputs:
+    """`_edit`, with what Claude cost for the article written to OUTDIR/spend.json (spend.py): each part
+    (front matter, references, copy edit, editing agent, web search), the words and the cost per 300-word page."""
+    with spend.track() as led:
+        out = _edit(input_path, journal, outdir, stages, **kw)
+    try:
+        man = load_manifest(outdir)
+        words = sum(len(re.findall(r"\w+", t)) for t in paragraph_texts(source_path(outdir)).values())
+        spend.record(outdir, "edit", led, words=words, journal=man.get("journal"), input_name=man.get("input_name"))
+    except Exception:  # noqa: BLE001 - the spend log never fails an edit
+        pass
+    return out
+
+
+def _edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAGES, *,
+          first_page: str | None = None, xml: str | None = None, lt_client=_DEFAULT,
+          copyedit_only: list[str] | None = None, rules_only: list[str] | None = None,
+          accept_all: bool = False, progress: Callable[[str], None] | None = None,
+          counts: Callable[[dict], None] | None = None, editor: str | None = None) -> Outputs:
     """Run the stages on a manuscript .docx or a submission .zip and write every output into OUTDIR.
 
     All proposals are saved as `suggested` (the editor decides) unless `accept_all` (a preview run,

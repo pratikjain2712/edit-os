@@ -59,6 +59,7 @@ export const api = {
   me: () => call("GET", "/api/me"),
   journals: () => call("GET", "/api/journals"),
   jobs: () => call("GET", "/api/jobs?limit=30"),
+  spend: (month) => call("GET", `/api/spend?month=${encodeURIComponent(month)}&limit=5000`),
   job: (id) => call("GET", `/api/jobs/${id}`),
   upload: (file, journal) => {
     const fd = new FormData();

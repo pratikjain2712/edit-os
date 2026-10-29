@@ -170,6 +170,7 @@ function Home() {
   const toast = useToast();
   const [journals, setJournals] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [month, setMonth] = useState(null);  // this month's Claude spend (/api/spend)
   const [journal, setJournal] = useState("ijo");
   const [file, setFile] = useState(null);
   const [over, setOver] = useState(false);
@@ -180,6 +181,7 @@ function Home() {
   const load = useCallback(() => api.jobs().then(setJobs).catch((e) => setError(e.message)), []);
   useEffect(() => {
     api.journals().then(setJournals).catch((e) => setError(e.message));
+    api.spend(new Date().toISOString().slice(0, 7)).then(setMonth).catch(() => {});
     load();
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
@@ -252,6 +254,12 @@ function Home() {
 
       <section>
         <h3 className="section-title">Recent manuscripts</h3>
+        {month && month.articles > 0 && (
+          <p className="muted small">
+            This month: {month.articles} article{month.articles > 1 ? "s" : ""} · Claude ${month.usd.toFixed(2)}
+            {Object.entries(month.by_journal).map(([j, t]) => ` · ${j.toUpperCase()} $${t.usd_per_article.toFixed(2)}/article${t.usd_per_page != null ? `, $${t.usd_per_page.toFixed(3)}/page` : ""}`).join("")}
+          </p>
+        )}
         {jobs.length === 0 ? <p className="muted">Nothing here yet — your first manuscript will show up here.</p> : (
           <div className="jobs-list">
             {jobs.map((j, i) => (
@@ -264,6 +272,7 @@ function Home() {
                 </span>
                 <span className="muted small hide-phone">
                   {j.summary && j.summary.changes ? `${j.summary.changes.total} suggestions · QC ${j.summary.qc.passed ? "passed" : "blocked"}` : ""}
+                  {j.spend && j.spend.usd != null ? ` · Claude $${j.spend.usd.toFixed(2)}${j.spend.usd_per_page != null ? ` ($${j.spend.usd_per_page.toFixed(3)}/page)` : ""}` : ""}
                 </span>
                 <span className={`pill ${j.status}`}>{j.status}</span>
               </motion.button>

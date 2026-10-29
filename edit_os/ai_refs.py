@@ -179,6 +179,8 @@ def _call(numbered: str) -> list[dict]:
     USAGE["calls"] += 1
     USAGE["input_tokens"] += response.usage.input_tokens
     USAGE["output_tokens"] += response.usage.output_tokens
+    from . import spend
+    spend.add_usage("references", MODEL, response.usage)
     if response.stop_reason in ("refusal", "max_tokens"):
         return []
     text = next((b.text for b in response.content if b.type == "text"), "")
