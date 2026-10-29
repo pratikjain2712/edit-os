@@ -335,3 +335,11 @@ def test_download_signs_with_the_editor_name(client, tmp_path):
     assert first_line(KEY).endswith("???")
     assert first_line({**KEY, "X-Editor": "Asha%20Rao"}).endswith("Asha Rao")
     assert first_line(KEY).endswith("Asha Rao")  # stays signed
+
+
+def test_download_named_after_the_upload():
+    from server.app import download_name
+    assert download_name("JEHP_73_26.zip", "Manuscript", "/x/Manuscript_tracked.docx") == "JEHP_73_26_tracked.docx"
+    assert download_name("IJO 1415_26 (rev).docx", "IJO 1415_26 (rev)", "/x/IJO 1415_26 (rev)_queries.xlsx") \
+        == "IJO 1415_26 _rev_queries.xlsx"
+    assert download_name(None, "Manuscript", "/x/Manuscript_clean.docx") == "Manuscript_clean.docx"

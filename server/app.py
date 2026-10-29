@@ -37,6 +37,14 @@ from .worker import compact_summary, input_file, job_lock, out_dir, process, rev
 
 log = logging.getLogger("editos.api")
 
+def download_name(input_name: str | None, stem: str, path: str) -> str:
+    """The downloaded file named after the upload: "JEHP_73_26.zip" -> "JEHP_73_26_tracked.docx" (owner, 2026-10-29),
+    not the manuscript's own "Manuscript_tracked.docx"."""
+    base = os.path.basename(path)
+    up = re.sub(r"[^\w.\- ]+", "_", os.path.splitext(os.path.basename(input_name or ""))[0]).strip(" ._")
+    return up + base[len(stem):] if up and base.startswith(stem) else base
+
+
 _SIGNED = "_signed.json"  # the last render's final flag and signing editor
 DOWNLOADS = {  # kind -> (pipeline file kind, media type)
     "tracked": ("tracked", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
@@ -549,11 +557,12 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
                 with job_lock(job["id"]):
                     _render(job["id"], bool(signed.get("final")), editor)
         fkind, media = DOWNLOADS[kind]
-        path = pipeline.file_paths(outdir, pipeline.load_manifest(outdir)["stem"])[fkind]
+        stem = pipeline.load_manifest(outdir)["stem"]
+        path = pipeline.file_paths(outdir, stem)[fkind]
         if not os.path.exists(path):
             raise HTTPException(404, "Not rendered yet")
         disposition = "inline" if kind == "qc_report" else "attachment"
-        return FileResponse(path, media_type=media, filename=os.path.basename(path),
+        return FileResponse(path, media_type=media, filename=download_name(job.get("input_name"), stem, path),
                             content_disposition_type=disposition)
 
     # --- submission files (title page, figures, XML, forms, ...) ----------------------------
