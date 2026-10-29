@@ -76,6 +76,31 @@ def test_table_caption_typed_over_the_text_that_discusses_it_moves_with_the_tabl
     assert got[2].startswith("Table 1 presents the scores") and got[3] == BODY
 
 
+def test_table_captioned_twice_keeps_the_caption_that_moves(tmp_path):
+    from edit_os import rules
+    from edit_os.changes import Status as St
+
+    path = make(tmp_path, ["Introduction", BODY + " See Tables 1 and 2.", "Table 1: Scores by School",
+                           ("table", [["School", "Score"], ["A", "2"]]),
+                           "Table 1. Scores by school and year group, with the mean of each class.",
+                           BODY, "Table 2. Ages of the pupils", ("table", [["Age", "N"], ["9", "4"]]),
+                           "Table 2: Ages of the pupils", BODY, *REFS])
+    st = jehp()
+    ms = docmodel.load(path)
+    dups = legends.duplicate_table_captions(ms, st)
+    assert [(d.text[:9], k.text[:9]) for d, k, _ in dups] == [("Table 1. ", "Table 1: "), ("Table 2: ", "Table 2. ")]
+    cs = rules.run_all(docmodel.load(path), st, only=["table_caption_duplicate", "fig_captions"])
+    gone = [c for c in cs.changes if c.reason == legends.DUPLICATE_CAPTION]
+    assert [c.old for c in gone] == [d.text for d, _, _ in dups] and all(c.new == "" for c in gone)
+    assert not [c for c in cs.changes if c.reason != legends.DUPLICATE_CAPTION and c.para_id in {g.para_id for g in gone}]
+    qs = queries.QuerySet()
+    legends.add_queries(docmodel.load(path), st, qs)
+    # only the one that said more than the caption kept is queried, on the caption kept
+    assert len(qs.queries) == 1 and "Table 1 had a second caption" in qs.queries[0].text
+    assert "year group, with the mean of each class”" in qs.queries[0].text
+    assert legends.duplicate_table_captions(docmodel.load(path), style.load("base")) == []  # tables not moved
+
+
 def test_tables_heading_not_doubled(tmp_path):
     path = make(tmp_path, [BODY + " See Table 1 and Table 2.", "Table 1: Baseline data",
                            ("table", [["Age", "Sex"], ["1", "2"]]), BODY, *REFS, "Tables", "Table 2: Outcomes",

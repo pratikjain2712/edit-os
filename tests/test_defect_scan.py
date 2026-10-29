@@ -178,6 +178,15 @@ def test_body_paragraph_lost_or_deleted_and_duplicates(tmp_path):
     out = []
     ds.check_content(a, out)
     assert not {"content.para_deleted", "content.para_lost"} & set(_checks(out))
+    # a table's second caption deleted: expected when the query quotes it, an error otherwise
+    a.changes = [_ch("p0005", 0, len(BODY[4]), BODY[4], "", reason="table_caption_duplicate")]
+    out = []
+    ds.check_content(a, out)
+    assert "content.para_deleted" in _checks(out)
+    a.query_checks["figures.table_caption_duplicate"] = 1
+    out = []
+    ds.check_content(a, out)
+    assert "content.para_deleted" not in _checks(out)
 
 
 # --- clean copy, figures, tables, references -----------------------------------------------------------------------------

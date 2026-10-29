@@ -34,6 +34,9 @@ QUERY_TEXT = {
     "figures.no_caption": "Kindly provide the caption for Figure {n}.",
     "figures.no_table": "Table {n} is cited in the text but not provided. Kindly provide.",
     "figures.uncited": "{kind} {n} has not been cited in the text part. Kindly cite.",
+    # a table captioned twice: the second caption deleted (legends.duplicate_table_captions)
+    "figures.table_caption_duplicate": "Table {n} had a second caption, which has been deleted: “{text}”. Kindly "
+                                       "check that the caption kept is complete.",
     "figures.part_case": "Figure part labels have been changed to lower case. Kindly check.",
     "figures.no_captions": "Kindly provide the captions for {figs}.",
     # G244 / S: a figure with no caption (and here no citation either)

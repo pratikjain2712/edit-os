@@ -41,7 +41,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from . import provenance, references, rules_figures
-from .changes import Layer, Source, Status
+from .changes import Change, Layer, Source, Status
 from .docmodel import Manuscript, Paragraph, has_picture, paragraph_text
 from .frontmatter import NewParagraph
 from .style import JournalStyle
@@ -233,6 +233,81 @@ def _split_notes(ms: Manuscript, style: JournalStyle) -> list[str]:
         if got:
             out += [t.strip() for c in got[1] for t in c.new.split(PARAGRAPH_BREAK) if t.strip()]
     return out
+
+
+DUPLICATE_CAPTION = "table_caption_duplicate"
+
+
+def duplicate_table_captions(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, Paragraph, int]]:
+    """(duplicate, caption kept, table number) for each table moved to the end that the author captioned twice: a
+    "Table 2: Pearson Correlation Matrix" line (often in a heading style) as well as the caption that goes with the
+    table ("Table 2. Pearson Correlation Matrix: Self-Care, ..."), above it, below it or a few paragraphs away (jehp_1602).
+    The editors leave one caption per table (18 of 18 JEHP tables captioned twice); the one that moves with the
+    table stays."""
+    cached = getattr(ms, "_dup_table_caps", None)
+    if cached is not None and cached[0] is style:
+        return cached[1]
+    out: list[tuple[Paragraph, Paragraph, int]] = []
+    ms._dup_table_caps = (style, out)
+    if not style.get("figures.tables_to_end"):
+        return out
+    moves = [m for m in _plan_tables(ms, style, [], _split_notes(ms, style)) if getattr(m, "kind", "") == "tables"]
+    if not moves:
+        return out
+    end = refs_end(ms)
+    in_blocks = {i for m in moves for b in m.blocks for i in b}
+    kept: dict[int, Paragraph] = {}
+    for b in moves[0].blocks:
+        for pid in b:
+            q = ms.by_id(pid)
+            m = rules_figures.caption_match(q) if not q.in_table else None
+            if m is not None and m.group("word").lower().startswith("tab"):
+                n = _num(m.group("num"))
+                if n in kept:  # two tables with one number: not for this rule
+                    kept[n] = None
+                else:
+                    kept[n] = q
+                break
+    for i, q in enumerate(ms.paragraphs):
+        if end is not None and i >= end:
+            break
+        if q.in_table or q.id in in_blocks or len(q.text) > 1000:  # (a caption with its note runs long)
+            continue
+        m = rules_figures._CAPTION_PARTS.match(q.text) or rules_figures._CAPTION.match(q.text)
+        if m is None or not m.group("word").lower().startswith("tab") or not re.search(r"[.:]", m.group("sep")) \
+                or not m.group("rest")[:1].isupper():  # "Table 3. summarizes ...": a sentence
+            continue
+        k = kept.get(_num(m.group("num")))
+        if k is not None:
+            out.append((q, k, _num(m.group("num"))))
+    return out
+
+
+def _caption_words(text: str) -> set[str]:
+    m = rules_figures._CAPTION.match(text)
+    return set(re.findall(r"[a-z0-9]+", (m.group("rest") if m else text).lower()))
+
+
+def rule_duplicate_captions(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """A table's second caption deleted (a tracked deletion; queried when it says more than the one kept)."""
+    from .rules import _change
+
+    out = []
+    for dup, keep, n in duplicate_table_captions(ms, style):
+        c = _change(dup, 0, len(dup.text), "", Layer.TABLES_FIGURES, DUPLICATE_CAPTION)
+        c.provenance = provenance.make("journal_style", "Journal practice", f"Table {n} captioned twice: the "
+                                       "caption that goes with the table stays (the editors keep one)")
+        out.append(c)
+    return out
+
+
+def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
+    for dup, keep, n in duplicate_table_captions(ms, style):
+        extra = _caption_words(dup.text) - _caption_words(keep.text)
+        if extra:  # the caption deleted says more than the one kept: the author decides
+            text = re.sub(r"\s+", " ", dup.text).strip().rstrip(".")
+            qs.add(keep.id, "figures.table_caption_duplicate", n=n,
+                   text=text if len(text) <= 160 else text[:157].rstrip() + "...")
 
 
 def _caption_over_prose(kids, k: int, by_el: dict, taken: set[str], numbers: set) -> Paragraph | None:
