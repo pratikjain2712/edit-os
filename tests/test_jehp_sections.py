@@ -170,3 +170,34 @@ def test_case_report_table_cell_is_not_the_article_type(tmp_path):
     path = tmp_path / "t.docx"
     doc.save(path)
     assert not rules_sections._is_case_report(docmodel.load(str(path)))
+
+
+def test_quoted_keywords_lose_their_quotes_before_case_and_order(tmp_path):
+    # The author's quotation marks (and the space inside the last one) go; the sheet's case and order then apply:
+    # S 'First word of first keyword should be title case; rest of keywords should be in lower case'.
+    path = make(tmp_path, [("Abstract",), "Background: " + BODY, "Results: " + BODY, "Conclusion: " + BODY,
+                           "KEYWORDS: “Rural schools”, “Sleep quality”, “Screen Time”, “Class Attendance”, “Asthma ”",
+                           "Introduction", BODY] + REFS)
+    out = run(path, only=["sections_keywords"])
+    assert out[4] == "Keywords: Asthma, class attendance, rural schools, screen time, sleep quality"
+
+
+def test_acknowledgements_heading_on_its_own_line_drops_the_s(tmp_path):
+    # S: 'If heading "Acknowledgements" is present, then please delete "s"' (G146: "Acknowledgement"), also when the
+    # heading rule recases an all-caps heading
+    path = make(tmp_path, ["Introduction", BODY, "Discussion", BODY, "ACKNOWLEDGEMENTS",
+                           "We thank the teachers of the three schools for their help.", "ACKNOWLEDGMENTS:"] + REFS)
+    out = run(path, only=["heading_tags", "sections_headings", "sections_back_matter"])
+    assert "<H1>Acknowledgement" in out and not any("Acknowledgements" in t or "ACKNOWLEDG" in t for t in out)
+    assert not any(t.endswith("Acknowledgments") for t in out)
+
+
+def test_en_dash_compound_in_a_sentence_case_heading(tmp_path):
+    # S "H2 | Sentence Case": the part after an en dash joining a compound is lowered as after a hyphen (the author's
+    # dash kept); a name joined so ("Kaplan–Meier") keeps its capitals
+    text = BODY + " The health of the pupils and their health-related quality of life were measured twice."
+    path = make(tmp_path, ["Introduction", text, "Methods", BODY, ("Health–Related Quality of Life",), BODY,
+                           ("Kaplan–Meier Survival Estimates",), BODY, "Discussion", BODY] + REFS)
+    out = run(path, only=["heading_tags", "sections_headings", "subheadings"])
+    assert "<H2>Health–related quality of life" in out
+    assert "<H2>Kaplan–Meier survival estimates" in out

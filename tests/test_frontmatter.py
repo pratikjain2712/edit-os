@@ -498,6 +498,27 @@ def test_proper_noun_backstop():
     assert fm.recase("in Timor-Leste", "sentence", ["Timor-Leste"]) == "In Timor-Leste"
 
 
+def test_recase_en_dash_compound():
+    # An en dash joining a compound is no phrase break: the part after it follows the case rule (the dash is kept)
+    assert fm.recase("Sleep Quality and School Health–Related Outcomes in Rural Pupils", "sentence", []) == \
+        "Sleep quality and school health–related outcomes in rural pupils"
+    assert fm.recase("SCHOOL HEALTH–RELATED OUTCOMES", "sentence", []) == "School health–related outcomes"
+    assert fm.recase("school health–related outcomes", "title", []) == "School Health–Related Outcomes"
+    # before an article, or after an em dash, a new phrase still starts with a capital
+    assert fm.recase("Reading Programmes–A Systematic Review", "sentence", []) == "Reading programmes–A systematic review"
+
+
+def test_glued_name_spaced_as_the_xml_has_it():
+    xml = [fm.Author("Kavya", "Raman"), fm.Author("Lena", "Ortiz Vega"), fm.Author("Omar", "Haddad")]
+    assert fm.unglued_name(fm.Author("", "KavyaRaman"), xml) == ("Kavya", "Raman")
+    assert fm.unglued_name(fm.Author("KAVYARAMAN", ""), xml) == ("KAVYA", "RAMAN")  # the title page's letters
+    assert fm.unglued_name(fm.Author("Lena", "OrtizVega"), xml) == ("Lena", "Ortiz Vega")
+    assert fm.unglued_name(fm.Author("Kavya", "Raman"), xml) is None  # already spaced
+    assert fm.unglued_name(fm.Author("", "KavyaRamana"), xml) is None  # other letters: another spelling
+    assert fm.unglued_name(fm.Author("", "OmarHadad"), xml) is None
+    assert fm.unglued_name(fm.Author("", "RamanKavya"), xml) is None  # not the same order
+
+
 def test_cite_name_order_follows_the_co_authors():
     f = fm.Fields(authors=[fm.Author("Nguyen Thi", "Diep"), fm.Author("", "Tran Hoa"), fm.Author("", "Al Amin")])
     fm._consistent_name_order(f)
