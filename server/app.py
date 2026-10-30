@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from edit_os import autopilot, docview, pipeline, rule_sources, spend, style as style_mod
+from edit_os import autopilot, docview, package_fix, pipeline, rule_sources, spend, style as style_mod
 from edit_os.changes import Layer, Source, Status
 
 from . import db, sessions
@@ -613,6 +613,9 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         path = pipeline.file_paths(outdir, stem)[fkind]
         if not os.path.exists(path):
             raise HTTPException(404, "Not rendered yet")
+        if kind in ("tracked", "clean"):  # files rendered before the fix too (a chart shared by two drawings)
+            with job_lock(job["id"]):
+                package_fix.fix(path)
         disposition = "inline" if kind == "qc_report" else "attachment"
         return FileResponse(path, media_type=media, filename=download_name(job.get("input_name"), stem, path),
                             content_disposition_type=disposition)

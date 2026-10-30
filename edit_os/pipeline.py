@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import spend
+from . import package_fix, spend
 from . import docmodel, revisions, rules_guide, figures_insert, first_author, frontmatter, header, legends, leftovers, qc, queries, rules, rules_format, style as style_mod, submission, supplied, tracked
 from .changes import Change, ChangeSet, Layer, Source, Status
 from .style import JournalStyle
@@ -461,6 +461,8 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
 
     render("tracked", True, tracked_statuses, True).save(paths["tracked"])
     render("clean", False, (Status.ACCEPTED,), False).save(paths["clean"])
+    for kind in ("tracked", "clean"):  # Word's package rules: a chart used by one drawing only, unique drawing ids
+        package_fix.fix(paths[kind])
     queries.write_sheet(docmodel.load(src), qs, paths["queries"], man["stem"])
 
     n_pending = sum(c.status == Status.SUGGESTED for c in changes.changes) + \
