@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9", "boto3>=1.34"]
-dev = ["pytest>=8", "httpx>=0.27", "edit-os[server]"]
+dev = ["pytest>=8", "pytest-xdist>=3.5", "httpx>=0.27", "edit-os[server]"]  # pytest -n auto: the suite in parallel
 
 [tool.setuptools.packages.find]
 include = ["edit_os*"]  # server/, integrations/, web/ are not part of the library

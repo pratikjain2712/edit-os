@@ -1,5 +1,7 @@
 """Every journal style file loads, has a name, and only sets keys the code reads (those in base.yaml)."""
 
+import copy
+import functools
 import glob
 import os
 
@@ -28,9 +30,14 @@ def _paths(node, prefix="", base=None):
     return out
 
 
-def _base():
+@functools.cache
+def _base_parsed():
     with open(os.path.join(style.STYLES_DIR, "base.yaml"), encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _base():
+    return copy.deepcopy(_base_parsed())  # parsed once; a copy each time, as a fresh parse was
 
 
 def test_there_is_a_file_per_stylesheet():
