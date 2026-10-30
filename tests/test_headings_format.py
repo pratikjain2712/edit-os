@@ -338,7 +338,7 @@ def test_abstract_labels_with_a_dash(tmp_path):
 
 # --- 10. new paragraphs aligned -------------------------------------------------------------------------------------
 
-def test_paragraphs_a_change_opens_are_left_aligned(tmp_path):
+def test_paragraphs_a_change_opens_take_the_journal_alignment(tmp_path):
     doc = Document()
     for t in ["Introduction", BODY, "Conclusion"]:
         doc.add_paragraph(t)
@@ -352,4 +352,4 @@ def test_paragraphs_a_change_opens_are_left_aligned(tmp_path):
     doc.save(path)
     _, out = _render(path, _st("jehp"))
     ack = _para(_paras(out), "<H1>Acknowledgement")
-    assert ack[2] == "left" and _heading_ok(ack, 14)
+    assert ack[2] == "both" and _heading_ok(ack, 14)  # JEHP justified (owner, 2026-10-30)

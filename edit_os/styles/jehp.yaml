@@ -266,7 +266,9 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   fonts:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (32 of 33 articles)
-    align: left                # G16 "left aligned"; headings 14 pt (owner, 2026-10-26: keep the guide)
+    # Owner, 2026-10-30: follow the editors, the text justified (30 of 35 final files), over G16 "left aligned" (the
+    # owner's 2026-10-26 "keep the guide"). The running head stays centred, table cells left (G193-194, 2026-10-27).
+    align: both
     # owner, 2026-10-27: follow the guide (G193, G194): table text 12 pt and aligned left, "No other alignment should
     # be done" -- replaces the owner's 2026-10-26 "table cells keep the alignment they were typed with"
     table_align: left

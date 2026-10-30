@@ -47,7 +47,8 @@ def test_size_font_and_align_settings_are_on_for_ijo_jehp_and_mjdrdypu():
     for code in ("ijo", "jehp", "mjdrdypu"):  # MJDRDYPU: owner, 2026-10-26
         cfg = rules_format.fonts_settings(style.load(code))
         assert cfg and cfg["family"] == "Times New Roman" and cfg["size"] == 12 and cfg["heading_size"] == 14
-        assert cfg["align"] == "left" and cfg["running_head_align"] == "center"
+        # JEHP justified like its editors (owner, 2026-10-30); IJO and MJDRDYPU left (G16)
+        assert cfg["align"] == ("both" if code == "jehp" else "left") and cfg["running_head_align"] == "center"
     assert rules_format.fonts_settings(style.load("ijdr")) is None  # base: off until the owner confirms
     assert rules_format.insert_format(style.load("ijo"), "title") == {"size": 14, "font": "Times New Roman"}
     assert rules_format.insert_format(style.load("ijo"), "authors") == {"size": 12, "font": "Times New Roman"}
