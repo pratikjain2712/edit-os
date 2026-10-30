@@ -395,7 +395,7 @@ queries:
 # accepted changes the final text has, against those where it kept the author's wording.
 autopilot:
   # Left for the editor to confirm (the rules stay on; the stylesheet / guide asks for them, the editors mostly skip):
-  #   use abbreviation   S: "only abbreviation should be used thereafter" (final text 0 of 11)
+  #   (use abbreviation: held until 2026-10-30; S: "only abbreviation should be used thereafter", final text 0 of 11)
   #   sections_back_matter.added  G283: "If information of SoS/CoI is not provided ... keep both as Source of support: Nil"
   #                      (the statements added with "Nil.": 0 of 3)
   #   guide.unary_comparison  G301: '"><space>10" -> ">10"' (0 of 5; editors keep the author's space)
@@ -407,5 +407,7 @@ autopilot:
   # the text closure 23.1% -> 22.5%. ref_year / ref_pages / ref_issue (S: "J Pharm Bioall Sci 2017;9:80-7", G165,
   # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
   # Not held: sections_abstract.rename:methods (S, struck through but live: owner, 2026-10-26).
-  hold: [sections_back_matter.consent_added, figure_insert, use abbreviation,
+  # "use abbreviation" no longer held (owner, 2026-10-30): the sheet asks for it and QC marked it missing in JEHP_73_26;
+  # the editors skipping it is an editor miss (CLAUDE.md), not a reason to wait for them.
+  hold: [sections_back_matter.consent_added, figure_insert,
          sections_back_matter.added, guide.unary_comparison, table_caption_duplicate.differs]
