@@ -34,7 +34,7 @@ def test_a_chart_used_twice_gets_its_own_copy(tmp_path):
     # Word refused the whole file (JEHP_73_26)
     p = str(tmp_path / "t.docx")
     make(p, 2)
-    assert package_fix.fix(p) == {"charts_copied": 1, "drawing_ids_renumbered": 1}
+    assert package_fix.fix(p) == {"charts_copied": 1, "drawing_ids_renumbered": 1, "local_links_removed": 0}
     z = zipfile.ZipFile(p)
     doc = z.read("word/document.xml").decode()
     rids = re.findall(r'c:chart r:id="([^"]+)"', doc)
@@ -47,12 +47,32 @@ def test_a_chart_used_twice_gets_its_own_copy(tmp_path):
     assert z.read("word/embeddings/book2.xlsx") == b"PK-xlsx"
     ct = z.read("[Content_Types].xml").decode()
     assert 'PartName="/word/charts/chart2.xml"' in ct and 'PartName="/word/embeddings/book2.xlsx"' in ct
-    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0}  # idempotent
+    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0}
 
 
 def test_a_file_without_shared_charts_is_left_as_it_is(tmp_path):
     p = str(tmp_path / "t.docx")
     make(p, 1)
     before = open(p, "rb").read()
-    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0}
+    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0}
     assert open(p, "rb").read() == before
+
+
+def test_chart_link_to_the_authors_computer_removed(tmp_path):
+    # Protected View refused a file whose chart linked to "file:///C:/Users/.../data.xlsx" (JEHP_73_26)
+    p = str(tmp_path / "t.docx")
+    make(p, 1)
+    with zipfile.ZipFile(p) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+    parts["word/charts/chart1.xml"] = (b'<c:chartSpace><c:chart/><c:externalData r:id="rId2"><c:autoUpdate val="0"/>'
+                                       b'</c:externalData></c:chartSpace>')
+    parts["word/charts/_rels/chart1.xml.rels"] = (
+        b'<Relationships><Relationship Id="rId2" Type="http://x/oleObject" '
+        b'Target="file:///C:\\Users\\U\\data.xlsx" TargetMode="External"/></Relationships>')
+    with zipfile.ZipFile(p, "w") as z:
+        for n, b in parts.items():
+            z.writestr(n, b)
+    assert package_fix.fix(p)["local_links_removed"] == 1
+    z = zipfile.ZipFile(p)
+    assert z.read("word/charts/chart1.xml") == b"<c:chartSpace><c:chart/></c:chartSpace>"
+    assert b"data.xlsx" not in z.read("word/charts/_rels/chart1.xml.rels")
