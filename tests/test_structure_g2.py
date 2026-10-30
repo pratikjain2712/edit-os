@@ -347,7 +347,10 @@ def test_a_questionnaire_file_is_supplementary_material(tmp_path):
 def test_a_questionnaire_that_cannot_be_copied_gets_the_heading_and_a_query(tmp_path):
     q = _docx(["QUESTIONNAIRE", "", "How old are you?"], boxes={1: "Tick one"})
     z = _zip(tmp_path, {"INSTRUMENT_Questionnaire.docx": q})
-    got, out = _accepted_run(z, journal("jehp"), tmp_path)
+    st = journal("jehp")
+    assert "supplied.supplementary_file" in st.get("queries.drop")  # JEHP editors never ask it (owner, 2026-10-30)
+    st.settings["queries"]["drop"] = []
+    got, out = _accepted_run(z, st, tmp_path)
     i = got.index("<H2>Supplementary Material")
     assert "QUESTIONNAIRE" not in got
     qs = [d for d in pipeline.load_records(str(tmp_path / "out"))[3] if d["check"].startswith("supplied")]

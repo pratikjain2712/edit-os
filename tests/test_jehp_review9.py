@@ -290,9 +290,14 @@ def test_cvi_and_cvr_are_queried(tmp_path):
     path = make(tmp_path, ["Introduction", "Content validity was examined by seven experts and the resulting CVI and "
                            "CVR were both 1.0 for the questionnaire, with a left LV mass in Class III patients."]
                 + _refs("A A. One. J T 2020;1:1-2."))
-    _, qs = abbrev.collect(docmodel.load(path), jehp_style())
+    st = jehp_style()
+    st.settings["copyedit"]["abbreviations"].update(query=["CVI", "CVR"], query_undefined_min_uses=1)
+    _, qs = abbrev.collect(docmodel.load(path), st)
     asked = {q.text.split(":")[0] for q in qs if q.check == "abbrev.undefined"}
     assert {"CVI", "CVR", "LV"} <= asked and "III" not in asked
+    # JEHP itself no longer forces them, and asks only abbreviations used 3 times (owner, 2026-10-30)
+    _, qs = abbrev.collect(docmodel.load(path), jehp_style())
+    assert [q for q in qs if q.check == "abbrev.undefined"] == []
 
 
 # --- 12. table footnotes ------------------------------------------------------------------------------------------------

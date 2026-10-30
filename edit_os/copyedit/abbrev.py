@@ -513,6 +513,25 @@ def _title_like(p: Paragraph) -> bool:
 _MINOR = {"a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for", "with", "by", "from", "vs", "versus", "among"}
 
 
+def _not_worth_asking(ms: Manuscript, key: str, cfg: dict) -> bool:
+    """An undefined abbreviation the editors would not ask about (JEHP, owner 2026-10-30: 578 such queries in 266
+    articles, the editors about 20 in 302): used fewer than `query_undefined_min_uses` times, a word in capitals
+    ("METHODS", "TITLE", "BETTER"), or written in mixed case ("MeSH", "MSc", "ArcGIS"; `query_undefined_plain_only`)."""
+    least = int(cfg.get("query_undefined_min_uses", 1) or 1)
+    if least > 1:
+        pat = re.compile(r"(?<![\w\-])" + re.escape(key) + r"s?(?![\w\-])")
+        if sum(len(pat.findall(p.text)) for p in ms.paragraphs) < least:
+            return True
+    if cfg.get("query_undefined_plain_only"):
+        if not key.replace("&", "").isupper():
+            return True
+        from ..refengine import _dictionary_words
+
+        if len(key) >= 4 and key.lower() in _dictionary_words()[0]:
+            return True
+    return False
+
+
 def _names_in_capitals(ms: Manuscript) -> set[str]:
     """Words in capitals the article shows to be names, not acronyms (S: "Look for undefined acronyms"): a brand
     or product marked ® / ™ ("ZEISS®", "CIRRUS™"), or a maker the article names in its manufacturer brackets
@@ -649,7 +668,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                                              "abbrev.before_definition"))
             elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \
                     and key not in expanded and key not in known \
-                    and not (cfg.get("skip_names", True) and key in names):
+                    and not (cfg.get("skip_names", True) and key in names) \
+                    and not _not_worth_asking(ms, key, cfg):
                 # Codes with digits or hyphens (gene names, scales such as GDS-15) are rarely queried.
                 queried.add(key)  # once per manuscript
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))

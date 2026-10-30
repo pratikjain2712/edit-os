@@ -188,6 +188,7 @@ def test_compound_dash_in_a_caption_after_the_references(tmp_path):
         d.add_paragraph(t)
     d.save(tmp_path / "a.docx")
     ms = docmodel.load(str(tmp_path / "a.docx"))
-    got = [(ms.by_id(c.para_id).text[:8], c.new) for c in rules_text.collect(ms, style.load("jehp"))
-           if c.reason == "text.compound_dash"]
+    st = style.load("jehp")  # off for JEHP since 2026-10-30 (editors kept the en dash 53 of 64); the mechanism stays
+    st.settings["text"]["compound_dash"]["enabled"] = True
+    got = [(ms.by_id(c.para_id).text[:8], c.new) for c in rules_text.collect(ms, st) if c.reason == "text.compound_dash"]
     assert got == [("Table 1:", "-")]

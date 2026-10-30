@@ -156,6 +156,9 @@ tables:
   cell_rows_query: true
 
 sections:
+  # The editors' standing query: "Please ensure that the section heading levels are treated correctly." (about 85 of
+  # 302 articles; owner, 2026-10-30: every article), on the first heading after the abstract
+  heading_levels_query: true
   keywords:
     max_query: false  # owner, 2026-10-28: no "Kindly provide a maximum of 5 key words" (12 asked, the editors 0)
   # S: the reference list's heading is "REFERENCES" (set in title case as the other H1 heads): "Reference" ->
@@ -320,15 +323,27 @@ copyedit:
     # Instructions to all journals: "If a term is not used again, an abbreviation is not needed"; QC removed "(WHO)",
     # "(NOHP)", "(NPOP)" in JEHP_73_26 ("Unused abbrv").
     unused_definition: change
-    allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD]
-    # S302 "Look for undefined acronyms and raise query": the questionnaire-validation and model-fit indices the common
-    # list lets pass are not general terms ("content validity was CVI 0.9, CVR 0.8")
-    query: [CVI, CVR, CFI, TLI, GFI, AGFI, NFI, NNFI, IFI, RMSEA, SRMR, AVE, HTMT]
+    allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD,
+            # names, reporting guidelines, databases and publishers the editors never ask to expand (266 articles,
+            # owner 2026-10-30)
+            BMC, IEEE, UNESCO, UNICEF, UNODC, ILO, MDPI, PLOS, EBSCO, JBI, PRISMA, COREQ, CONSORT, STROBE, SRQR,
+            PICO, PICOS, PCC, AMSTAR, ICMJE, EQUATOR, AMEE, APA, IRCT, CTRI, SID, WOS, WoS, MATLAB, SPSS, JASP,
+            AMOS, NVivo, MAXQDA, CSV, STEM, LGBTQ, APGAR, IMRaD, AIIMS, NGO, SDG, IRB, IEC, Q&A, DOI, NASA, GDP, IMF,
+            OECD, ISO, UCLA, PMCID, CEO]
+    # The fit and validity indices (CVI, CVR, RMSEA, ...) were asked on purpose (S302); the editors never ask them
+    # (266 articles), so no longer (owner, 2026-10-30).
+    query: []
+    # "Kindly expand" for an abbreviation the article uses at least 3 times and that is no word in capitals or
+    # mixed-case name: the editors asked about 20 in 302 articles, we asked 578 in 266 (owner, 2026-10-30)
+    query_undefined_min_uses: 3
+    query_undefined_plain_only: true
 
 text:
   # JEHP_73_26, QC comments: "Inconsistent en dash & hyphen use" ("oral health–related" beside "health-related") and
   # "aged between 65 and 70 years old": "old" redundant
-  compound_dash: {enabled: true, tables: true}  # table captions too ("poor oral health–related", Table 7)
+  # Off (2026-10-30): on 266 articles the final text kept the en dash 53 times, took the hyphen 11 (17%); the sheet is
+  # silent, so the editors' practice stands (the QC comment on JEHP_73_26 was one reviewer's)
+  compound_dash: {enabled: false, tables: true}
   aged_years_old: {enabled: true}
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
 
@@ -367,6 +382,9 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
     # Off: the sheet does not ask for authors' full names (QC on JEHP_73_26: "I did not find any mention of full names
     # in the style guide"); initials are printed as given.
     full_name: false
+    # The editors' standing query on the author group: "Please ensure that the author names and affiliations are
+    # treated correctly." (about 55 of 302 articles; owner, 2026-10-30: every article)
+    authors_check: true
     # Off, for the owner: one style editor's habits, asked in few of the articles where the condition holds.
     #   type_source  "Kindly note that the “Article type” provided in FP / XML file has been followed.": 8 of 35
     #                articles (7 of that editor's 8), every article taking its type from the title page or XML
@@ -390,6 +408,27 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
 queries:
   unmatched_brackets: true  # "(−1.20,3.40))", a stray bracket: only the author knows what was meant (the sheet asks
                             # queries for what cannot be fixed)
+  # Queries the JEHP editors never raise (302 articles, their comments and the queries they type into the text; we
+  # raised each in the number of articles shown, the editors a query of that kind in 0 or 1 of them). Dropped by the
+  # owner, 2026-10-30 ("remove queries which editors never ask"), including the sheet's own abstract word limit,
+  # 50-character running title and equation-image queries.
+  # "Kindly provide complete manufacturer details such as company name, city, state and country name." (asked in 19 of
+  # 302 articles, mostly for SPSS). Built, but off until the owner decides: the condition (a package named without its
+  # maker's details) holds in 158 of 266 articles, the editors asked in 18 of them and added the details in 2.
+  manufacturer: false
+  drop:
+    - abstract.too_long               # 150 articles, editors 0
+    - front.running_head_long         # 94, 1
+    - references.wrong_id             # 49, 0 ("The DOI given points to a different article")
+    - text.brackets                   # 36, 0
+    - tables.empty_head_cells         # 16, 0
+    - tables.cell_rows                # 15, 0
+    - supplied.supplementary_file     # 15, 1
+    - abstract.citations              # 14, 0
+    - sections.statement_twice        # 7, 0
+    - figures.equation_image          # 5, 0
+    - text.instruction                # 2, 0
+    - figures.table_caption_duplicate # 2, 0
 
 # Measured against the final copy-edited files (tools/eval_final.py; 17 training articles): rule precision = the
 # accepted changes the final text has, against those where it kept the author's wording.

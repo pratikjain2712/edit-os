@@ -57,6 +57,8 @@ TEXT = {
     "sections.conclusion": "Kindly provide the conclusion.",
     "figures.legend_missing": "Kindly provide the legend for Figure {n}.",
     "text.brackets": "The brackets here do not match. Kindly check.",
+    "text.manufacturer": "Kindly provide complete manufacturer details such as company name, city, state and country "
+                         "name.",
     "text.instruction": "This looks like a drafting instruction left in the text (“{quote}”). Kindly check and "
                         "delete it, or provide the final text.",
     "references.incomplete": "This reference is incomplete (no {missing}). Kindly provide the complete details.",
@@ -103,6 +105,36 @@ def original_article(ms: Manuscript) -> bool:
     need = [{"introduction", "background"}, {"materials and methods", "methods", "patients and methods",
                                              "subjects and methods", "methodology"}, {"results"}, {"discussion"}]
     return all(heads & n for n in need)
+
+
+# Statistics software the JEHP editors ask the maker of ("SPSS version 26" -> "Kindly provide complete manufacturer
+# details ..."; 19 of 302 articles, SPSS in nearly all, also JASP, AMOS, G*Power)
+_SOFTWARE = re.compile(r"(?<![\w\-])(?:IBM\s+)?(?:SPSS|SSPS|AMOS|JASP|G\s?\*\s?Power|Stata|STATA|NVivo|MAXQDA|SmartPLS|LISREL|"
+                       r"Mplus|MedCalc|jamovi|Jamovi|GraphPad\s+Prism|Epi\s?Info|ATLAS\.ti)(?![\w\-])")
+_MAKER_DETAILS = re.compile(r"\b(?:Corp|Corporation|Inc|Ltd|LLC|GmbH|Armonk|Chicago|College Station|Amsterdam|"
+                            r"Berlin|Melbourne|Hamburg|Bönningstedt|Doncaster|San Diego|Ostend|Düsseldorf|USA|U\.S\.A|"
+                            r"Netherlands|Germany|Australia|Belgium|StataCorp|Lumivero|QSR|VERBI|IBM\s+Corp)\b")
+
+
+def manufacturer_missing(paras):
+    """(paragraph, span) of the first mention of each statistics package named without its maker's details nearby
+    (company, city, country: "(IBM Corp., Armonk, NY, USA)"); one query per package."""
+    seen = set()
+    out = []
+    for p in paras:
+        if p.in_table:
+            continue
+        for m in _SOFTWARE.finditer(p.text):
+            name = re.sub(r"\W|IBM", "", m.group(0)).upper().replace("SSPS", "SPSS")
+            if name in seen:
+                continue
+            seen.add(name)
+            after = p.text[m.end():m.end() + 160]
+            nxt = _SOFTWARE.search(after)  # the details given for the next package are not this one's
+            near = after[:nxt.start()] if nxt else after
+            if not _MAKER_DETAILS.search(near):
+                out.append((p, (m.start(), m.end())))
+    return out
 
 
 def unmatched_brackets(text: str) -> tuple[int, int] | None:
@@ -425,6 +457,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
             span = unmatched_brackets(p.text)
             if span:
                 qs.add(p.id, "text.brackets", *span)
+    if style.get("queries.manufacturer", False):
+        ref_ids = {r.para_id for r in refs}
+        for p, span in manufacturer_missing([p for p in ms.paragraphs if p.id not in ref_ids]):
+            qs.add(p.id, "text.manufacturer", *span)
     if style.get("queries.drafting_instructions", True):
         ref_ids = {r.para_id for r in refs}
         for p in ms.paragraphs:

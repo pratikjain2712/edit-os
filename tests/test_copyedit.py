@@ -444,9 +444,11 @@ def test_abbreviation_false_queries_cut(tmp_path):
         "HD: Conceptualization. SM contributed to the analysis.",
         "Use of AI: ChatGPT (OpenAI) helped with the language.",
     ])
-    st = journal("jehp", abbreviations={})
+    st = journal("jehp", abbreviations={"query_undefined_min_uses": 1})
     got = sorted(q.text.split(":")[0] for q in abbrev.collect(ms, st)[1] if q.check == "abbrev.undefined")
     assert got == ["QZR", "XDQ"]
+    # JEHP (owner, 2026-10-30): only an abbreviation used 3 times or more is asked
+    assert [q for q in abbrev.collect(ms, journal("jehp", abbreviations={}))[1] if q.check == "abbrev.undefined"] == []
     # Without `defined_in_article` (other journals) the abstract's and the list's definitions and institutions count.
     st = journal("mjdrdypu", abbreviations={"allow": []})  # IJO too has defined_in_article (owner, 2026-10-28)
     got = sorted(q.text.split(":")[0] for q in abbrev.collect(ms, st)[1] if q.check == "abbrev.undefined")

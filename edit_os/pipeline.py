@@ -357,6 +357,8 @@ def _edit(input_path: str, journal: str | JournalStyle, outdir: str, stages=STAG
     changes.changes = submission.drop_inside_deleted(changes.changes)
     changes.changes += rules_guide.collapse_double_spaces(ms, st, changes.changes)  # none left by other changes
     _unique_ids(changes.changes)
+    drop = set(st.get("queries.drop") or [])  # checks the journal's editors never raise (owner's list)
+    qs.queries = [q for q in qs.queries if q.check not in drop]
     if "style" in stages:
         queries.condense(ms, st, qs)  # one query per reference, the uncited ones together
     queries.keep_anchors_live(ms, qs, changes.changes, inserts)  # never on a paragraph emptied or deleted

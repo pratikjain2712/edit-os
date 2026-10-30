@@ -2826,6 +2826,7 @@ def _supplementary(ms: Manuscript, style: JournalStyle) -> list[Change]:
 TEXT = {
     "abstract.citations": "Reference citations should not be present in the abstract. Kindly check.",
     "abstract.too_long": "As per journal style, kindly reduce the abstract to {n} words.",
+    "sections.heading_levels_check": "Please ensure that the section heading levels are treated correctly.",
     "abstract.structured_case_report": "Please note that in the Case Report there shouldn’t be any structured "
                                        "abstract, hence will have to remove the headings.",
     "keywords.too_many": "Kindly provide a maximum of {n} key words.",
@@ -2901,6 +2902,18 @@ def add_queries(ms: Manuscript, style: JournalStyle, qs) -> None:
     if not _cfg(style, "enabled", True):
         return
     lay = layout(ms)
+    if _on(style, "heading_levels_query"):
+        # the JEHP editors' standing query, on the first section heading after the abstract ("Please ensure that the
+        # section heading levels are treated correctly.": about 85 of 302 articles; owner, 2026-10-30)
+        from .rules_format import heading_levels
+
+        skip = {p.id for p in [lay.abstract_head, lay.keywords] if p is not None} | {p.id for p in lay.abstract}
+        order = {p.id: i for i, p in enumerate(ms.paragraphs)}
+        after = order.get(lay.abstract[-1].id, -1) if lay.abstract else -1
+        heads = sorted((order[pid], pid) for pid in heading_levels(ms, style) if pid in order and pid not in skip
+                       and order[pid] > after)
+        if heads:
+            qs.add(heads[0][1], "sections.heading_levels_check")
     if _on(style, "headings.rename_query"):
         # a section heading the journal's rename list changes ("Materials and Methods" -> "Methods"): the IJO editors
         # say so on the heading (4 of the 6 articles with such a rename); a plural alone is no new heading

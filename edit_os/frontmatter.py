@@ -52,6 +52,7 @@ queries.TEXT.update({
     "front.article_type": "Kindly provide article type.",
     "front.confirm_type": "Kindly confirm article type.",
     "front.full_name": "Kindly provide the full name of author “{name}”.",
+    "front.authors_check": "Please ensure that the author names and affiliations are treated correctly.",
     "front.running_head_long": "The running title has more than {n} characters. Kindly shorten it to {n} characters "
                                "or fewer.",
     "front.country": "Kindly provide the country name for the affiliation.",
@@ -1789,6 +1790,10 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             qs.append(("front.xml_name", {"name": a.written, "_block": "authors", "_quote": name}))
         elif not full and (cfg.get("queries") or {}).get("full_name", True):  # on the author's name, naming them
             qs.append(("front.full_name", {"name": name, "_block": "authors", "_quote": name}))
+
+    if names and _query_on(cfg, "authors_check"):
+        # the JEHP editors' standing query on the author group (about 55 of 302 articles; owner, 2026-10-30)
+        qs.append(("front.authors_check", {"_block": "authors"}))
 
     if f.xml_only:
         qs.append(("front.xml_only_author", {"names": ", ".join(f.xml_only)}))

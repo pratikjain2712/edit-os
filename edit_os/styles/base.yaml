@@ -329,6 +329,9 @@ tables:  # table body layout (edit_os/rules_tables.py); the guide's TABLE sectio
 
 queries:  # author queries on the text (edit_os/queries.py)
   unmatched_brackets: false  # true: a stray bracket ("(−1.20,3.40))") -> query (JEHP)
+  drop: []                   # query checks never raised in this journal ("abstract.too_long", ...; pipeline.py)
+  manufacturer: false        # software named without its maker's details (SPSS, NVivo ...): "Kindly provide complete
+                             # manufacturer details such as company name, city, state and country name."
   # queries.condense (owner, 2026-10-28: no query the editors would not write; every ask the sheet needs is kept):
   condense: true             # false: the queries as each check raises them
   merge_uncited: true        # uncited references in one query ("Reference nos. 19, 24 and 27–29 have not been
@@ -374,6 +377,7 @@ renumber:                       # duplicate references and citation-order renumb
   compress_from: 3              # renumbered [4,5,6] -> [4-6]; two numbers stay a list
 
 sections:  # headings, abstract, key words, back matter (edit_os/rules_sections.py)
+  heading_levels_query: false  # "Please ensure that the section heading levels are treated correctly." (always)
   enabled: true
   headings:
     strip_numbering: true      # "1. Introduction" -> "Introduction" (recognised headings only)
@@ -561,6 +565,7 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
     xml_name: false       # a name the title page shortens ("Dewi S.") and the submission XML gives in full
     type_source: false    # "Kindly note that the “Article type” provided in FP / XML file has been followed."
     full_name: true       # an author given by initials only: "Kindly provide the full name of author “S Meenakshi”."
+    authors_check: false  # "Please ensure that the author names and affiliations are treated correctly." (always)
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
   correspondence_drop_street: false  # street / building / office parts dropped when the address names the institution
@@ -656,6 +661,8 @@ copyedit:
     query: []                  # abbreviations of the common list still asked for in this journal (JEHP: CVI, CVR)
     skip_names: true           # a word in capitals the article shows to be a name ("ZEISS®", "ZEISS" next to "Carl
                                # Zeiss") is no undefined acronym: not queried
+    query_undefined_min_uses: 1  # "Kindly expand" only for an abbreviation used at least this often in the article
+    query_undefined_plain_only: false  # true: not for words in capitals ("METHODS") or mixed case ("MeSH", "MSc")
     defined_in_article: false  # true: no "Kindly expand" for an abbreviation the article expands elsewhere (the
                                # abstract, an abbreviation list or table note, "(SCOFF)" after its description)
   languagetool:
