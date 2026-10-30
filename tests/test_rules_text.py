@@ -162,3 +162,14 @@ def test_spelling_in_compounds_and_extra_variants(tmp_path):
     out = {c.para_id: c for c in spelling.check(ms, st, v)}
     assert [(c.old, c.new) for c in spelling.check(ms, st, v)] == [("greyish", "grayish"), ("analogues", "analogs")]
     assert ms.paragraphs[2].id not in out  # the instrument's name is kept
+
+
+def test_compound_dash_and_aged_years_old():
+    # JEHP_73_26 QC: "Inconsistent en dash & hyphen use"; "aged between 65 and 70 years old": "old" redundant
+    from edit_os.rules_text import Context, find_aged_years_old, find_compound_dash
+
+    ctx = Context.from_texts(["We measured oral health-related quality of life."])
+    t = "Poor oral health–related quality of life; a 2015–2020 study; drug–drug interactions."
+    assert [(t[s:e], n) for s, e, n in find_compound_dash(t, {}, ctx)] == [("–", "-")]
+    t = "The majority were aged between 65 and 70 years old. A 45 years old man."
+    assert [(t[s:e], n) for s, e, n in find_aged_years_old(t, {}, ctx)] == [(" old", "")]

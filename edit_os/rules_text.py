@@ -33,6 +33,7 @@ from .style import JournalStyle
 # --- context ---------------------------------------------------------------------------
 
 _WORDS = re.compile(r"(?<![\w\-])[A-Za-z][a-z]+(?![\w])")
+_COMPOUND = re.compile(r"(?<![\w\-–])[A-Za-z]{2,}[-–][a-z]{2,}(?![\w\-–])")
 
 
 @dataclass
@@ -41,16 +42,19 @@ class Context:
     lower case in running text (so "Vitreous" mid-sentence is a common noun when the author
     also writes "vitreous")."""
     lower: Counter = field(default_factory=Counter)
+    hyphenated: set = field(default_factory=set)  # compounds the author writes with a hyphen ("health-related")
 
     @classmethod
     def from_texts(cls, texts) -> "Context":
         c = Counter()
+        hy = set()
         for t in texts:
             for m in _WORDS.finditer(t):
                 w = m.group(0)
                 if w[0].islower():
                     c[w] += 1
-        return cls(c)
+            hy.update(m.group(0).lower() for m in _COMPOUND.finditer(t) if "-" in m.group(0))
+        return cls(c, hy)
 
 
 _PROTECT = re.compile(
@@ -372,12 +376,32 @@ def find_ranges(text: str, cfg: dict, ctx: Context) -> list:
     return out
 
 
+def find_compound_dash(text: str, cfg: dict, ctx: Context) -> list:
+    """A compound word joined by an en dash that the article also writes with a hyphen: the hyphen ("oral
+    health–related quality of life" beside "health-related" -> "health-related"; JEHP_73_26, QC: "Inconsistent en
+    dash & hyphen use")."""
+    return [(m.start() + m.group(0).index("–"), m.start() + m.group(0).index("–") + 1, "-")
+            for m in _COMPOUND.finditer(text)
+            if "–" in m.group(0) and m.group(0).replace("–", "-").lower() in ctx.hyphenated]
+
+
+_AGED_OLD = re.compile(r"\baged\b[^.;:()]{0,40}?\d\s*(?:years?|yrs?)(\s+old)\b", re.I)
+
+
+def find_aged_years_old(text: str, cfg: dict, ctx: Context) -> list:
+    """"aged between 65 and 70 years old" -> "aged between 65 and 70 years": "aged" already says it (JEHP_73_26, QC:
+    "Redundant, so removed"). "45 years old" with no "aged" is left."""
+    return [(m.start(1), m.end(1), "") for m in _AGED_OLD.finditer(text)]
+
+
 FINDERS = {
     "lowercase": find_lowercase,
     "prefixes": find_prefixes,
     "number_words": find_number_words,
     "stat_semicolons": find_stat_semicolons,
     "ranges": find_ranges,
+    "compound_dash": find_compound_dash,
+    "aged_years_old": find_aged_years_old,
 }
 
 

@@ -1612,6 +1612,12 @@ class Block:
         return "".join(t for t, _ in self.runs)
 
 
+def rules_text_on(style: JournalStyle, name: str) -> bool:
+    from . import rules_text
+
+    return rules_text.enabled(rules_text.settings(style), name)
+
+
 def _settings(style: JournalStyle) -> dict:
     cfg = dict(style.get("front_matter", {}) or {})
     over = (cfg.pop("journals", {}) or {}).get(style.code.lower(), {})
@@ -1763,6 +1769,13 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     keep = proper_keep([raw_title, f.running_title or meta.running_title], f.proper_nouns, case_body(ms), f.notes)
     colon = cfg.get("capital_after_colon", True)
     title = recase(raw_title, cfg.get("title_case", "sentence"), keep, colon) if raw_title else ""
+    if title and ms is not None and rules_text_on(style, "compound_dash"):
+        # "oral health–related" where the text writes "health-related": the hyphen (JEHP_73_26, QC)
+        from . import rules_text
+
+        ctx = rules_text.Context.from_texts(p.text for p in ms.paragraphs if p.text.strip())
+        for s_, e_, new in reversed(rules_text.find_compound_dash(title, {}, ctx)):
+            title = title[:s_] + new + title[e_:]
 
     # Authors.
     names = []

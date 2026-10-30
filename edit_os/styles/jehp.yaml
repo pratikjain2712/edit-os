@@ -326,6 +326,10 @@ copyedit:
     query: [CVI, CVR, CFI, TLI, GFI, AGFI, NFI, NNFI, IFI, RMSEA, SRMR, AVE, HTMT]
 
 text:
+  # JEHP_73_26, QC comments: "Inconsistent en dash & hyphen use" ("oral health–related" beside "health-related") and
+  # "aged between 65 and 70 years old": "old" redundant
+  compound_dash: {enabled: true}
+  aged_years_old: {enabled: true}
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
 
 front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together. All the affiliations should be complete"

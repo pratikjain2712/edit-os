@@ -56,8 +56,10 @@ def _agent(ms, style, **_):
 
 CHECKERS = {
     "spelling": _spelling,
-    "text": _text,  # edit_os/rules_text.py: prefixes, number words, ranges, ... (settings under `text:`)
+    # abbreviations before the text rules: "oral health–related quality of life" -> "OHRQoL" wins over the dash
+    # alone -> "health-related" (JEHP_73_26); the text rule still mends the full forms left (title, captions)
     "abbreviations": _abbreviations,
+    "text": _text,  # edit_os/rules_text.py: prefixes, number words, ranges, ... (settings under `text:`)
     "languagetool": _languagetool,
     "claude": _claude,  # needs EDITOS_ANTHROPIC_API_KEY and copyedit.claude.enabled; last, so it never wins an overlap
     "agent": _agent,  # edit_os/agent: whole-manuscript editing agent; needs copyedit.agent.enabled (default off)

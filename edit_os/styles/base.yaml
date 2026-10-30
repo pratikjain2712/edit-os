@@ -100,6 +100,8 @@ text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit ch
     enabled: false                 # "intraarterial" -> "intra-arterial"; hyphen kept before capitals, numbers,
     spaced: true                   # the same vowel, -ly adverbs and (post-, pre-) nouns. All journals 441, 55%;
     same_vowel_hyphen: true        # IJO 98, 93%. Keep consistent with copyedit.claude.close_prefixes.
+  compound_dash: {enabled: false}  # "health–related" -> "health-related" where the article also has "health-related"
+  aged_years_old: {enabled: false} # "aged between 65 and 70 years old" -> "... 70 years"
   number_words: {enabled: false}   # "three months" -> "3 months" (time units; not at a sentence start). All 233,
                                    # 52%; IJO 61, 77%; Indian J Psychiatry 21, 95%; IDOJ 12, 100%; ABR 22, 5%
   stat_semicolons: {enabled: false}  # "(p = 0.065), at 3 months ... (p = 0.165)" -> "(p = 0.065); at 3 months":

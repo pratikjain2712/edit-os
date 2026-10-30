@@ -398,7 +398,7 @@ def _unused(ms: Manuscript, key: str, ds: list[Definition], mode: str, changes: 
 
 
 def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, mode: str,
-                changes: list, queries: list, n_uses: int = 0, always: bool = False) -> None:
+                changes: list, queries: list, n_uses: int = 0, always: bool = False) -> int:
     """The full form written out again after the definition: use the abbreviation (not in headings
     or key words). A change only when the author already uses the abbreviation more often than the
     full form after defining it: editors leave a term the author keeps writing out ("retinoblastoma"
@@ -421,7 +421,7 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
                 continue  # an abbreviation list or table note: "CBE = Competency-Based Education"
             found.append((p, m))
     if n_uses <= len(found) and not always:
-        return
+        return 0
     for p, m in found:
         if mode == "change":
             changes.append(change(p, m.start(), m.end(), key + m.group(1), "abbreviations",
@@ -429,6 +429,7 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
         elif mode == "query":
             queries.append(Query(p.id, m.start(), m.end(), TEXT["abbrev.full_form"].format(abbr=key),
                                  "abbrev.full_form"))
+    return len(found)
 
 
 # "ABBR (full form)": the abbreviation first, then its expansion. (Lists of abbreviations and table notes,
@@ -591,14 +592,19 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         unused = {k for k in defs if k not in used}
         unused_mode = cfg.get("unused_definition", "change")
         full_mode = cfg.get("full_form_after_definition", "change")
+        always = bool(cfg.get("full_form_always"))
+        main_text = n_scope == len(all_scopes) - 1  # not in the abstract; with `always`, there too
+        for key, ds in defs.items():
+            if full_mode != "off" and (main_text or always) and (key not in unused or always):
+                # with `always` a definition never used but whose full form comes again is kept, and the full
+                # forms shortened (JEHP_73_26 abstract, QC: "diminished oral health-related quality of life" ->
+                # "OHRQoL", "(OHRQoL)" kept)
+                if _full_forms(scope, order, key, ds[0], full_mode, changes, queries, n_uses.get(key, 0),
+                               always=always):
+                    unused.discard(key)
         for key in unused:
             if unused_mode != "off":
                 _unused(ms, key, defs[key], unused_mode, changes, queries)
-        main_text = n_scope == len(all_scopes) - 1  # not in the abstract
-        for key, ds in defs.items():
-            if key not in unused and full_mode != "off" and main_text:
-                _full_forms(scope, order, key, ds[0], full_mode, changes, queries, n_uses.get(key, 0),
-                            always=bool(cfg.get("full_form_always")))
 
         # Defined twice in one scope: shorten the later definitions to the abbreviation, or query.
         mode = cfg.get("redefinition", "query")
