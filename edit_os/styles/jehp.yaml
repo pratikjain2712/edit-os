@@ -313,6 +313,13 @@ copyedit:
     defined_in_article: true
     redefinition: change  # "full form (ABBR)" again -> "ABBR" (S: "only abbreviation should be used thereafter"),
                           # made rather than queried (owner, 2026-10-28)
+    # S: "only abbreviation should be used thereafter": every full form after the definition, not only where the author
+    # mostly writes the abbreviation (JEHP_73_26: QC changed 30 "oral health-related quality of life" to "OHRQoL", and
+    # "body mass index" to "BMI"); "health–related" with an en dash counts as the same full form.
+    full_form_always: true
+    # Instructions to all journals: "If a term is not used again, an abbreviation is not needed"; QC removed "(WHO)",
+    # "(NOHP)", "(NPOP)" in JEHP_73_26 ("Unused abbrv").
+    unused_definition: change
     allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD]
     # S302 "Look for undefined acronyms and raise query": the questionnaire-validation and model-fit indices the common
     # list lets pass are not general terms ("content validity was CVI 0.9, CVR 0.8")
@@ -353,6 +360,9 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
     # a name the title page shortens and the XML gives in full, printed as written: "Kindly note the Author name
     # provided in XML as “Sonakshi”. Please check and confirm." (1464, 1576, 1683; not 1874 "Andrew M. J. Milewski")
     xml_name: true
+    # Off: the sheet does not ask for authors' full names (QC on JEHP_73_26: "I did not find any mention of full names
+    # in the style guide"); initials are printed as given.
+    full_name: false
     # Off, for the owner: one style editor's habits, asked in few of the articles where the condition holds.
     #   type_source  "Kindly note that the “Article type” provided in FP / XML file has been followed.": 8 of 35
     #                articles (7 of that editor's 8), every article taking its type from the title page or XML

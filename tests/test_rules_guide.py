@@ -176,3 +176,13 @@ def test_p_value_only_the_probability():
     for t in ["p53 mutation", "pH 7.4", "see p. 465-78", "pp. 12-15", "p-ANCA", "p.o.", "the p wave", "5p deletion",
               "IL-6p", "group p and q"]:
         assert hits(t) == [] and not rules_format._P_VALUE.search(t), t
+
+
+def test_spaced_range_opening_a_cell():
+    # JEHP_73_26 tables: "17 - 23.5" and "24 - 30 n(%)" are categories (QC: "17–23.5"); "5 - 3 = 2" is a sum
+    from edit_os.rules_guide import find_range_dash
+
+    assert find_range_dash("17 - 23.5", {}) == [(2, 5, "–")]
+    assert find_range_dash("24 - 30 n(%)", {}) == [(2, 5, "–")]
+    assert find_range_dash("5 - 3 = 2", {}) == []
+    assert find_range_dash("the score 5 - 3", {}) == []

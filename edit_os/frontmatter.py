@@ -1774,7 +1774,7 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
             # printed as the title page writes it, the XML's fuller form not taken: the editors note the XML's
             # (JEHP: "Kindly note the Author name provided in XML as “Sonakshi”. Please check and confirm.")
             qs.append(("front.xml_name", {"name": a.written, "_block": "authors", "_quote": name}))
-        elif not full:  # on the author's name in the author group, naming the author
+        elif not full and (cfg.get("queries") or {}).get("full_name", True):  # on the author's name, naming them
             qs.append(("front.full_name", {"name": name, "_block": "authors", "_quote": name}))
 
     if f.xml_only:

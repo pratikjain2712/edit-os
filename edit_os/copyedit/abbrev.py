@@ -308,6 +308,10 @@ _NOT_ABBR = {"AND", "OR", "NOT", "BY", "THE", "OF", "IN", "FIGURE", "FIGURES", "
              "ANY", "ALSO", "VERY", "YES", "ONE", "TWO"}
 # Two or more degrees after a name: "Ajay Kumar Jha, MD, DM" (DM alone is diabetes mellitus).
 _DEGREE = r"(?:MBBS|MD|MS|DM|MCh|M\.Ch|PhD|DNB|MPH|MSc|BSc|MDS|BDS|FRCS|FRCP|FRCOG|MRCP|MRCOG|FACS|DCH|DGO|DO|RN|BSN|MSN|DrPH|MA|BA)"
+# An approval or registration number: "(Ref. No. JSSDCH IEC/76/2023 dated 4-10-2023)" is a code, not an abbreviation to
+# expand (JEHP_73_26, QC: "It's part of a ref code").
+_REF_NO = re.compile(r"\b(?:Ref(?:erence)?|Reg(?:istration)?|Approval|Protocol|Letter|Certificate|Clearance)\.?\s+"
+                     r"(?:No|Number)\b\.?\s*[:#]?\s*([^,;()]*?)(?=\s+dated\b|[,;()]|$)", re.I)
 _DEGREES = re.compile(r"(?<![\w-])" + _DEGREE + r"(?:\s*,\s*" + _DEGREE + r")+(?![\w-])")
 # What follows a name that is not an abbreviation to expand: a reporting statement, program, software or database
 # ("the TREND statement", "MAXQDA software"); with `defined_in_article`, an institution ("SRM Medical College":
@@ -330,6 +334,7 @@ def uses(p: Paragraph, lenient: bool = False):
     prot += [(m.start(1), m.end(1)) for m in _LABEL.finditer(p.text)]
     prot += [(m.start(), m.end()) for m in _MAKER.finditer(p.text)]
     prot += [(m.start(), m.end()) for m in _DEGREES.finditer(p.text)]
+    prot += [(m.start(1), m.end(1)) for m in _REF_NO.finditer(p.text) if m.group(1)]
     pos = 0
     for line in p.text.split("\n"):  # a heading in capitals on a line of its own: "DISCUSSION \nTo the best ..."
         if "\n" in p.text and line.strip().isupper() and len(line) < 80:
@@ -393,12 +398,14 @@ def _unused(ms: Manuscript, key: str, ds: list[Definition], mode: str, changes: 
 
 
 def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, mode: str,
-                changes: list, queries: list, n_uses: int = 0) -> None:
+                changes: list, queries: list, n_uses: int = 0, always: bool = False) -> None:
     """The full form written out again after the definition: use the abbreviation (not in headings
     or key words). A change only when the author already uses the abbreviation more often than the
     full form after defining it: editors leave a term the author keeps writing out ("retinoblastoma"
-    in a paper about it) and shorten the stray ones ("intraocular pressure" among many "IOP")."""
-    pat = re.compile(r"(?<![\w\-])" + re.escape(d0.long) + r"(s?)(?![\w\-])(?!\s*\()", re.I)
+    in a paper about it) and shorten the stray ones ("intraocular pressure" among many "IOP"). With `always`
+    (`full_form_always`: a sheet saying "only abbreviation should be used thereafter") every one is shortened."""
+    long = re.sub(r"\\?[\-‐‑–—]", "[-‐‑–—]", re.escape(d0.long))  # "health-related" also as "health–related"
+    pat = re.compile(r"(?<![\w\-])" + long + r"(s?)(?![\w\-])(?!\s*\()", re.I)
     listed = re.compile(r"(?<![\w\-])" + re.escape(key) + r"s?\s*[=:,–—]\s*$")
     listed_after = re.compile(r"\s*[=:,–—]\s*" + re.escape(key) + r"(?![\w\-])")
     found = []
@@ -412,7 +419,7 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
             if listed.search(p.text[:m.start()]) or listed_after.match(p.text[m.end():]):
                 continue  # an abbreviation list or table note: "CBE = Competency-Based Education"
             found.append((p, m))
-    if n_uses <= len(found):
+    if n_uses <= len(found) and not always:
         return
     for p, m in found:
         if mode == "change":
@@ -589,7 +596,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
         main_text = n_scope == len(all_scopes) - 1  # not in the abstract
         for key, ds in defs.items():
             if key not in unused and full_mode != "off" and main_text:
-                _full_forms(scope, order, key, ds[0], full_mode, changes, queries, n_uses.get(key, 0))
+                _full_forms(scope, order, key, ds[0], full_mode, changes, queries, n_uses.get(key, 0),
+                            always=bool(cfg.get("full_form_always")))
 
         # Defined twice in one scope: shorten the later definitions to the abbreviation, or query.
         mode = cfg.get("redefinition", "query")
