@@ -455,10 +455,21 @@ def collect(ms: Manuscript, style: JournalStyle) -> list[Change]:
     cfg = settings(style)
     if not cfg.get("enabled", True) or not any(enabled(cfg, k) for k in FINDERS):
         return []
-    paras = paragraphs(ms, bool(cfg.get("include_tables")))
+    tables = bool(cfg.get("include_tables"))
+    # a rule with `tables: true` also runs in table cells (and the caption row) when the others do not
+    in_cells = {k for k in FINDERS if enabled(cfg, k) and isinstance(cfg[k], dict) and cfg[k].get("tables")}
+    paras = paragraphs(ms, tables or bool(in_cells))
+    if in_cells:  # and the table and figure captions moved after the references
+        from .rules_figures import caption_match
+
+        seen = {p.id for p in paras}
+        paras += [p for p in ms.paragraphs if p.id not in seen and p.text.strip() and caption_match(p) is not None]
+    late = {p.id for p in paras} - {p.id for p in paragraphs(ms, True)}
     ctx = Context.from_texts(p.text for p in paras if not p.in_table)
+    cell_cfg = {k: v for k, v in cfg.items() if k not in FINDERS or k in in_cells}
     out = []
     for p in paras:
-        for s, e, new, name in propose(p.text, cfg, ctx):
+        whole = tables or not p.in_table and p.id not in late
+        for s, e, new, name in propose(p.text, cfg if whole else cell_cfg, ctx):
             out.append(change(p, s, e, new, "text", reason=f"text.{name}"))
     return out

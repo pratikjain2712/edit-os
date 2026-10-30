@@ -328,7 +328,7 @@ copyedit:
 text:
   # JEHP_73_26, QC comments: "Inconsistent en dash & hyphen use" ("oral health–related" beside "health-related") and
   # "aged between 65 and 70 years old": "old" redundant
-  compound_dash: {enabled: true}
+  compound_dash: {enabled: true, tables: true}  # table captions too ("poor oral health–related", Table 7)
   aged_years_old: {enabled: true}
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
 

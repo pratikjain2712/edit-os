@@ -173,3 +173,21 @@ def test_compound_dash_and_aged_years_old():
     assert [(t[s:e], n) for s, e, n in find_compound_dash(t, {}, ctx)] == [("–", "-")]
     t = "The majority were aged between 65 and 70 years old. A 45 years old man."
     assert [(t[s:e], n) for s, e, n in find_aged_years_old(t, {}, ctx)] == [(" old", "")]
+
+
+def test_compound_dash_in_a_caption_after_the_references(tmp_path):
+    # JEHP_73_26: "Table 7: ... poor oral health–related quality of life" at the end of the file (QC: hyphen)
+    from docx import Document
+
+    from edit_os import docmodel, rules_text, style
+
+    d = Document()
+    for t in ["Introduction", "We measured oral health-related quality of life.", "References",
+              "1. Smith A. A study. J Test 2020;1:1-2.",
+              "Table 1: Poor oral health–related quality of life"]:
+        d.add_paragraph(t)
+    d.save(tmp_path / "a.docx")
+    ms = docmodel.load(str(tmp_path / "a.docx"))
+    got = [(ms.by_id(c.para_id).text[:8], c.new) for c in rules_text.collect(ms, style.load("jehp"))
+           if c.reason == "text.compound_dash"]
+    assert got == [("Table 1:", "-")]
