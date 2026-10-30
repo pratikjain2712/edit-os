@@ -5,6 +5,9 @@
   experienced an error trying to open the file"). Each further use gets its own copy of the chart part, its
   relationships and the internal parts they name (an embedded workbook, chart style and colours).
 - Drawing ids (wp:docPr id) are unique in the document.
+- Two tables never touch: Word joins tables with no paragraph between them into one when it shows the file
+  (tables moved to the end one after another: JEHP_1602_26, JEHP_1708_26). An empty paragraph goes between them,
+  as the editors leave one; in the tracked copy it is a tracked insertion.
 - A chart's link to the author's own spreadsheet ("file:///C:/Users/.../data.xlsx") goes: nobody else can open
   it, and Word's Protected View refused such a file until it was unblocked (JEHP_73_26). The chart keeps its
   saved values and still draws; only the dead link back to the author's computer is removed.
@@ -22,6 +25,12 @@ import zipfile
 _CHART_REF = re.compile(r'(<c:chart\b[^>]*?\br:id=")([^"]+)(")')
 _DOCPR = re.compile(r'(<wp:docPr\b[^>]*?\bid=")(\d+)(")')
 _REL = re.compile(r"<Relationship\b[^>]*/>")
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _attrs(tag: str) -> dict[str, str]:
@@ -57,7 +66,7 @@ def fix(path: str) -> dict:
     rels_name = "word/_rels/document.xml.rels"
     rels = parts.get(rels_name, b"").decode("utf-8")
     ct = parts.get("[Content_Types].xml", b"").decode("utf-8")
-    report = {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0}
+    report = {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0, "tables_separated": 0}
     by_id = {a["Id"]: a for a in (_attrs(t) for t in _REL.findall(rels)) if "Id" in a}
 
     # 1. one drawing per chart part
@@ -131,6 +140,24 @@ def fix(path: str) -> dict:
         return f"{m.group(1)}{n}{m.group(3)}"
 
     doc = _DOCPR.sub(renumber, doc)
+
+    # 4. no two tables touching
+    touching = re.compile(r"(</w:tbl>)(\s*)(<w:tbl>|<w:tbl\s)")
+    if touching.search(doc):
+        tracked = "<w:ins " in doc or "<w:del " in doc
+        next_id = max((int(i) for i in re.findall(r'\bw:id="(\d+)"', doc)), default=0) + 1
+
+        def separate(m):
+            nonlocal next_id
+            report["tables_separated"] += 1
+            if not tracked:
+                return m.group(1) + "<w:p/>" + m.group(3)
+            p = (f'<w:p><w:pPr><w:rPr><w:ins w:id="{next_id}" w:author="Edit OS" w:date="{_now()}"/></w:rPr>'
+                 f"</w:pPr></w:p>")
+            next_id += 1
+            return m.group(1) + p + m.group(3)
+
+        doc = touching.sub(separate, doc)
 
     # 3. charts linked to a file on the author's computer
     for name in [n for n in parts if re.fullmatch(r"word/charts/_rels/[^/]+\.xml\.rels", n)]:

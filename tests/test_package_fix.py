@@ -34,7 +34,7 @@ def test_a_chart_used_twice_gets_its_own_copy(tmp_path):
     # Word refused the whole file (JEHP_73_26)
     p = str(tmp_path / "t.docx")
     make(p, 2)
-    assert package_fix.fix(p) == {"charts_copied": 1, "drawing_ids_renumbered": 1, "local_links_removed": 0}
+    assert package_fix.fix(p) == {"charts_copied": 1, "drawing_ids_renumbered": 1, "local_links_removed": 0, "tables_separated": 0}
     z = zipfile.ZipFile(p)
     doc = z.read("word/document.xml").decode()
     rids = re.findall(r'c:chart r:id="([^"]+)"', doc)
@@ -47,14 +47,14 @@ def test_a_chart_used_twice_gets_its_own_copy(tmp_path):
     assert z.read("word/embeddings/book2.xlsx") == b"PK-xlsx"
     ct = z.read("[Content_Types].xml").decode()
     assert 'PartName="/word/charts/chart2.xml"' in ct and 'PartName="/word/embeddings/book2.xlsx"' in ct
-    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0}
+    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0, "tables_separated": 0}
 
 
 def test_a_file_without_shared_charts_is_left_as_it_is(tmp_path):
     p = str(tmp_path / "t.docx")
     make(p, 1)
     before = open(p, "rb").read()
-    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0}
+    assert package_fix.fix(p) == {"charts_copied": 0, "drawing_ids_renumbered": 0, "local_links_removed": 0, "tables_separated": 0}
     assert open(p, "rb").read() == before
 
 
@@ -76,3 +76,28 @@ def test_chart_link_to_the_authors_computer_removed(tmp_path):
     z = zipfile.ZipFile(p)
     assert z.read("word/charts/chart1.xml") == b"<c:chartSpace><c:chart/></c:chartSpace>"
     assert b"data.xlsx" not in z.read("word/charts/_rels/chart1.xml.rels")
+
+
+def _doc_with(path, body):
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("[Content_Types].xml", CT)
+        z.writestr("word/document.xml", f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>')
+        z.writestr("word/_rels/document.xml.rels",
+                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+
+
+TBL = "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>x</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+
+
+def test_touching_tables_are_separated(tmp_path):
+    # Word shows tables with no paragraph between them as one table (tables moved to the end one after another)
+    p = str(tmp_path / "clean.docx")
+    _doc_with(p, TBL + TBL + "<w:p/>" + TBL)
+    assert package_fix.fix(p)["tables_separated"] == 1
+    doc = zipfile.ZipFile(p).read("word/document.xml").decode()
+    assert "</w:tbl><w:p/><w:tbl>" in doc and "</w:tbl></w:tbl>" not in doc
+    p = str(tmp_path / "tracked.docx")
+    _doc_with(p, '<w:p><w:ins w:id="7" w:author="A"><w:r><w:t>y</w:t></w:r></w:ins></w:p>' + TBL + TBL)
+    assert package_fix.fix(p)["tables_separated"] == 1
+    doc = zipfile.ZipFile(p).read("word/document.xml").decode()
+    assert re.search(r'</w:tbl><w:p><w:pPr><w:rPr><w:ins w:id="8" w:author="Edit OS"', doc)
