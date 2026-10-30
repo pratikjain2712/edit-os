@@ -46,9 +46,9 @@ def test_jehp_holds_the_rules_its_editors_confirm():
                ch("k1", "sections_abstract.rename:conclusion"), ch("k2", "fig_captions.label"),
                ch("k3", "fig_captions.end_period"), ch("k4", "ref_year", layer=Layer.REFERENCES)]
     p = autopilot.plan(changes, [], st, judge=lambda items: {c.id: ("accept", "") for c in items})
-    # the abstract's "Methods" renaming (owner, 2026-10-26) and "use abbreviation" (2026-10-30) are no longer held
-    assert p.accept == ["h1", "h2", "k5", "k1", "k2", "k3", "k4", "h7"]  # Claude's edit after the second check
-    assert {d["id"] for d in p.left} == {"h3", "h4"}
+    # "use abbreviation" no longer held (owner, 2026-10-30); the abstract's renamings held again (2026-10-30)
+    assert p.accept == ["h1", "k5", "k2", "k3", "k4", "h7"]  # Claude's edit after the second check
+    assert {d["id"] for d in p.left} == {"h2", "h3", "h4", "k1"}
 
 
 def test_mjdrdypu_holds_prefixes_added_sections_and_abbreviation_use():

@@ -74,13 +74,14 @@ guide_replace:
                                               # "(n=28)" -> "(n = 28)" (G297; rules.rule_statistics)
                 double_space,                 # double spaces in cells: editors closed 3 of 3 (1646, 924; silent)
                 percent_space,                # G299 "28 (100 %)" -> "28 (100%)" in cells (1039)
-                leading_zero, thousands_comma, stat_italic]
+                leading_zero, stat_italic]
   # Owner, 2026-10-27 (sheet and guide silent): statistical symbols F, t, d, r, R², β, η, α, Z, k, χ² in italics as the
   # editors set them, in text and tables; ".413" -> "0.413" (editors 28 added, 16 left; never for P: 8 of 8 ".05"
   # kept, so P values keep theirs); "1,260" -> "1260", five digits and more keep the comma (editors 2 of 2).
   stat_italic: true
   leading_zero: true
-  thousands_comma: true
+  # Off (owner, 2026-10-30): the final text took "1,260" -> "1260" 82 times and kept the comma 291 (22%; 266 articles)
+  thousands_comma: false
 
 
 # S: "The caption should end with a period": table and figure captions alike (owner, 2026-10-26: keep the sheet over
@@ -445,8 +446,10 @@ autopilot:
   # captions sentence case in 4 of the 4 articles that had them and added the period in 9 of 17; holding both cut
   # the text closure 23.1% -> 22.5%. ref_year / ref_pages / ref_issue (S: "J Pharm Bioall Sci 2017;9:80-7", G165,
   # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
-  # Not held: sections_abstract.rename:methods (S, struck through but live: owner, 2026-10-26).
+  # Held since 2026-10-30 (owner): sections_abstract.rename ("Methods" for the abstract's own heading; S, struck through
+  # but live): the final text has it 17 times, kept the author's heading 117 (13%; 266 articles), until the journal
+  # confirms the sheet.
   # "use abbreviation" no longer held (owner, 2026-10-30): the sheet asks for it and QC marked it missing in JEHP_73_26;
   # the editors skipping it is an editor miss (CLAUDE.md), not a reason to wait for them.
-  hold: [sections_back_matter.consent_added, figure_insert,
+  hold: [sections_back_matter.consent_added, figure_insert, sections_abstract.rename,
          sections_back_matter.added, guide.unary_comparison, table_caption_duplicate.differs]

@@ -108,8 +108,10 @@ def test_methods_rename_in_the_abstract(tmp_path):
     st = jehp()
     cs = changes(path, st, ["sections_abstract"])
     mm = [c for c in cs.changes if c.old == "MATERIALS AND METHODS"]
-    # S (struck through, still live): "Methods", no longer held for the editor (owner, 2026-10-26)
-    assert [c.new for c in mm] == ["Methods"] and mm[0].reason == "sections_abstract.rename:methods"
+    # S (struck through, still live): "Methods" -- held for the editor again (owner, 2026-10-30: the final text has it
+    # 13% of the time): the capitals are fixed and the renaming is a note on that change
+    assert [c.new for c in mm] == ["Materials and Methods"] and mm[0].reason == "sections_abstract"
+    assert "Methods" in str(mm[0].provenance)
     assert any(c.old == "ABSTRACT" and c.new == "Abstract" for c in cs.changes)
 
 
