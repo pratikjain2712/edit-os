@@ -249,7 +249,10 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   body_unbold: false  # editors keep bold in running text (0 of 6)
   heading_bold_tagged: true  # S: "H1 | Title case, Bold", "H2 | Sentence Case, Bold", "H3 | ... Bold, italics": every
                              # tagged heading in bold (editors bold the plain ones, tools/eval_format.py bold+)
-  remove_font_color: false  # editors removed the author's colours in 2 of 17 articles (tool precision 31%)
+  # Owner, 2026-10-30: follow the editors. They take out the author's visible colours (green, red, blue...) in 8 of 10
+  # final files that had them (97% of the coloured text), and leave near-black as typed (it shows black); the rule
+  # changes only visible colours (_visible), and Autopilot accepts it (fmt_color no longer held).
+  remove_font_color: true
   et_al_italic_references: true  # guide S&R row 1: "et al." in italics, the reference list included; the JEHP
                                  # editors italicise it there (6 of 6)
   heading_italic_levels: [3]   # S: "H3 | Sentence Case, Bold, italics"
@@ -390,5 +393,5 @@ autopilot:
   # the text closure 23.1% -> 22.5%. ref_year / ref_pages / ref_issue (S: "J Pharm Bioall Sci 2017;9:80-7", G165,
   # G169): the final lists have "Journal 2017;" in 15 of 17 articles; the misses are two lists left as typed.
   # Not held: sections_abstract.rename:methods (S, struck through but live: owner, 2026-10-26).
-  hold: [sections_back_matter.consent_added, fmt_color, figure_insert, use abbreviation,
+  hold: [sections_back_matter.consent_added, figure_insert, use abbreviation,
          sections_back_matter.added, guide.unary_comparison, table_caption_duplicate.differs]
