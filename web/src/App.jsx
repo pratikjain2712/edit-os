@@ -194,10 +194,21 @@ function Home() {
     const code = journalFromName(f.name, journals);
     if (code) setJournal(code);
   };
+  // A file picked before the journal list arrived: read its name again once the list is in (JEHP_73_26 ran as IJO).
+  useEffect(() => {
+    const code = file && journalFromName(file.name, journals);
+    if (code) setJournal(code);
+  }, [journals]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(e) {
     e.preventDefault();
     if (!file) { input.current?.click(); return; }
+    // The file name names another journal than the one chosen: ask before running it with the wrong style.
+    const named = journalFromName(file.name, journals);
+    if (named && named !== journal &&
+        !window.confirm(`The file name says ${named.toUpperCase()}, but ${journal.toUpperCase()} is selected.\n\nRun it as ${journal.toUpperCase()} anyway?`)) {
+      return;
+    }
     setBusy(true);
     setError("");
     try {
