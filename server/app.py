@@ -57,6 +57,17 @@ DOWNLOADS = {  # kind -> (pipeline file kind, media type)
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def journal_from_name(name: str) -> str | None:
+    """The journal a file name starts with ("JEHP_73_26.zip" -> "jehp"; longest code or alias first), as the upload
+    page reads it (web/src/App.jsx journalFromName); None when the name names no journal."""
+    n = (name or "").lower()
+    names = {c: c for c in journal_codes()} | {a: c for a, c in style_mod.ALIASES.items()}
+    for p in sorted(names, key=len, reverse=True):
+        if n.startswith(p) and re.match(r"[\s_\-.]", n[len(p):]):
+            return names[p]
+    return None
+
+
 def journal_codes() -> dict[str, str]:
     out = {}
     for name in sorted(os.listdir(style_mod.STYLES_DIR)):
@@ -75,6 +86,7 @@ class S3Job(BaseModel):
     external_id: str = ""
     callback_url: str = ""
     stages: list[str] | None = None
+    confirm_journal: bool = False
 
 
 class Login(BaseModel):
@@ -221,9 +233,16 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             hit = doc_cache[job_id] = (mtime, docview.document(src))
         return hit[1]
 
-    def _create(journal: str, input_name: str, stages, **kw) -> dict:
+    def _create(journal: str, input_name: str, stages, confirm_journal: bool = False, **kw) -> dict:
         if style_mod.resolve(journal) not in journal_codes():
             raise HTTPException(422, f"Unknown journal code {journal!r}")
+        # JEHP_73_26.zip ran as IJO three times (2026-10-29/30): a file named for one journal is not run with
+        # another's style unless the caller says so.
+        named = journal_from_name(input_name)
+        if named and named != style_mod.resolve(journal) and not confirm_journal:
+            raise HTTPException(422, f"The file name {input_name!r} is for {named.upper()}, but the journal sent is "
+                                     f"{journal.upper()}. Send journal={named}, or confirm_journal=true to run it as "
+                                     f"{journal.upper()} anyway.")
         stages = tuple(stages or settings.stages)
         if set(stages) - set(pipeline.STAGES):
             raise HTTPException(422, f"stages must be among {pipeline.STAGES}")
@@ -264,12 +283,12 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
 
     @app.post("/api/jobs", status_code=202, dependencies=[Depends(require_key)])
     def upload(file: UploadFile = File(...), journal: str = Form(...), external_id: str = Form(""),
-               callback_url: str = Form(""), stages: str = Form("")):
+               callback_url: str = Form(""), stages: str = Form(""), confirm_journal: bool = Form(False)):
         name = _SAFE_NAME.sub("_", os.path.basename(file.filename or ""))
         if not name.lower().endswith((".docx", ".zip")):
             raise HTTPException(422, "Upload a .docx manuscript or a submission .zip")
-        job = _create(journal, name, [s for s in stages.split(",") if s], external_id=external_id,
-                      callback_url=callback_url)
+        job = _create(journal, name, [s for s in stages.split(",") if s], confirm_journal=confirm_journal,
+                      external_id=external_id, callback_url=callback_url)
         dest = os.path.join(storage.job_dir(job["id"]), "input", name)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         limit = settings.max_upload_mb * 1024 * 1024
@@ -290,7 +309,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
     def from_s3(body: S3Job):
         if not body.key.lower().endswith((".docx", ".zip")):
             raise HTTPException(422, "key must point to a .docx or .zip")
-        job = _create(body.journal, os.path.basename(body.key), body.stages, input_ref=f"s3://{body.bucket}/{body.key}",
+        job = _create(body.journal, os.path.basename(body.key), body.stages, confirm_journal=body.confirm_journal,
+                      input_ref=f"s3://{body.bucket}/{body.key}",
                       external_id=body.external_id, callback_url=body.callback_url)
         queue.submit(job["id"])
         return public(job, with_token=True)

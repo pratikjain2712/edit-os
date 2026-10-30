@@ -212,7 +212,7 @@ function Home() {
     setBusy(true);
     setError("");
     try {
-      const job = await api.upload(file, journal);
+      const job = await api.upload(file, journal, Boolean(named && named !== journal));
       go(`/review/${job.id}`);
     } catch (err) {
       setError(err.message);

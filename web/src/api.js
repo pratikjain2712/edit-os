@@ -61,10 +61,11 @@ export const api = {
   jobs: () => call("GET", "/api/jobs?limit=30"),
   spend: (month) => call("GET", `/api/spend?month=${encodeURIComponent(month)}&limit=5000`),
   job: (id) => call("GET", `/api/jobs/${id}`),
-  upload: (file, journal) => {
+  upload: (file, journal, confirmJournal = false) => {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("journal", journal);
+    if (confirmJournal) fd.append("confirm_journal", "true");
     return call("POST", "/api/jobs", fd);
   },
   changes: (id) => call("GET", `/api/jobs/${id}/changes`),

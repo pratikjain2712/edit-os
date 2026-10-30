@@ -367,3 +367,25 @@ def test_spend_in_rupees(client, tmp_path, monkeypatch):
     assert client.get(f"/api/jobs/{job_id}", headers=KEY).json()["spend"]["inr"] == 0
     rep = client.get("/api/spend", params={"month": db_month()}, headers=KEY).json()
     assert rep["usd_inr"] == 90 and rep["inr"] == 0 and rep["jobs"][0]["inr"] == 0
+
+
+def test_file_named_for_another_journal_is_refused(client, tmp_path):
+    # JEHP_73_26.zip ran as IJO: the server stops a file named for one journal from running with another's style
+    r = upload(client, tmp_path, name="JEHP_73_26.docx", journal="ijo")
+    assert r.status_code == 422 and "JEHP" in r.json()["detail"]
+    path = make_docx(tmp_path / "JEHP_73_26.docx")
+    with open(path, "rb") as f:
+        r = client.post("/api/jobs", headers=KEY, data={"journal": "ijo", "confirm_journal": "true"},
+                        files={"file": ("JEHP_73_26.docx", f, "application/octet-stream")})
+    assert r.status_code == 202
+    assert upload(client, tmp_path, name="IJO_1877_26.docx", journal="ijo").status_code == 202
+
+
+def test_journal_from_name():
+    from server.app import journal_from_name
+
+    assert journal_from_name("JEHP_73_26.zip") == "jehp"
+    assert journal_from_name("ijo-1415-26.docx") == "ijo"
+    assert journal_from_name("Neurol-India-D-25-1.docx") == "ni"
+    assert journal_from_name("ms.docx") is None
+    assert journal_from_name("ijoX_1.docx") is None
