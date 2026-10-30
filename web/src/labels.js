@@ -60,7 +60,7 @@ export function whyLabel(item, rule) {
 const FMT_NAMES = { italic: "italic", bold: "bold", superscript: "superscript", subscript: "subscript", small_caps: "small caps" };
 // A value property reads as its value: size 12 -> "12 pt", font -> its name, align left -> "align left".
 const fmtValue = (k, v) => (k === "size" && typeof v === "number" ? `${v} pt` : k === "font" && typeof v === "string" ? v
-  : k === "align" ? `align ${v}` : FMT_NAMES[k] || k);
+  : k === "align" ? `align ${v}` : k === "line_spacing" ? (v === 2 ? "double spacing" : `line spacing ${v}`) : FMT_NAMES[k] || k);
 export const fmtLabel = (f) => Object.entries(f || {}).filter(([, v]) => v).map(([k, v]) => fmtValue(k, v)).join(", ") ||
   Object.keys(f || {}).map((k) => `no ${FMT_NAMES[k] || k}`).join(", ");
 

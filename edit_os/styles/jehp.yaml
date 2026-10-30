@@ -258,6 +258,11 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
   # left aligned, the running head centred; the sheet adds only "fourth level ... 12 points font size,
   # underlined". The JEHP editors set the whole file in Times New Roman 12 pt (te.docx: 33 of 33 articles, test and
   # train), never 14 pt (0 of 33) and leave justified text justified (80% of the final paragraphs): owner's list.
+  # Owner, 2026-10-30: follow the editors' layout. They set the whole file, tables included, to one line spacing:
+  # double in 18 of 35 te.docx (Sreelatha, Sakthi, Ragavi, Sophiya, Subrata), 1.5 in 15 (ManiMekala, all hers).
+  # Blank lines around the title and headings (S: H1 "an extra return before and after", H2/H3 "single line space
+  # before"; G39, G134) are not added: the editors add none (0 after H1 in 13 of 13, none around the title).
+  line_spacing: {value: 2.0, tables: true}
   fonts:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (32 of 33 articles)

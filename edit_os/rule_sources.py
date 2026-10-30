@@ -167,6 +167,7 @@ RULES: dict[str, Locator] = {
                    (r"in\s+vi(?:vo|tro)",), "italics in vivo in vitro"),
     "fmt_citations": L("Superscript citations", "Citation numbers superscript", (r"citation", r"superscript"),
                        (r"citation", r"superscript"), "superscript citation bracket"),
+    "fmt_line_spacing": L("Line spacing", "The whole file double spaced, as the editors set it"),
     "fmt_color": L("Font colour removed", "The author's coloured text set to automatic", (r"colou?r",),
                    (r"colou?r",), "color font text"),
     "fmt_table_head": L("Table column heads", "Column heads in bold", (r"column\s+heads?",), (r"column\s+head",),

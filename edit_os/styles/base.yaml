@@ -216,6 +216,9 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
   # G110, G133, G146); "left aligned" throughout, the running head "center aligned" (G16). Off here until the owner
   # confirms it for every journal (the editors of IJO, JEHP and MJDRDYPU set the whole file in Times New Roman
   # 12 pt and never 14 pt: owner's list); on per journal.
+  line_spacing:                # the whole file in one line spacing (sheet and guide silent): null keeps the author's
+    value: null                # lines: 2.0 double, 1.5
+    tables: true               # table cells too
   fonts:
     enabled: false
     family: null               # the guide names no font: the journal's editors' (IJO, JEHP: Times New Roman)

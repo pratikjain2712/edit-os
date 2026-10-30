@@ -1896,6 +1896,7 @@ RULES = {
     "guide_replace": rules_guide.rule_guide,
     "format_cleanup": rules_format.rule_cleanup,  # author's colours, stray bold, labels and heads bold
     "format_fonts": rules_format.rule_fonts,  # font family, sizes (12 pt, headings 14 pt) and alignment
+    "format_line_spacing": rules_format.rule_line_spacing,  # the whole file double spaced (formatting.line_spacing)
     "format_symbols": rules_format.rule_symbols,  # Greek, ±, ≤, ≥, minus in the Symbol font (formatting.symbol_font)
 }
 
@@ -1975,7 +1976,7 @@ def run_all(ms: Manuscript, style: JournalStyle, only: list[str] | None = None) 
     replaced = [k for k in kept if not k.format_only and k.end > k.start]
     # (The font and size such formatting sets go onto the replacement; the paragraph's alignment stays.)
     kept = rules_format.finish_fonts(ms, style, kept, replaced)
-    kept = [c for c in kept if c.reason == "fmt_align" or not (c.format_only and any(
+    kept = [c for c in kept if c.reason in ("fmt_align", "fmt_line_spacing") or not (c.format_only and any(
         t.para_id == c.para_id and t.start <= c.start and c.end <= t.end for t in replaced))]
     if not only or {"format_cleanup", "format_fonts"} & set(only):
         kept = rules_format.finish_headings(ms, style, kept)  # every heading as it comes out: bold, its size, font

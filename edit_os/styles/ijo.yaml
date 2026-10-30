@@ -51,6 +51,11 @@ formatting:
   # 16 pt; Times New Roman in 19 of 19, the originals in 11 of 19) and never 14 pt (0 of 19: H1, title, article
   # type, abstract heading all 12 pt) nor change justified text to left (40% of the final paragraphs justified):
   # those two are the owner's list.
+  # Owner, 2026-10-30: follow the editors' layout. Subrata double-spaces the text (18 of 35 te.docx; 1.5 in 13) and
+  # leaves table cells as typed (3 of 4 articles with tables). Blank lines around the title and headings (S: H1 "an
+  # extra return before and after", H2/H3 "single line space before"; G39, G134) are not added: he adds none after H1
+  # (13 of 13) and none around the title.
+  line_spacing: {value: 2.0, tables: false}
   fonts:
     enabled: true
     family: Times New Roman    # the guide and the sheet name no font: the editors' (19 of 19 articles)

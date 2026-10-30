@@ -454,6 +454,8 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         header.render(ms, header.lines(st, head_info, changes, statuses, stages=man["stages"], editor=editor, when=when),
                       tracked=is_tracked, author=author, date=rev_date, after=head_info.get("after"),
                       run_format=run_fmt, align=run_align)
+        rules_format.space_new_paragraphs(ms, st, changes, tracked=is_tracked)  # the journal's line spacing on
+        # what the tool wrote (header, front matter, legends and captions moved, rows added)
         if kind == "clean":
             tracked.strip_highlighting(ms)  # the author's revision highlights never reach the deliverable
             revisions.strip_comments(ms)  # nor the comments that came with the manuscript (kept in the tracked copy)

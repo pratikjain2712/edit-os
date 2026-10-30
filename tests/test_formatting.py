@@ -328,3 +328,57 @@ def test_citation_move_is_one_suggestion(tmp_path):
     para = [c for c in cs.changes if c.para_id == "p0001"]
     assert para and not any(c.format_only for c in para)
     assert all((c.format or {}).get("superscript") for c in para if "[" in c.new)
+
+
+def _spacing(p):
+    sp = p._p.find(f"{qn('w:pPr')}/{qn('w:spacing')}")
+    return None if sp is None else (sp.get(qn("w:line")), sp.get(qn("w:lineRule")))
+
+
+def test_line_spacing_follows_the_editors(tmp_path):
+    # owner, 2026-10-30: the whole file double spaced as the editors set it; JEHP table cells too, IJO's as typed
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    doc.add_paragraph("The study was done in the clinic over two years.")
+    already = doc.add_paragraph("A paragraph the author double spaced.")
+    already.paragraph_format.line_spacing = 2.0
+    doc.add_paragraph("")
+    t = doc.add_table(rows=1, cols=1)
+    t.rows[0].cells[0].paragraphs[0].add_run("Cell text")
+    path = tmp_path / "m.docx"
+    doc.save(path)
+    ms = docmodel.load(str(path))
+    jehp = rules_format.rule_line_spacing(ms, style.load("jehp"))
+    assert {c.old for c in jehp} == {"Introduction", "The study was done in the clinic over two years.", "Cell text"}
+    assert all(c.format == {"line_spacing": 2.0} and c.reason == "fmt_line_spacing" for c in jehp)
+    ijo = rules_format.rule_line_spacing(ms, style.load("ijo"))
+    assert "Cell text" not in {c.old for c in ijo}
+    assert rules_format.rule_line_spacing(ms, style.load("mjdrdypu")) == []  # not set: the author's spacing stays
+
+    for c in jehp:
+        c.status = Status.ACCEPTED
+    out = tracked.render(docmodel.load(str(path)), ChangeSet(jehp), tracked=True)
+    p = out.document.paragraphs[1]
+    assert _spacing(p) == ("480", "auto")
+    assert p._p.find(f"{qn('w:pPr')}/{qn('w:pPrChange')}") is not None  # tracked, the old spacing kept
+
+
+def test_new_paragraphs_written_double_spaced(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Body text.")
+    path = tmp_path / "m.docx"
+    doc.save(path)
+    ms = docmodel.load(str(path))
+    new = ms.document.add_paragraph("Inserted by the tool")
+    from docx.oxml import OxmlElement
+    rpr = OxmlElement("w:rPr")
+    new._p.get_or_add_pPr().append(rpr)
+    ins = OxmlElement("w:ins")
+    ins.set(qn("w:id"), "1")
+    ins.set(qn("w:author"), "Edit OS")
+    rpr.append(ins)
+    rules_format.space_new_paragraphs(ms, style.load("jehp"), ChangeSet([]), tracked=True)
+    assert _spacing(ms.document.paragraphs[-1]) == ("480", "auto")  # an insertion: written double spaced
+    assert _spacing(ms.document.paragraphs[0]) is None  # the author's paragraph: only through its own change
+    rules_format.space_new_paragraphs(ms, style.load("jehp"), ChangeSet([]), tracked=False)
+    assert _spacing(ms.document.paragraphs[0]) == ("480", "auto")  # the clean copy: every paragraph

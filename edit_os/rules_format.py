@@ -18,6 +18,7 @@ from .changes import Change, Layer
 from .docmodel import Manuscript, Paragraph, run_text, text_runs
 from .docmodel import _RPR as RPR
 from .style import JournalStyle
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 _URL = re.compile(r"(?:https?://|www\.)\S+|\S+@\S+\.\w+|\bdoi:\s*\S+", re.I)
@@ -674,6 +675,106 @@ def paragraph_alignment(p: Paragraph, styles: _FontStyles) -> str:
     return "left"
 
 
+def paragraph_line_spacing(p: Paragraph, styles: _FontStyles) -> float | None:
+    """Effective line spacing of a paragraph in lines (<w:spacing w:line> with lineRule auto, 240 = single): its
+    own, else its style's (basedOn), else the document default; None for an exact or at-least height."""
+    def read(ppr):
+        sp = ppr.find(qn("w:spacing")) if ppr is not None else None
+        if sp is None or sp.get(qn("w:line")) is None:
+            return "unset"
+        if sp.get(qn("w:lineRule"), "auto") != "auto":
+            return None
+        return int(sp.get(qn("w:line"))) / 240
+    v = read(p.element.find(qn("w:pPr")))
+    if v != "unset":
+        return v
+    ps = p.element.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+    sid = ps.get(qn("w:val")) if ps is not None else styles.default_para
+    for _ in range(10):
+        if not sid or sid not in styles.by_id:
+            break
+        s = styles.by_id[sid]
+        v = read(s.find(qn("w:pPr")))
+        if v != "unset":
+            return v
+        b = s.find(qn("w:basedOn"))
+        sid = b.get(qn("w:val")) if b is not None else None
+    try:
+        d = styles.doc.styles.element.find(f"{qn('w:docDefaults')}/{qn('w:pPrDefault')}/{qn('w:pPr')}")
+    except Exception:  # noqa: BLE001
+        d = None
+    v = read(d)
+    return 1.0 if v == "unset" else v
+
+
+def rule_line_spacing(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """The whole file in the journal's line spacing (`formatting.line_spacing`; the sheet and the guide are silent:
+    the style editors set it for every manuscript, double in most files: owner, 2026-10-30). Table cells too when
+    `tables` (JEHP: the editors select the whole file; IJO: the cells keep the author's)."""
+    cfg = style.get("formatting.line_spacing", {}) or {}
+    value = cfg.get("value")
+    if not value:
+        return []
+    styles = _FontStyles(ms)
+    styles.doc = ms.document
+    out = []
+    for p in ms.paragraphs:
+        text = p.text
+        if not text.strip() or (p.in_table and not cfg.get("tables", True)):
+            continue
+        have = paragraph_line_spacing(p, styles)
+        if have is not None and abs(have - float(value)) < 0.01:
+            continue
+        out.append(_fmt(p, 0, len(text), text, {"line_spacing": float(value)}, Layer.HOUSE_STYLE, "fmt_line_spacing"))
+    return out
+
+
+def space_new_paragraphs(ms: Manuscript, style: JournalStyle, changes, tracked: bool) -> None:
+    """At render: the journal's line spacing (`formatting.line_spacing`) on the paragraphs the tool writes itself (the
+    header, the front matter it rewrites, the First author block, legends and captions it moves, rows it adds). Those
+    are insertions, so they are written in it directly, without a change of their own. In the tracked copy only
+    those (the author's paragraphs carry their fmt_line_spacing change); in the clean copy every paragraph, once the
+    line-spacing changes are all accepted. Nothing when the editor rejected one (they keep the author's spacing)."""
+    from .changes import Status
+    from .tracked import _ppr_insert, _ppr_of
+
+    cfg = style.get("formatting.line_spacing", {}) or {}
+    value = cfg.get("value")
+    if not value:
+        return
+    ls = [c for c in changes.changes if c.reason == "fmt_line_spacing"]
+    if any(c.status == Status.REJECTED for c in ls):
+        return
+    if not tracked and any(c.status != Status.ACCEPTED for c in ls):
+        return
+    want = str(round(float(value) * 240))
+    tables = cfg.get("tables", True)
+    W_ = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    def inserted(p) -> bool:
+        if p.find(f"{W_}pPr/{W_}rPr/{W_}ins") is not None:
+            return True
+        texts = list(p.iter(f"{W_}t"))
+        if texts and all(any(a.tag in (f"{W_}ins", f"{W_}moveTo") for a in t.iterancestors()) for t in texts):
+            return True
+        return any(a.tag == f"{W_}tr" and a.find(f"{W_}trPr/{W_}ins") is not None for a in p.iterancestors())
+
+    for p in ms.document.element.body.iter(f"{W_}p"):
+        if not "".join(t.text or "" for t in p.iter(f"{W_}t")).strip():
+            continue
+        if not tables and any(a.tag == f"{W_}tbl" for a in p.iterancestors()):
+            continue
+        if tracked and not inserted(p):
+            continue
+        ppr = _ppr_of(p)
+        sp = ppr.find(f"{W_}spacing")
+        if sp is None:
+            sp = OxmlElement("w:spacing")
+            _ppr_insert(ppr, sp)
+        sp.set(qn("w:line"), want)
+        sp.set(qn("w:lineRule"), "auto")
+
+
 _KEYWORDS_LABEL = re.compile(r"^\s*(?:<H\d>)?\s*(?:key\s*-?\s*words?|index\s+terms)\b", re.I)
 
 
@@ -828,7 +929,7 @@ def _merge_replaced(kept: list[Change], replaced: list[Change]) -> None:
             break
 
 
-_PARA_KEYS = ("align", "indent", "para_style", "symbol", "list_number")
+_PARA_KEYS = ("align", "indent", "para_style", "symbol", "list_number", "line_spacing")
 
 
 def finish_fonts(ms: Manuscript, style: JournalStyle, kept: list[Change], replaced: list[Change]) -> list[Change]:

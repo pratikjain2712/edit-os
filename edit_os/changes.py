@@ -16,7 +16,9 @@ from enum import Enum
 # right, both), set on the whole paragraph by a formatting-only change.
 FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps", "caps", "underline",
                      "color", "size", "highlight", "font", "align",
-                     "list_number", "symbol", "indent", "para_style")
+                     "list_number", "symbol", "indent", "para_style", "line_spacing")
+# "line_spacing": a paragraph property, the paragraph's line spacing in lines (2.0 double), tracked as a paragraph
+# property change (formatting.line_spacing).
 # "symbol": the one character the change covers becomes Word's Symbol-font symbol (<w:sym>; formatting.symbol_font).
 # "list_number": False on a formatting-only change takes the paragraph out of Word's automatic numbering (a heading the
 # author numbered as a list item, rules_format.finish_headings). True: a paragraph-level property carried by a change
@@ -28,7 +30,7 @@ FORMAT_PROPERTIES = ("italic", "bold", "superscript", "subscript", "small_caps",
 # zero (tracked as a paragraph property change), as for a table cell whose indentation becomes typed spaces (G208).
 # Properties a change can only clear: the author's font colour (False removes it, "auto" sets
 # automatic colour over a coloured style), highlighting / coloured shading.
-PARAGRAPH_PROPERTIES = ("align", "para_style")  # set on the paragraph, not its runs
+PARAGRAPH_PROPERTIES = ("align", "para_style", "line_spacing")  # set on the paragraph, not its runs
 CLEAR_ONLY = {"color": (False, "auto"), "highlight": (False,), "indent": (False,)}
 ALIGNMENTS = ("left", "center", "right", "both")
 
@@ -44,6 +46,8 @@ def _valid(k: str, v) -> bool:
         return v in ALIGNMENTS
     if k == "para_style":
         return isinstance(v, str) and bool(v.strip())
+    if k == "line_spacing":
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and 0.5 <= v <= 5
     return True  # the toggles: set (true) or clear (false)
 
 

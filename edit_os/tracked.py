@@ -148,7 +148,7 @@ def apply_format(rpr, fmt: dict) -> None:
                 f.attrib.pop(qn(attr), None)
             for attr in ("w:ascii", "w:hAnsi", "w:cs"):
                 f.set(qn(attr), on)
-        elif prop in ("align", "symbol", "indent", "para_style", "list_number"):
+        elif prop in ("align", "symbol", "indent", "para_style", "list_number", "line_spacing"):
             continue  # paragraph properties (`_align`, `_clear_indent`); the Symbol font character (`_new_run`, `_to_symbol`)
         elif prop in _CLEARED:
             for tag in _CLEARED[prop]:
@@ -305,6 +305,8 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
     for c in formats:
         if "align" in c.format:
             _align(p_el, c.format["align"], tracked, ids, c.author, date)
+        if "line_spacing" in c.format:
+            _line_spacing(p_el, c.format["line_spacing"], tracked, ids, c.author, date)
         if "indent" in c.format:
             _clear_indent(p_el, tracked, ids, c.author, date)
         if "para_style" in c.format:
@@ -316,7 +318,7 @@ def _apply_paragraph(p_el, changes: list[Change], tracked: bool, ids: _Ids, date
             continue
         if c.format.get("list_number") is False:
             _unnumber(p_el, tracked, ids, c.author, date)
-        if not set(c.format) - {"align", "indent", "para_style", "list_number"}:
+        if not set(c.format) - {"align", "indent", "para_style", "list_number", "line_spacing"}:
             continue
         for r, s, e in _spans(p_el):
             if s >= c.start and e <= c.end and e > s:
@@ -410,6 +412,23 @@ def _align(p_el, value: str, tracked: bool, ids: "_Ids", author: str, date: str)
         jc = OxmlElement("w:jc")
         _ppr_insert(ppr, jc)
     jc.set(qn("w:val"), value)
+    _track_ppr(ppr, before, tracked, ids, author, date)
+
+
+def _line_spacing(p_el, value: float, tracked: bool, ids: "_Ids", author: str, date: str) -> None:
+    """Set the paragraph's line spacing to `value` lines (2.0: double) as <w:spacing w:line w:lineRule="auto">,
+    keeping its space before and after; tracked as a paragraph property change (<w:pPrChange>)."""
+    ppr = _ppr_of(p_el)
+    sp = ppr.find(qn("w:spacing"))
+    want = str(round(float(value) * 240))
+    if sp is not None and sp.get(qn("w:line")) == want and sp.get(qn("w:lineRule"), "auto") == "auto":
+        return
+    before = _ppr_snapshot(ppr)
+    if sp is None:
+        sp = OxmlElement("w:spacing")
+        _ppr_insert(ppr, sp)
+    sp.set(qn("w:line"), want)
+    sp.set(qn("w:lineRule"), "auto")
     _track_ppr(ppr, before, tracked, ids, author, date)
 
 
