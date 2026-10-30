@@ -19,6 +19,9 @@ class _CachedYaml:
     def __getattr__(self, name):
         return getattr(yaml, name)
 
+    def load(self, stream, Loader=None):  # edit_os.style._safe_load (libyaml's CSafeLoader): the same cache
+        return self.safe_load(stream)
+
     def safe_load(self, stream):
         name = getattr(stream, "name", None)
         if not isinstance(name, str) or not os.path.isfile(name):
@@ -26,7 +29,8 @@ class _CachedYaml:
         st = os.stat(name)
         key = (os.path.realpath(name), st.st_mtime_ns, st.st_size)
         if key not in self._parsed:
-            self._parsed[key] = pickle.dumps(yaml.safe_load(stream), pickle.HIGHEST_PROTOCOL)
+            loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+            self._parsed[key] = pickle.dumps(yaml.load(stream, Loader=loader), pickle.HIGHEST_PROTOCOL)
         return pickle.loads(self._parsed[key])
 
 
