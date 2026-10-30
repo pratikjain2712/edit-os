@@ -176,6 +176,10 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         d["links"] = {k: f"/api/jobs/{job['id']}/files/{k}" for k in DOWNLOADS} if job["status"] == db.DONE else {}
         sp = spend.load(out_dir(storage, job["id"]))  # what Claude cost for this article (edit_os/spend.py)
         d["spend"] = {k: sp[k] for k in ("usd", "words", "pages", "usd_per_page") if k in sp} if sp else None
+        if d["spend"]:
+            r = spend.inr_rate()
+            d["spend"]["inr"] = round(sp.get("usd", 0) * r, 2)
+            d["spend"]["inr_per_page"] = round(sp["usd_per_page"] * r, 2) if sp.get("usd_per_page") is not None else None
         if with_token:
             d["review_token"] = job["review_token"]
             d["review_url"] = review_url(settings, job)
@@ -327,7 +331,16 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             t["usd_per_article"] = round(t["usd"] / t["articles"], 3)
             t["usd_per_page"] = round(t["usd"] / t["pages"], 4) if t["pages"] else None
         all_usd = sum(t["usd"] for t in tot.values())
-        return {"month": month, "articles": len(rows), "usd": round(all_usd, 2), "by_journal": tot, "jobs": rows}
+        r = spend.inr_rate()
+        for t in tot.values():
+            t["inr"] = round(t["usd"] * r, 2)
+            t["inr_per_article"] = round(t["usd_per_article"] * r, 2)
+            t["inr_per_page"] = round(t["usd_per_page"] * r, 2) if t["usd_per_page"] is not None else None
+        for row in rows:
+            row["inr"] = round(row["usd"] * r, 2)
+            row["inr_per_page"] = round(row["usd_per_page"] * r, 2) if row.get("usd_per_page") is not None else None
+        return {"month": month, "usd_inr": r, "articles": len(rows), "usd": round(all_usd, 2), "inr": round(all_usd * r, 2),
+                "by_journal": tot, "jobs": rows}
 
     @app.get("/api/jobs/{job_id}")
     def job_status(job: dict = Depends(require_job), x_api_key: str | None = Header(None)):

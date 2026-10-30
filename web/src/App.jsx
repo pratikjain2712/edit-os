@@ -256,8 +256,9 @@ function Home() {
         <h3 className="section-title">Recent manuscripts</h3>
         {month && month.articles > 0 && (
           <p className="muted small">
-            This month: {month.articles} article{month.articles > 1 ? "s" : ""} · Claude ${month.usd.toFixed(2)}
-            {Object.entries(month.by_journal).map(([j, t]) => ` · ${j.toUpperCase()} $${t.usd_per_article.toFixed(2)}/article${t.usd_per_page != null ? `, $${t.usd_per_page.toFixed(3)}/page` : ""}`).join("")}
+            This month: {month.articles} article{month.articles > 1 ? "s" : ""} · Claude ₹{month.inr.toFixed(0)}
+            {Object.entries(month.by_journal).map(([j, t]) => ` · ${j.toUpperCase()} ₹${t.inr_per_article.toFixed(2)}/article${t.inr_per_page != null ? `, ₹${t.inr_per_page.toFixed(2)}/page` : ""}`).join("")}
+            {` (at ₹${month.usd_inr}/$)`}
           </p>
         )}
         {jobs.length === 0 ? <p className="muted">Nothing here yet — your first manuscript will show up here.</p> : (
@@ -272,7 +273,7 @@ function Home() {
                 </span>
                 <span className="muted small hide-phone">
                   {j.summary && j.summary.changes ? `${j.summary.changes.total} suggestions · QC ${j.summary.qc.passed ? "passed" : "blocked"}` : ""}
-                  {j.spend && j.spend.usd != null ? ` · Claude $${j.spend.usd.toFixed(2)}${j.spend.usd_per_page != null ? ` ($${j.spend.usd_per_page.toFixed(3)}/page)` : ""}` : ""}
+                  {j.spend && j.spend.inr != null ? ` · Claude ₹${j.spend.inr.toFixed(2)}${j.spend.inr_per_page != null ? ` (₹${j.spend.inr_per_page.toFixed(2)}/page)` : ""}` : ""}
                 </span>
                 <span className={`pill ${j.status}`}>{j.status}</span>
               </motion.button>

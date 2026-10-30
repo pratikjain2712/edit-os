@@ -358,3 +358,12 @@ def test_spend_per_article_and_month(client, tmp_path):
 def db_month():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def test_spend_in_rupees(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("EDITOS_USD_INR", "90")
+    job_id = upload(client, tmp_path).json()["id"]
+    wait(client, job_id)
+    assert client.get(f"/api/jobs/{job_id}", headers=KEY).json()["spend"]["inr"] == 0
+    rep = client.get("/api/spend", params={"month": db_month()}, headers=KEY).json()
+    assert rep["usd_inr"] == 90 and rep["inr"] == 0 and rep["jobs"][0]["inr"] == 0

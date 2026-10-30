@@ -22,6 +22,15 @@ from datetime import datetime, timezone
 FILE = "spend.json"
 WORDS_PER_PAGE = 300
 
+
+def inr_rate() -> float:
+    """Rupees per dollar for showing the spend (EDITOS_USD_INR; default 100: owner, 2026-10-30). The log itself stays in dollars, as
+    Anthropic bills."""
+    try:
+        return float(os.environ.get("EDITOS_USD_INR") or 100)
+    except ValueError:
+        return 100.0
+
 _current: contextvars.ContextVar["Ledger | None"] = contextvars.ContextVar("edit_os_spend", default=None)
 
 
