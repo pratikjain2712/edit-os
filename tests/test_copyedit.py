@@ -533,3 +533,11 @@ def test_reference_number_is_no_abbreviation(tmp_path):
     qs = abbrev.collect(ms, journal())[1]
     assert [q.text for q in qs if "JSSDCH" in q.text] == []
     assert any("KLMQ" in q.text for q in qs)
+
+
+def test_run_in_label_in_capitals_is_no_abbreviation(tmp_path):
+    # jehp_1921_26 abstract: "Materials and METHODS: This study ..." asked "METHODS: Kindly expand the abbreviation."
+    ms = make(tmp_path, ["Introduction", "Materials and METHODS: This study used the KLMQ scale."])
+    qs = abbrev.collect(ms, journal())[1]
+    assert [q.text for q in qs if "METHODS" in q.text] == []
+    assert any("KLMQ" in q.text for q in qs)

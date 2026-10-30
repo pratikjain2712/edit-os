@@ -319,7 +319,8 @@ _DEGREES = re.compile(r"(?<![\w-])" + _DEGREE + r"(?:\s*,\s*" + _DEGREE + r")+(?
 _NAMED = re.compile(r"\s+(?:statement|program|programme|software|package|database|platform)\b")
 _INSTITUTION = re.compile(r"\s+(?:[A-Z][a-z]+\s+){0,2}(?:College|University|Hospital|Institute|Foundation|Trust|Corporation)\b")
 _CAPS_RUN = re.compile(r"(?<![\w-])[A-Z]{2,}(?:\s+[A-Z]{2,})+(?![\w-])")
-_LABEL = re.compile(r"(?:^\s*|\(\s*|[.?!]\s+)((?:[A-Z]{2,}\s+)*[A-Z]{2,})\s*:")
+# a run-in label in capitals: "AIM:", "Materials and METHODS:" (jehp_1921_26: "METHODS" queried as an abbreviation)
+_LABEL = re.compile(r"(?:^\s*(?:[A-Z][a-z]+\s+(?:and|&)\s+)?|\(\s*|[.?!]\s+)((?:[A-Z]{2,}\s+)*[A-Z]{2,})\s*:")
 
 
 def uses(p: Paragraph, lenient: bool = False):
