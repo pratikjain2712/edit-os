@@ -405,7 +405,8 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
     in a paper about it) and shorten the stray ones ("intraocular pressure" among many "IOP"). With `always`
     (`full_form_always`: a sheet saying "only abbreviation should be used thereafter") every one is shortened."""
     long = re.sub(r"\\?[\-‐‑–—]", "[-‐‑–—]", re.escape(d0.long))  # "health-related" also as "health–related"
-    pat = re.compile(r"(?<![\w\-])" + long + r"(s?)(?![\w\-])(?!\s*\()", re.I)
+    # not a (re)definition, "full form (ABBR)"; another bracket after it is no definition ("... (GOHAI ≤24)")
+    pat = re.compile(r"(?<![\w\-])" + long + r"(s?)(?![\w\-])(?!\s*\(\s*" + re.escape(key) + r"s?\s*[);,])", re.I)
     listed = re.compile(r"(?<![\w\-])" + re.escape(key) + r"s?\s*[=:,–—]\s*$")
     listed_after = re.compile(r"\s*[=:,–—]\s*" + re.escape(key) + r"(?![\w\-])")
     found = []

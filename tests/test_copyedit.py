@@ -514,13 +514,14 @@ def test_full_form_always_and_dash_variants(tmp_path):
         "Introduction",
         "We studied oral health-related quality of life (OHRQoL) in denture wearers.",
         "Poor oral health–related quality of life was common; oral health-related quality of life was low.",
-        "OHRQoL scores were recorded.",
+        "OHRQoL scores were recorded. Those with poor oral health–related quality of life (GOHAI ≤24) were older.",
     ])
     off = journal("ija", abbreviations={"full_form_after_definition": "change"})
     assert [c for c in abbrev.collect(ms, off)[0] if c.reason == "use abbreviation after its definition"] == []
     on = journal("ija", abbreviations={"full_form_after_definition": "change", "full_form_always": True})
     changes = [c for c in abbrev.collect(ms, on)[0] if c.reason == "use abbreviation after its definition"]
-    assert apply(ms, changes)[2] == "Poor OHRQoL was common; OHRQoL was low."
+    assert apply(ms, changes)[2:4] == ["Poor OHRQoL was common; OHRQoL was low.",
+                                       "OHRQoL scores were recorded. Those with poor OHRQoL (GOHAI ≤24) were older."]
 
 
 def test_reference_number_is_no_abbreviation(tmp_path):
