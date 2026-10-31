@@ -277,6 +277,7 @@ copyedit:
     max_queries: 5             # owner, 2026-10-28: cap the judgement queries (it asked 2-19 per article)
   claude:
     max_queries_per_article: 3  # "awkward or confusing" queries capped (owner, 2026-10-28; 33 in 38 articles)
+    query_check: {enabled: true}  # content queries only when necessary (owner, 2026-10-31)
     model: claude-opus-5-5  # owner, 2026-10-28: IJO 888 (held out) 19 edits, 18 the copy editor's; Haiku 10 (see jehp.yaml)
     close_prefixes: true  # copy editors close up prefixes (post-operative -> postoperative): 6.9 per training article
 

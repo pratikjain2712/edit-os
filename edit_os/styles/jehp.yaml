@@ -308,6 +308,7 @@ copyedit:
     # Autopilot's Haiku check accepted 52 of the 64 and stopped both wrong ones (an Opus check let them through).
     enabled: true
     max_queries_per_article: 3  # "awkward or confusing" queries capped (owner, 2026-10-28; 41 in 28 articles)
+    query_check: {enabled: true}  # content queries only when necessary (owner, 2026-10-31)
     model: claude-opus-5-5
   spelling:  # American as base (the sheet's "Spelling" line is empty). The editors keep "counselling" (4 of 5
              # articles) and "modelling" (3 of 3) while converting the rest (final text: 33 of 53 other conversions)

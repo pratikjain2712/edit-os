@@ -184,4 +184,12 @@ def collect(ms: Manuscript, style: JournalStyle, call=None) -> tuple[list[Change
     if call is None and not enabled(style):
         return [], []
     res = run(ms, style, call=call)
-    return res.changes.changes, res.queries
+    qs = res.queries
+    if call is None:  # the agent's content queries pass the same "necessary?" check as the copy-edit pass's
+        from ..copyedit import claude_pass
+
+        cfg = claude_pass.settings(style)
+        content = [q for q in qs if q.check == "agent.query"]
+        kept = set(map(id, claude_pass.necessary_queries(content, {p.id: p.text for p in ms.paragraphs}, cfg)))
+        qs = [q for q in qs if q.check != "agent.query" or id(q) in kept]
+    return res.changes.changes, qs

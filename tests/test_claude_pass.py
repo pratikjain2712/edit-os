@@ -277,3 +277,26 @@ def test_awkward_sentence_queries_capped_per_article(tmp_path):
     assert len(fake.calls) == 5 and len(queries) == 3
     st.settings["copyedit"]["claude"]["max_queries_per_article"] = None
     assert len(claude_pass.collect(ms, st, call=fake)[1]) == 5
+
+
+def test_content_queries_only_when_necessary():
+    # owner, 2026-10-31: a second check keeps a content query only when the author must answer it
+    from edit_os.copyedit import claude_pass
+    from edit_os.queries import Query
+
+    qs = [Query("p1", 0, 0, "The percentages differ from Table 2. Kindly check.", "claude.query"),
+          Query("p2", 0, 0, "Kindly specify the name of the hospital.", "claude.query")]
+    seen = []
+
+    def check(params):
+        seen.append(params)
+        return {"verdicts": [{"id": "Q1", "necessary": True, "why": "numbers contradict"},
+                             {"id": "Q2", "necessary": False, "why": "extra detail"}]}
+
+    cfg = {"query_check": {"enabled": True, "model": "claude-haiku-5-5"}}
+    got = claude_pass.necessary_queries(qs, {"p1": "49% at risk ...", "p2": "a public hospital ..."}, cfg,
+                                        call=check)
+    assert [q.para_id for q in got] == ["p1"] and seen[0]["model"] == "claude-haiku-5-5"
+    assert claude_pass.necessary_queries(qs, {}, {"query_check": {"enabled": False}}) == qs
+    from edit_os import style
+    assert style.load("jehp").get("copyedit.claude.query_check.enabled") is True

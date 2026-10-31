@@ -45,7 +45,7 @@ from ..style import JournalStyle
 from .cache import cache_dir
 from .common import hidden_offsets, near_hidden, overlaps, prose_paragraphs, protected_spans
 
-PROMPT_VERSION = "b4-4"
+PROMPT_VERSION = "b4-5"  # b4-5: content queries only when necessary (owner, 2026-10-31)
 KINDS = ["punctuation", "article", "agreement", "word_choice", "grammar", "capitalisation", "hyphenation",
          "spelling", "other"]
 CONFIDENCE = ["certain", "likely"]  # kept edits: copyedit.claude.min_confidence
@@ -133,7 +133,13 @@ Hard rules:
 - Queries: paragraph_id, anchor (a short exact phrase from the paragraph the query is about) and
   text written to the author politely in the journal's style, e.g. "Please check the meaning of
   this sentence." or "Kindly clarify what 'it' refers to here." Queries are rare: most chunks
-  need none.
+  need none. Raise one ONLY when it is necessary: the author must answer it before the article can
+  be published and the editor cannot settle it from the manuscript. Necessary: numbers or
+  statistics in the text that contradict each other; a sentence whose meaning cannot be worked
+  out; information the text promises but does not give ("three sessions" with two described).
+  Not necessary (never query these): awkward or wordy wording, style, anything the editor can fix,
+  suggestions to add or rename headings, requests for extra detail (names of hospitals, dates,
+  reference numbers), your reading of the results or the author's reasoning, or guesses.
 
 The input is a list of paragraphs, each starting with its id in square brackets ([P1], [P2], ...).
 Return JSON only, matching the schema. If nothing needs changing, return empty lists."""
@@ -609,7 +615,67 @@ def batch_prefetch(jobs: list[tuple[Manuscript, JournalStyle]], client=None, pol
     return batch.id
 
 
-def collect(ms: Manuscript, style: JournalStyle, call=None) -> tuple[list[Change], list[Query]]:
+# --- second check of Claude's content queries -------------------------------------------------------
+# "Only add content related comments query if they are necessary" (owner, 2026-10-31): each query goes to an
+# independent check (Haiku by default) and is kept only when it agrees the author must answer it.
+
+QCHECK_VERSION = "qc-1"
+QCHECK_SCHEMA = {
+    "type": "object",
+    "properties": {"verdicts": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"id": {"type": "string"}, "necessary": {"type": "boolean"}, "why": {"type": "string"}},
+        "required": ["id", "necessary", "why"], "additionalProperties": False}}},
+    "required": ["verdicts"], "additionalProperties": False,
+}
+QCHECK_SYSTEM = """You review author queries a copy editor drafted for a journal manuscript. Most drafted queries
+are unnecessary and annoy authors. Mark a query necessary ONLY when all of these hold:
+- the author must answer it before the article can be published;
+- the editor cannot settle it from the manuscript itself;
+- it is about a real problem: numbers or statistics that contradict each other, a sentence whose
+  meaning cannot be worked out, or information the text promises but does not give.
+Mark it NOT necessary when it is about wording, style or readability; asks for extra detail the text
+does not need (names of hospitals, dates, reference numbers); questions the author's interpretation,
+reasoning or choice of methods; suggests headings; or is a guess. When in doubt: not necessary.
+Each query comes with its id and the paragraph it is on. Answer for every id."""
+
+
+def _check_call(params: dict) -> dict:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=ai_refs._api_key(),
+                                 base_url=os.environ.get("EDITOS_ANTHROPIC_BASE_URL", "https://api.anthropic.com"))
+    response = client.messages.create(**params)
+    spend.add_usage("copy_edit", params["model"], response.usage)
+    try:
+        return json.loads(next((b.text for b in response.content if b.type == "text"), ""))
+    except ValueError:
+        return {"verdicts": []}
+
+
+def necessary_queries(queries: list[Query], texts: dict[str, str], cfg: dict, call=None) -> list[Query]:
+    """The queries the second check finds necessary (all of them when the check is off; none it could not judge)."""
+    check = cfg.get("query_check") or {}
+    if not queries or not check.get("enabled"):
+        return queries
+    model = check.get("model", "claude-haiku-5-5")
+    items = {f"Q{i}": q for i, q in enumerate(queries, 1)}
+    payload = "\n\n".join(f"[{k}] Query: {q.text}\nParagraph: {texts.get(q.para_id, '')[:1500]}"
+                           for k, q in items.items())
+    params = dict(model=model, max_tokens=4000,
+                  output_config={"format": {"type": "json_schema", "schema": QCHECK_SCHEMA}},
+                  system=QCHECK_SYSTEM, messages=[{"role": "user", "content": payload}])
+    key = hashlib.sha256(json.dumps([QCHECK_VERSION, model, payload]).encode()).hexdigest()
+    got = _cache_db().get(key)
+    if got is None:
+        got = (call or _check_call)(params)
+        _cache_db().put(key, got)
+    keep = {v.get("id") for v in got.get("verdicts") or [] if isinstance(v, dict) and v.get("necessary") is True}
+    DROPS["query_not_necessary"] += len(items) - len(keep & set(items))
+    return [q for k, q in items.items() if k in keep]
+
+
+def collect(ms: Manuscript, style: JournalStyle, call=None, check_call=None) -> tuple[list[Change], list[Query]]:
     """Verified copy-edit suggestions and author queries for the whole manuscript."""
     if call is None and not enabled(style):
         return [], []
@@ -631,9 +697,6 @@ def collect(ms: Manuscript, style: JournalStyle, call=None) -> tuple[list[Change
             changes.append(c)
         per_para: Counter = Counter()
         for q in got.get("queries", [])[:cfg.get("max_queries_per_chunk", 1)]:
-            cap = cfg.get("max_queries_per_article")
-            if cap is not None and len(queries) >= int(cap):
-                break  # "awkward or confusing" queries: a few per article (owner, 2026-10-28)
             p = local.get(q["paragraph_id"].strip("[] "))
             if p is None or per_para[p.id]:
                 continue
@@ -641,4 +704,9 @@ def collect(ms: Manuscript, style: JournalStyle, call=None) -> tuple[list[Change
             if made:
                 per_para[p.id] += 1
                 queries.append(made)
+    if call is None or check_call is not None:  # a test's canned `call` is not checked against the live API
+        queries = necessary_queries(queries, {p.id: p.text for p in ms.paragraphs}, cfg, call=check_call)
+    cap = cfg.get("max_queries_per_article")
+    if cap is not None:
+        queries = queries[:int(cap)]  # a few per article, after the check (owner, 2026-10-28)
     return changes, queries

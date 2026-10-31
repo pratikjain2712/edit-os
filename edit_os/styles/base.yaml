@@ -701,6 +701,9 @@ copyedit:
     max_chars: 60
     max_queries_per_chunk: 1   # copy editors query rarely; only real ambiguity
     max_queries_per_article: null  # a cap over the whole article (IJO, JEHP: 3)
+    query_check:               # a second, independent check of each query: kept only when the author must answer
+      enabled: false           # it (contradictory numbers, meaning unclear, promised information missing); owner,
+      model: claude-haiku-5-5  # 2026-10-31: "only add content related queries if they are necessary" (IJO, JEHP on)
     min_confidence: certain    # certain | likely: keep only edits Claude marks certain
     skip_kinds: []             # e.g. [word_choice] to turn a kind of suggestion off
     close_prefixes: false      # close up prefixed compounds (postoperative); on where the journal's copy editors do
