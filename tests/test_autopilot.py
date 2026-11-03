@@ -138,3 +138,12 @@ def test_legends_heading_waits_for_the_figure_inserts_it_heads():
     other = NewParagraph("legends_heading", "p0004", "before", [("Figure Legends", {})], "legends_heading",
                          reason="fig_legends_heading")  # over the manuscript's own legends
     assert "legends_heading" in autopilot.plan([], [other], st, judge=lambda items: {}).accept
+
+
+def test_reference_fact_changes_always_held():
+    # every journal, whatever its hold list (owner, 2026-11-03)
+    for code in ("jehp", "ijo"):
+        st = style.load(code)
+        p = autopilot.plan([ch("f1", "ref_lookup.fact"), ch("f2", "ref_lookup", layer=Layer.REFERENCES)], [], st,
+                           judge=lambda items: {})
+        assert "f2" in p.accept and "f1" not in p.accept and {d["id"] for d in p.left} == {"f1"}

@@ -266,4 +266,22 @@ def check(ms: Manuscript, style: JournalStyle, *, source: Manuscript | None = No
                     continue
                 if "http" not in p.text and not re.search(r"<\w+>", p.text[max(0, m.start() - 4):m.end() + 4]):
                     issues.append(Issue(ERROR, "statistics.spacing", f"Operator needs a space each side: '{p.text[max(0, m.start() - 6):m.end() + 6]}'", p.id))
+    # Facts in references that a database record changed (year, volume, first page): listed for QC, one line per
+    # entry, with the record they came from and whether the editor accepted them (owner, 2026-11-03).
+    seen_fact: set[str] = set()
+    for c in getattr(changes, "changes", changes) or ():
+        if (c.reason or "") != "ref_lookup.fact" or c.para_id in seen_fact:
+            continue
+        seen_fact.add(c.para_id)
+        prov = c.provenance or {}
+        parts = prov.get("parts") or [prov]
+        note = next((x for x in parts if (x or {}).get("detail", "").startswith("The record changes")), prov)
+        state = getattr(c.status, "value", c.status)
+        try:
+            entry = ms.by_id(c.para_id).text[:60]
+        except KeyError:
+            entry = ""
+        issues.append(Issue(WARNING, "references.fact_changed",
+                            f"{note.get('label', 'Database')}: {note.get('detail', '')} [{state}] {entry}".strip(),
+                            c.para_id))
     return Report(issues)

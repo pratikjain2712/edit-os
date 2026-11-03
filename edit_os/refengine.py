@@ -264,6 +264,26 @@ def _first_page(pages: str) -> str:
     return m.group(1) if m else ""
 
 
+def fact_changes(old: str, new: str) -> dict[str, tuple[str, str]]:
+    """The citation facts a rebuilt entry changes: {"year" | "volume" | "page": (author's, record's)}. Not a
+    reformat ("95-102" -> "95-102", "(2)" dropped) and not a PDF's page range for an online article's number
+    ("1-9" -> "176"): those are the database's usual corrections. jehp_1888_26: "46(2):85-94" -> "46:71" (an
+    editorial's page) is one."""
+    co, cn = citation(old), citation(new)
+    if not co or not cn:
+        return {}
+    out = {}
+    if co[0] != cn[0]:
+        out["year"] = (co[0], cn[0])
+    if co[1].lstrip("0") != cn[1].lstrip("0"):
+        out["volume"] = (co[1], cn[1])
+    fo, fn = _first_page(co[3]), _first_page(cn[3])
+    pdf_range = fo in ("1", "0") and not re.search(r"[-–]", cn[3])
+    if fo and fn and fo != fn and not pdf_range:
+        out["page"] = (co[3], cn[3])
+    return out
+
+
 # APA: "(2002). Title. Educational Psychologist, 37(2), 91–105." / "Information Sciences, 622, 178–210."
 APA_CITE = re.compile(r"\(((?:19|20)\d{2})[a-z]?(?:,[^)]*)?\)\..*?,\s*(\d+)\s*(?:\(([^)]*)\))?\s*,\s*"
                       r"(?:pp?\.\s*)?([A-Za-z]?\d+[A-Za-z]?(?:\s*[-–]\s*[A-Za-z]?\d+[A-Za-z]?)?)(?![\d/])")

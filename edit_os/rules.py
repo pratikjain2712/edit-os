@@ -1820,6 +1820,30 @@ def _restore_proper(formatted: str, original: str, names: set[str]) -> str:
     return re.sub(r"(?<![.?!:]\s)(?<![\w-])([a-z][a-z]{2,})(?![\w-])(\s+[A-Z][a-z]+\b|)", fix, formatted)
 
 
+def _hold_fact_changes(diff: list[Change], ref, res) -> None:
+    """A rebuilt entry that changes a fact (year, volume, first page) the author gave: those word changes get the
+    reason "ref_lookup.fact" (always held for the editor: autopilot.ALWAYS_HOLD) and a note naming the database
+    record, so the editor checks them (owner, 2026-11-03, after jehp_1888_26's "85-94" -> "71")."""
+    facts = refengine.fact_changes(ref.text, res.formatted or "")
+    if not facts:
+        return
+    r = res.record
+    src = {"pubmed": "PubMed", "crossref": "CrossRef"}.get(getattr(r, "source", ""), getattr(r, "source", "") or "the database")
+    ident = f" (PMID {r.pmid})" if getattr(r, "pmid", "") else f" (DOI {r.doi})" if getattr(r, "doi", "") else ""
+    said = "; ".join(f"{k} {a} -> {b}" for k, (a, b) in facts.items())
+    note = provenance.make(getattr(r, "source", "") or "unverified", f"Fact changed by {src}{ident}", f"The record changes the author's {said}. Check that it is "
+                           "the same article (not an editorial, comment or erratum) before accepting.")
+    m = (refengine.YEAR_VOL.search(ref.text) or refengine.APA_CITE.search(ref.text)
+         or refengine.ENDNOTE_CITE.search(ref.text))
+    lo, hi = (ref.offset + m.start(), ref.offset + m.end()) if m else (ref.offset, ref.offset + len(ref.text))
+    olds = [v for v, _ in facts.values()]
+    for c in diff:
+        if c.start < hi and c.end > lo and (c.end > c.start) and any(
+                re.search(r"\d", c.old) and (c.old.strip(" ;:().") in v or v in c.old) for v in olds):
+            c.reason = "ref_lookup.fact"
+            c.provenance = note
+
+
 def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     out = []
     names = _body_proper_nouns(ms)
@@ -1831,7 +1855,9 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
     for ref, res in lookup_references(ms, style):
         mine = []
         if res.status == refengine.FORMAT_FIXED:
-            mine += word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup", italic, plain)
+            diff = word_diff(ms.by_id(ref.para_id), ref.offset, ref.text, res.formatted, "ref_lookup", italic, plain)
+            _hold_fact_changes(diff, ref, res)
+            mine += diff
             for pid, text in ref.continuation:  # the rebuilt entry holds the rest ("doi:..." on its own line)
                 p = ms.by_id(pid)
                 mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_lookup"))
@@ -1847,8 +1873,8 @@ def rule_ref_lookup(ms: Manuscript, style: JournalStyle) -> list[Change]:
                 p = ms.by_id(pid)
                 mine.append(_change(p, 0, len(p.text), "", Layer.REFERENCES, "ref_other"))
         prov = provenance.reference(res, ref.full_text)
-        for c in mine:
-            c.provenance = prov
+        for c in mine:  # a fact change keeps its note beside the record's source
+            c.provenance = provenance.combine([prov, c.provenance]) if c.reason == "ref_lookup.fact" else prov
         out += mine
     return out
 

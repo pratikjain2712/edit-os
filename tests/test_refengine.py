@@ -78,7 +78,11 @@ def test_lookup_rule_writes_word_level_changes(fake_pubmed, tmp_path):
     cs = rules.run_all(docmodel.load(str(path)), style.load("ijo"))
     entry = [c for c in cs.changes if c.para_id == "p0002" and c.reason not in ("fmt_font", "fmt_line_spacing")]
     # (the font and the line spacing: the whole entry)
-    assert entry and all(c.reason == "ref_lookup" for c in entry)  # small reference rules step aside
+    assert entry and all(c.reason in ("ref_lookup", "ref_lookup.fact") for c in entry)  # small rules step aside
+    # the first page the record corrects ("95-63" -> "956-63") is held for the editor, with the record named
+    facts = [c for c in entry if c.reason == "ref_lookup.fact"]
+    assert [(c.old, c.new) for c in facts] == [("95", "956")]
+    assert "PMID" in facts[0].provenance["label"] or "PMID" in str(facts[0].provenance)
     assert all(len(c.old) < 20 for c in entry)  # small edits, not one whole-entry replacement
     for c in cs.changes:
         c.status = Status.ACCEPTED
@@ -214,3 +218,16 @@ def test_an_editorial_titled_like_the_article_is_not_the_article():
                         pub_types=["Journal Article"])
     assert not refengine.accept(p, note)
     assert refengine._best(p, [note, art]) is art
+
+
+def test_fact_changes():
+    # owner, 2026-11-03: a record that changes the author's year, volume or first page is held for the editor
+    from edit_os.refengine import fact_changes
+
+    a = "Stomer U. Health literacy. Journal of renal care. 2020;46(2):85-94."
+    assert fact_changes(a, "Stomer U. Health literacy. J Ren Care 2020;46:71.") == {"page": ("85-94", "71")}
+    assert fact_changes(a, "Stomer U. Health literacy. J Ren Care 2020;46:85-94.") == {}
+    assert fact_changes(a, "Stomer U. Health literacy. J Ren Care 2021;47:85-94.") == {"year": ("2020", "2021"),
+                                                                                       "volume": ("46", "47")}
+    # a PDF's page range for an online article's number is the database's usual correction
+    assert fact_changes("A B. T. BMC Nurs 2021;20:1-9.", "A B. T. BMC Nurs 2021;20:176.") == {}

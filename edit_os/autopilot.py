@@ -117,8 +117,13 @@ def category(item) -> str:
     return "other"
 
 
+# Held for the editor in every journal, whatever its `autopilot.hold`: a reference fact (year, volume, first page)
+# the database record changes (owner, 2026-11-03: jehp_1888_26 took an editorial's page "71" for "85-94").
+ALWAYS_HOLD = ["ref_lookup.fact"]
+
+
 def _held(reason: str, hold) -> bool:
-    return any(reason == h or reason.startswith((h + ":", h + ".", h + " ")) for h in hold or [])
+    return any(reason == h or reason.startswith((h + ":", h + ".", h + " ")) for h in list(hold or []) + ALWAYS_HOLD)
 
 
 def plan(changes: list[Change], inserts, style: JournalStyle, judge=None, texts: dict[str, str] | None = None) -> Plan:
