@@ -42,6 +42,7 @@ from docx.oxml.ns import qn
 from lxml import etree
 
 from . import ai_refs, provenance, queries, spend, submission
+from . import shared_db
 from .changes import Change, Layer, Source, Status
 from .docmodel import Manuscript, Paragraph
 from .style import JournalStyle, _merge
@@ -530,7 +531,7 @@ def parse_metadata_json(data: bytes) -> Meta:
 class _Cache:
     def __init__(self, path: str = ai_refs.CACHE_DB):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.con = sqlite3.connect(path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
+        self.con = shared_db.connect(path)  # shared by worker threads, under a lock (shared_db.py)
         self.con.execute("CREATE TABLE IF NOT EXISTS frontmatter (key TEXT PRIMARY KEY, body TEXT)")
 
     @staticmethod

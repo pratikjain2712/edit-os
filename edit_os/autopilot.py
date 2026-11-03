@@ -25,6 +25,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from . import ai_refs, spend
+from . import shared_db
 from .changes import Change, Layer, Source, Status
 from .copyedit.cache import cache_dir
 from .style import JournalStyle
@@ -214,7 +215,7 @@ def judge_payload(items: list[Change], texts: dict[str, str]) -> str:
 
 class _Cache:
     def __init__(self, path: str | None = None):
-        self.con = sqlite3.connect(path or cache_dir("autopilot.sqlite"), timeout=60, check_same_thread=False)
+        self.con = shared_db.connect(path or cache_dir("autopilot.sqlite"), timeout=60)  # under a lock (shared_db.py)
         self.con.execute("CREATE TABLE IF NOT EXISTS judge (key TEXT PRIMARY KEY, body TEXT)")
 
     def get(self, key: str) -> dict | None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import threading
 import urllib.request
 from dataclasses import dataclass
 
@@ -86,20 +87,27 @@ class Directory:
     def __init__(self, db_path: str = DEFAULT_DB):
         if not os.path.exists(db_path):
             raise FileNotFoundError(f"{db_path} not found; run: python -m edit_os journals update")
-        self.con = sqlite3.connect(db_path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
+        # Shared by the server's worker threads: one connection, used under a lock (two jobs looking up journals at
+        # once interleaved their cursors: "InterfaceError: bad parameter or other API misuse" and an empty row,
+        # "Journal() argument after * must be an iterable", jehp_879_26 / jehp_1158_26 on 2026-11-03).
+        self.con = sqlite3.connect(db_path, check_same_thread=False)
+        self.lock = threading.RLock()
         self._cache: dict[str, list[Journal]] = {}
 
-    def _get(self, nlm_id: str) -> Journal:
-        return Journal(*self.con.execute("SELECT * FROM journal WHERE nlm_id = ?", (nlm_id,)).fetchone())
+    def _get(self, nlm_id: str) -> Journal | None:
+        with self.lock:
+            row = self.con.execute("SELECT * FROM journal WHERE nlm_id = ?", (nlm_id,)).fetchone()
+        return Journal(*row) if row else None
 
     def find(self, name: str) -> list[Journal]:
         """All journals whose title, abbreviation or ISSN matches `name` exactly (after normalising)."""
         name = name.strip()
         key = name.upper() if re.fullmatch(r"\d{4}-\d{3}[\dXx]", name) else normalise(name)
-        if key not in self._cache:
-            ids = {r[0] for r in self.con.execute("SELECT nlm_id FROM name WHERE key = ?", (key,))}
-            self._cache[key] = [self._get(i) for i in sorted(ids)]
-        return self._cache[key]
+        with self.lock:
+            if key not in self._cache:
+                ids = {r[0] for r in self.con.execute("SELECT nlm_id FROM name WHERE key = ?", (key,)).fetchall()}
+                self._cache[key] = [j for j in (self._get(i) for i in sorted(ids)) if j is not None]
+            return self._cache[key]
 
     def lookup(self, name: str) -> Journal | None:
         """The one journal matching `name`, or None when there is no match or it is ambiguous."""

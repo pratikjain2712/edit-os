@@ -12,6 +12,8 @@ base URL set for some other tool in the environment is not picked up.
 
 from __future__ import annotations
 
+from . import shared_db
+
 import hashlib
 import json
 import os
@@ -137,7 +139,7 @@ def available() -> bool:
 class _Cache:
     def __init__(self, path: str = CACHE_DB):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.con = sqlite3.connect(path, check_same_thread=False)  # shared by worker threads (serialized SQLite)
+        self.con = shared_db.connect(path)  # shared by worker threads, under a lock (shared_db.py)
         self.con.execute("CREATE TABLE IF NOT EXISTS parsed (key TEXT PRIMARY KEY, body TEXT)")
 
     @staticmethod
