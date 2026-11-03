@@ -157,9 +157,6 @@ tables:
   cell_rows_query: true
 
 sections:
-  # The editors' standing query: "Please ensure that the section heading levels are treated correctly." (about 85 of
-  # 302 articles; owner, 2026-10-30: every article), on the first heading after the abstract
-  heading_levels_query: true
   keywords:
     max_query: false  # owner, 2026-10-28: no "Kindly provide a maximum of 5 key words" (12 asked, the editors 0)
   # S: the reference list's heading is "REFERENCES" (set in title case as the other H1 heads): "Reference" ->
@@ -384,9 +381,6 @@ front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together
     # Off: the sheet does not ask for authors' full names (QC on JEHP_73_26: "I did not find any mention of full names
     # in the style guide"); initials are printed as given.
     full_name: false
-    # The editors' standing query on the author group: "Please ensure that the author names and affiliations are
-    # treated correctly." (about 55 of 302 articles; owner, 2026-10-30: every article)
-    authors_check: true
     # Off, for the owner: one style editor's habits, asked in few of the articles where the condition holds.
     #   type_source  "Kindly note that the “Article type” provided in FP / XML file has been followed.": 8 of 35
     #                articles (7 of that editor's 8), every article taking its type from the title page or XML
@@ -454,3 +448,11 @@ autopilot:
   # the editors skipping it is an editor miss (CLAUDE.md), not a reason to wait for them.
   hold: [sections_back_matter.consent_added, figure_insert, sections_abstract.rename,
          sections_back_matter.added, guide.unary_comparison, table_caption_duplicate.differs]
+
+header:
+  # The editors' two standing notes, at the top of the file under the sign-off as "Query: ..." lines (not comments on
+  # the author group or a heading: owner, 2026-11-03, after rejecting the comment versions in jehp_1888, 1912, 1930).
+  # The JEHP editors' files have them in 123 places in 302 articles, every one a top-of-file note.
+  editor_queries:
+    names_affiliations: true
+    heading_levels: true

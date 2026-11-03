@@ -101,25 +101,23 @@ def test_manufacturer_missing():
     assert manufacturer_missing(paras[1:])[0][0].text[slice(*manufacturer_missing(paras[1:])[0][1])] == "JASP"
 
 
-def test_jehp_standing_queries_and_dropped_checks(tmp_path):
-    # JEHP editors' standing query on the headings (about 85 of 302 articles), on the first heading after the abstract;
-    # queries the editors never raise are dropped (owner, 2026-10-30)
-    from docx import Document
+def test_jehp_standing_notes_and_dropped_checks():
+    # JEHP editors' two standing notes go at the top of the file under the sign-off, "Query: ..." (123 in 302
+    # articles, every one there); not comments (owner, 2026-11-03). Queries the editors never raise are dropped.
+    from datetime import datetime
 
-    from edit_os import docmodel, queries, rules_sections, style
+    from edit_os import header, style
+    from edit_os.changes import ChangeSet
 
-    d = Document()
-    for t in ["Abstract", "Background: We studied care. Methods: A survey. Results: Good. Conclusion: Fine.",
-              "Keywords: Care; Survey", "Introduction", "Care matters [1].", "Methods", "We surveyed staff.",
-              "References", "1. Smith A. A study. J Test 2020;1:1-2."]:
-        d.add_paragraph(t)
-    d.save(tmp_path / "a.docx")
-    ms = docmodel.load(str(tmp_path / "a.docx"))
     st = style.load("jehp")
-    qs = queries.QuerySet()
-    rules_sections.add_queries(ms, st, qs)
-    got = [(ms.by_id(q.para_id).text, q.text) for q in qs.queries if q.check == "sections.heading_levels_check"]
-    assert got == [("Introduction", "Please ensure that the section heading levels are treated correctly.")]
+    got = header.lines(st, {"renumbering": []}, ChangeSet([]), set(), stages=["style"], editor="Editink",
+                       when=datetime(2026, 11, 3))
+    assert got[1:] == [
+        ("q", "Query: Please ensure that the author names and affiliations are treated correctly. Kindly check and "
+              "correct if necessary."),
+        ("q", "Query: Please ensure that the section heading levels are treated correctly. Kindly check and correct "
+              "if necessary.")]
+    assert not st.get("front_matter.queries.authors_check") and not st.get("sections.heading_levels_query")
     assert {"abstract.too_long", "front.running_head_long", "text.brackets"} <= set(st.get("queries.drop"))
-    assert st.get("front_matter.queries.authors_check") is True
-    assert style.load("ijo").get("queries.drop") == [] and not style.load("ijo").get("sections.heading_levels_query")
+    assert style.load("ijo").get("queries.drop") == []
+    assert not header.settings(style.load("ijo")).get("editor_queries", {}).get("names_affiliations")
