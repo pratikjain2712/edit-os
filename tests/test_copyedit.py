@@ -543,3 +543,19 @@ def test_run_in_label_in_capitals_is_no_abbreviation(tmp_path):
     qs = abbrev.collect(ms, journal())[1]
     assert [q.text for q in qs if "METHODS" in q.text] == []
     assert any("KLMQ" in q.text for q in qs)
+
+
+def test_abbreviation_dropped_from_a_heading_the_text_defined_before(tmp_path):
+    # jehp_1930_26 (owner, 2026-11-03): "<H3>Connor–Davidson resilience scale (CD-RISC)" after the text's definition
+    ms = make(tmp_path, [
+        "Introduction",
+        "All children completed the Connor–Davidson Resilience Scale (CD-RISC) and the KLMQ test.",
+        "Connor–Davidson resilience scale (CD-RISC)",
+        "Resilience was assessed with the 25-item CD-RISC. The CD-RISC is reliable.",
+        "Kiddie test of grit (KTG)",
+        "The KTG and the KTG scores were used; the KTG was short.",
+    ])
+    st = journal("jehp", abbreviations={"query_undefined_min_uses": 1})
+    got = apply(ms, [c for c in abbrev.collect(ms, st)[0] if c.reason == "abbreviation in heading"])
+    assert got[2] == "Connor–Davidson resilience scale"
+    assert got[4] == "Kiddie test of grit (KTG)"  # the heading's is the only definition: kept

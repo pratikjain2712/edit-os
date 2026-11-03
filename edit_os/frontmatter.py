@@ -1770,6 +1770,18 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
     keep = proper_keep([raw_title, f.running_title or meta.running_title], f.proper_nouns, case_body(ms), f.notes)
     colon = cfg.get("capital_after_colon", True)
     title = recase(raw_title, cfg.get("title_case", "sentence"), keep, colon) if raw_title else ""
+    if title and cfg.get("title_drop_abbreviations"):
+        # "The effectiveness of cognitive-behavioral therapy (CBT) on ..." -> without "(CBT)" (JEHP, owner 2026-11-03)
+        from types import SimpleNamespace
+
+        from .copyedit.abbrev import definitions
+
+        for d in sorted(definitions(SimpleNamespace(text=title, id="title")), key=lambda d: -d.paren_start):
+            if title[d.paren_start:d.end] == f"({d.short})":
+                s_ = d.paren_start
+                while s_ > 0 and title[s_ - 1] == " ":
+                    s_ -= 1
+                title = title[:s_] + title[d.end:]
     if title and ms is not None and rules_text_on(style, "compound_dash"):
         # "oral health–related" where the text writes "health-related": the hyphen (JEHP_73_26, QC)
         from . import rules_text

@@ -427,3 +427,20 @@ def test_several_supplementary_files_go_under_one_heading_in_file_order(tmp_path
     tr = texts(out.path("tracked"))
     assert tr.count("<H2>Supplementary Material") == 1 and \
         tr.index("CHECKLIST") < tr.index("SEARCH TERMS") < tr.index("DETAILS")
+
+
+def test_table_notes_added_and_moved_with_the_table(tmp_path):
+    # owner, 2026-11-03 (QC on JEHP_73_26, the style editor on jehp_1930_26): the abbreviations a table uses, expanded
+    # under it in the journal's form, and the note goes to the end with its table
+    body = ("We used Cognitive-Behavioral Therapy (CBT) in eight sessions with the children of the schools, who "
+            "completed the scales before and after the sessions with the help of trained staff.")
+    data = _docx(["Introduction", body + " See Table 1.",
+                  "Table 1: Scores before and after CBT",
+                  ("table", [["Group", "Mean", "SD"], ["CBT", "12.1", "2.3"], ["Control", "11.9", "2.1"]]), "",
+                  "Discussion", body, *REFS])
+    path = tmp_path / "Manuscript.docx"
+    path.write_bytes(data)
+    got, _ = _accepted_run(str(path), journal("jehp"), tmp_path)
+    i = got.index("Tables")
+    assert "SD = Standard deviation, CBT = Cognitive-behavioral therapy" in got[i:]
+    assert got.index("SD = Standard deviation, CBT = Cognitive-behavioral therapy") > got.index("Control")

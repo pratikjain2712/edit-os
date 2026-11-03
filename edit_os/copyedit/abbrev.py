@@ -546,6 +546,34 @@ def _names_in_capitals(ms: Manuscript) -> set[str]:
     return marked | (caps & makers)
 
 
+def _heading_definitions(ms: Manuscript, busy: set[str]) -> list[Change]:
+    """"Connor–Davidson resilience scale (CD-RISC)" as a heading, the abbreviation defined in the text too: the
+    "(ABBR)" goes from the heading, its full form stays (`drop_in_headings`; JEHP, owner 2026-11-03, after the style
+    editor's jehp_1930_26). Only when the text defined it before the heading: else the heading's is the first one.""" 
+    from .. import rules_figures
+
+    text_defs: dict[str, int] = {}  # abbreviation -> where the text first defines it
+    heads = []
+    for i, p in enumerate(ms.paragraphs):
+        if not p.text.strip() or p.in_table or rules_figures.caption_match(p) is not None:
+            continue
+        ds = [d for d in definitions(p) if p.text[d.paren_start:d.end] == f"({d.short})"]
+        if _is_heading(p) and len(p.text.split()) <= 14:
+            heads += [(i, p, d) for d in ds]
+        else:
+            for d in definitions(p):
+                text_defs.setdefault(d.short, i)
+    out = []
+    for i, p, d in heads:
+        if text_defs.get(d.short, i) >= i or p.id in busy:
+            continue  # defined in the text before this heading, or the heading's is the first: kept
+        s = d.paren_start
+        while s > 0 and p.text[s - 1] == " ":
+            s -= 1
+        out.append(change(p, s, d.end, "", "abbreviations", reason="abbreviation in heading"))
+    return out
+
+
 def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Query]]:
     cfg = style.get("copyedit.abbreviations", {}) or {}
     if not cfg.get("enabled", True):
@@ -673,6 +701,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                 # Codes with digits or hyphens (gene names, scales such as GDS-15) are rarely queried.
                 queried.add(key)  # once per manuscript
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))
+    if cfg.get("drop_in_headings"):
+        changes += _heading_definitions(ms, {c.para_id for c in changes})
     return changes, queries
 
 

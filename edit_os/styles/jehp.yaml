@@ -80,6 +80,9 @@ guide_replace:
   # kept, so P values keep theirs); "1,260" -> "1260", five digits and more keep the comma (editors 2 of 2).
   stat_italic: true
   leading_zero: true
+  # P values too: "P = .01" -> "P = 0.01" (owner, 2026-11-03: the editors added the zero in 11 of 15 articles with a
+  # bare ".01"; before, 8 of 8 had been kept), everywhere -- abstract, text and tables alike
+  leading_zero_p: true
   # Off (owner, 2026-10-30): the final text took "1,260" -> "1260" 82 times and kept the comma 291 (22%; 266 articles)
   thousands_comma: false
 
@@ -122,6 +125,9 @@ figures:
   table_footnote_order: abbreviations_first  # owner, 2026-10-27: follow the guide (G214)
   # ... and asked of the author where the foot is short of it: abbreviations used in the table with no
   # "term = definition" (S "Abbreviations should be first and footnotes next"), a symbol given two meanings or none
+  # The abbreviations a table uses, expanded under it (owner, 2026-11-03: QC on JEHP_73_26, the style editor on
+  # jehp_1930_26; the editors type such notes in 57 of 251 articles with tables)
+  table_footnote_add: true
   table_footnote_queries: true
   # Owner, 2026-10-28: drop the "Kindly provide the expansion of SD in the table footnote" query (52 in 28 articles,
   # the editors 0; no sheet line asks it). The symbol queries stay.
@@ -178,7 +184,12 @@ sections:
     supplementary_heading: Supplementary Material  # S: 'please add the heading “Supplementary Material”'
     # A declaration found only on the title page (or a declaration file) -- funding, conflicts, ethics, data
     # availability, AI use -- is used in the back matter (owner, 2026-10-27; G283)
-    statements_from_sources: [funding, conflict, ethics, data, ai]
+    # (ethics and AI use no longer, nor the contributions: owner, 2026-11-03, below)
+    statements_from_sources: [funding, conflict, data]
+    # Owner, 2026-11-03 (after the style editor's jehp_1930_26): the statements the guide does not ask for go -- a
+    # "Funding" statement beside "Financial support and sponsorship", the ethics statement the Methods already give,
+    # the authors' contributions, the AI-use statement.
+    delete_sections: [funding, ethics, contributions, ai]
     consent:
       # S: "Declaration of patient consent" should be present: the author's own consent heading takes the sheet's
       # (owner, 2026-10-27: keep the guide / sheet)
@@ -186,7 +197,7 @@ sections:
     contributions:
       # the authors' contributions given on the title page / contribution form (owner, 2026-10-27: a statement given
       # anywhere in the submission is used; the JEHP editors add them: 1153, 1738)
-      from_sources: true
+      from_sources: false  # owner, 2026-11-03: contributions are not added (they are deleted: delete_sections)
     heading_bold: true  # S: "H2 | Sentence Case, Bold": the statement headings added, renamed or split off are bold
     # The sheet and guide say nothing on nil statements: the editors' habit.
     delete_nil_statements: false  # the author's "The authors declare no conflict of interest." stays (10 of 13
@@ -334,6 +345,9 @@ copyedit:
     query: []
     # "Kindly expand" for an abbreviation the article uses at least 3 times and that is no word in capitals or
     # mixed-case name: the editors asked about 20 in 302 articles, we asked 578 in 266 (owner, 2026-10-30)
+    # "(CD-RISC)", "(SEQ-C)", "(CBT)" in headings go when the text defines them (owner, 2026-11-03: the style editor in
+    # jehp_1930_26; the editors 56 of 112); the title's too (front_matter.title_drop_abbreviations)
+    drop_in_headings: true
     query_undefined_min_uses: 3
     query_undefined_plain_only: true
 
@@ -347,6 +361,7 @@ text:
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
 
 front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together. All the affiliations should be complete"
+  title_drop_abbreviations: true  # "... therapy (CBT) on ..." -> no "(CBT)" in the title (owner, 2026-11-03)
   group_departments: false
   affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")
   # S90: the correspondence run on, the address on the name line (owner, 2026-10-26; the editors split 9 / 8, and

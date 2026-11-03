@@ -141,7 +141,8 @@ def test_funding_beside_the_journal_heading_is_not_doubled(tmp_path):
                            "funding.", ("Finance support and sponsorship:",), "Nil", ("Conflicts of interest",),
                            "There are no conflicts of interest."] + REFS)
     out = run(path, only=["heading_tags", "sections_back_matter"])
-    assert out.count("<H2>Financial support and sponsorship") == 1 and "<H2>Funding" in out
+    # the "Funding" statement beside the guide's section goes (owner, 2026-11-03: as the style editor in jehp_1930_26)
+    assert out.count("<H2>Financial support and sponsorship") == 1 and "<H2>Funding" not in out
 
 
 def test_run_in_statements_split_and_bare_nil_ethics_go(tmp_path):

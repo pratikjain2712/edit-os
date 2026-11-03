@@ -159,7 +159,9 @@ def test_back_matter_headings_bold_twelve_point_statements_plain(tmp_path):
         "COMPLIANCE WITH JEHP AI POLICY STATEMENT: In accordance with the JEHP AI policy, the authors used no AI tools.",
         "Use of Artificial Intelligence:", "No artificial intelligence tools were used in writing this article at all.",
     ] + REFS)
-    _, out = _render(path, _st("jehp"))
+    st = _st("jehp")
+    st.settings["sections"]["back_matter"]["delete_sections"] = []  # the headings' format, AI statements kept
+    _, out = _render(path, st)
     paras = _paras(out)
     h2 = [p for p in paras if p[0].startswith("<H2>")]
     assert len(h2) >= 4 and all(_heading_ok(p, 12) for p in h2), [p[0] for p in h2]

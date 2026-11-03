@@ -363,6 +363,8 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
     for p in paras:
         by_el.setdefault(_top(p.element, body), []).append(p)
     note_ids = {q.id for block in rules_figures.table_notes(ms) for q in block}
+    # an empty line under a table that the table-notes rule fills goes with the table
+    fills = {q.id for q, _, empty in rules_figures.table_note_plan(ms, style) if empty}
     split_title = {t.element: lab for lab, t in rules_figures.split_table_captions(ms)}  # "Table 1." / its title
     kids = list(body)
     blocks, numbers = [], []
@@ -415,6 +417,8 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
                 break
             q = by_el[x][0]
             if _empty(x):
+                if q.id in fills:
+                    ids.append(q.id)
                 continue
             if q.id in note_ids or j == last + 1 and rules_figures.loose_table_note(q.text):
                 ids.append(q.id)  # (a note right under the table that no footnote pattern knows: jehp_1402)

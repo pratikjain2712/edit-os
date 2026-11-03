@@ -2384,7 +2384,8 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             new["ack"] = [f"{ack_tag}{_sentence_label(want)}", text]
             fsrc = getattr(ms, "front_sources", None)
             origins["ack"] = provenance.make("title_page", "Title page", text, file=getattr(fsrc, "first_page_name", ""))
-    have = {s.kind for s in sections}
+    _delete_unasked(ms, style, sections, nonempty, deleted, delete, label_only, out)
+    have = {s.kind for s in sections if s.para.id not in deleted}
     if moved_consent:
         new["consent"], origins["consent"] = moved_consent
     if consent_on:
@@ -2691,6 +2692,66 @@ def caps_sentence(text: str, body: str) -> str:
         else:
             out.append(w.lower())
     return " ".join(out)
+
+
+_FUNDING_LABEL = re.compile(r"^\s*(?:<H\d>)?\s*(?:funding|sources? of funding|funding (?:statement|sources?|information))"
+                            r"\s*[:.\-–—]?\s*", re.I)
+
+
+def _new_ids(x: _Section, nonempty: list[Paragraph], at: dict, body: str) -> bool:
+    """The statement (with the paragraph under a bare heading) gives an approval code or number the body does not:
+    "(ID 7)", "IR.MUI.REC.1401.123", "No. 51"."""
+    i = at[x.para.id]
+    text = " ".join(q.text for q in nonempty[i:i + (2 if x.heading else 1)])
+    ids = re.findall(r"\bIR\.[\w.]+|\b(?:ID|No\.?|number|code)\s*:?\s*[\w./-]*\d[\w./-]*|\b\d{3,}[\w./-]*", text, re.I)
+    return any(re.sub(r"\s+", " ", v) not in body for v in ids)
+
+
+def _delete_unasked(ms: Manuscript, style: JournalStyle, sections: list[_Section], nonempty: list[Paragraph],
+                    deleted: set[str], delete, label_only, out: list[Change]) -> None:
+    """Back-matter statements the guide does not ask for go, with their headings (`back_matter.delete_sections`;
+    JEHP, owner 2026-11-03, as the style editor did in jehp_1930_26): a "Funding" statement beside the guide's
+    "Financial support and sponsorship", an ethics statement the Methods already give, the authors'
+    contributions, the AI-use statement. An ethics statement is kept when the body before it says nothing on ethics
+    (an approval number would be lost), and a funding statement when no financial-support section stands beside it."""
+    drop = set(_cfg(style, "back_matter.delete_sections") or [])
+    if not drop:
+        return
+    order = {p.id: i for i, p in enumerate(ms.paragraphs)}
+    at = {p.id: i for i, p in enumerate(nonempty)}
+    starts = {x.para.id for x in sections}
+    fss = re.compile(r"\s*(?:<H\d>)?\s*financ", re.I)
+    has_fss = any(x.kind == "funding" and fss.match(x.para.text) for x in sections)
+    first = min((order[x.para.id] for x in sections), default=len(ms.paragraphs))
+    ethics_in_body = any(re.search(r"(?i)\bethic", p.text) for p in ms.paragraphs[:first] if not p.in_table)
+    body = " ".join(p.text for p in ms.paragraphs[:first])
+    gone: set[str] = set()
+    todo = [x for x in sections if x.kind in drop]
+    if "funding" in drop and has_fss:  # "Funding:" beside the guide's section is no section of its own here
+        todo += [_Section("funding", q, not q.text[m.end():].strip()) for q in nonempty
+                 if q.id not in starts and (m := _FUNDING_LABEL.match(q.text))]
+    for x in todo:
+        if x.para.id in deleted or x.para.id not in at:
+            continue
+        if x.kind == "funding" and (fss.match(x.para.text) or not has_fss):
+            continue
+        if x.kind == "ethics" and (not ethics_in_body or _new_ids(x, nonempty, at, body)):
+            continue  # an approval number only the back matter gives is not lost
+        delete(x.para)
+        gone.add(x.para.id)
+        if not x.heading:
+            continue
+        for q in nonempty[at[x.para.id] + 1:at[x.para.id] + 8]:  # its statement: up to the next section or heading
+            if q.id in starts or q.id in deleted or q.in_table or q.text.lstrip().startswith("<H") or label_only(q) \
+                    or _LABEL.match(q.text) or ai_label(q.text) or _ETHICS.match(q.text) \
+                    or _key(q.text) in ("references", "reference", "bibliography"):
+                break
+            delete(q)
+            gone.add(q.id)
+            if x.end is None or q.id == x.end.id:
+                break
+    # the heading tag, case or colon fixes made on what is deleted now give way to the deletion
+    out[:] = [c for c in out if c.para_id not in gone or (c.start == 0 and c.new == "" and c.reason == "sections_back_matter")]
 
 
 def _move_consent(ms: Manuscript, style: JournalStyle, sections: list[_Section], nonempty: list[Paragraph],

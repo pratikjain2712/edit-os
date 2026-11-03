@@ -2482,3 +2482,121 @@ def legend_from_text(text: str, number: int, style: JournalStyle) -> str:
     elif end_mode == "add" and t and not t.endswith((".", "?", "!", ":")):
         t += "."  # as the legends in the text get it (figures.figure_caption_end_period)
     return t
+
+
+# --- table notes added: the abbreviations a table uses, expanded under it ------------------------------------------
+#
+# Owner, 2026-11-03 (QC on JEHP_73_26, the style editor on jehp_1930_26; the JEHP editors type such notes in 57 of 251
+# articles with tables): "CBT = Cognitive-behavioral therapy", "SD = Standard deviation" under the table, in the
+# journal's form (figures.table_footnote_abbreviation " = ", delimiter ","), expanded as the text defines them or,
+# for the common statistics, as below. A table whose notes are there gets a paragraph of its own first; one with
+# none gets its notes in the empty line right under it (moved with the table: legends._plan_tables).
+
+_STAT_EXPANSIONS = {"SD": "Standard deviation", "CI": "Confidence interval", "OR": "Odds ratio",
+                    "AOR": "Adjusted odds ratio", "IQR": "Interquartile range", "SE": "Standard error",
+                    "SEM": "Standard error of the mean", "RR": "Relative risk", "HR": "Hazard ratio",
+                    "BMI": "Body mass index", "ANOVA": "Analysis of variance", "MANCOVA": "Multivariate analysis of covariance",
+                    "ANCOVA": "Analysis of covariance", "SS": "Sum of squares", "MS": "Mean square"}
+
+
+def _sentence(long: str) -> str:
+    """"Intraclass Correlation Coefficient" -> "Intraclass correlation coefficient", as the editors write the notes
+    ("Cognitive-behavioral therapy"); words in capitals or with an inner capital ("HbA1c", "COVID") kept."""
+    words = long.split()
+    out = []
+    for i, w in enumerate(words):
+        keep = any(c.isupper() for c in w[1:]) and not re.fullmatch(r"[A-Z][a-z]+(?:-[A-Z][a-z]+)+", w)
+        if i == 0:
+            out.append(w if keep else w[:1].upper() + w[1:].lower())
+        else:
+            out.append(w if keep else w.lower())
+    return " ".join(out)
+
+
+def _expansions(ms: Manuscript) -> dict[str, str]:
+    from .copyedit import abbrev
+
+    out: dict[str, str] = {}
+    for p in ms.paragraphs:
+        if p.in_table:
+            continue
+        for d in abbrev.definitions(p):
+            out.setdefault(d.short, d.long)
+    return out
+
+
+def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, str, bool]]:
+    """(paragraph, note text, fills an empty line) for each table missing expansions; cached on `ms`."""
+    cached = getattr(ms, "_table_note_plan", None)
+    if cached is not None and cached[0] is style:
+        return cached[1]
+    plan: list[tuple[Paragraph, str, bool]] = []
+    ms._table_note_plan = (style, plan)
+    if not style.get("figures.table_footnote_add"):
+        return plan
+    from .copyedit import abbrev
+
+    sep = style.get("figures.table_footnote_abbreviation", " = ")
+    delim = (style.get("figures.table_footnote_delimiter", ",") or ",").strip() + " "
+    allow = set(style.get("copyedit.abbreviations.allow") or [])
+    known = {**_STAT_EXPANSIONS, **_expansions(ms)}
+    paras = ms.paragraphs
+    index = {p.id: i for i, p in enumerate(paras)}
+    blocks = {}
+    for block in table_notes(ms):
+        i = index[block[0].id] - 1
+        while i >= 0 and not paras[i].in_table:
+            i -= 1
+        if i >= 0:
+            blocks[_table_of(paras[i])] = block
+    tables: dict[str, list[Paragraph]] = {}
+    for p in paras:
+        if p.in_table:
+            tables.setdefault(_table_of(p), []).append(p)
+    cap_ids = {c.para_id for c in captions(ms) if c.kind == TABLE}
+    for key_t, cells in tables.items():
+        if len(cells) < 4:
+            continue
+        k = index[cells[0].id] - 1
+        while k >= 0 and not paras[k].text.strip():
+            k -= 1
+        if not (k >= 0 and paras[k].id in cap_ids or any(p.id in cap_ids for p in cells)):
+            continue  # not a numbered table
+        block = blocks.get(key_t, [])
+        foot = " ".join(q.text for q in block)
+        defined = {d.short for p in cells for d in abbrev.definitions(p)}
+        missing: list[str] = []
+        for p in cells:
+            if p.id in cap_ids or _NAME_LIST.search(p.text):
+                continue
+            found = [k2 for m in abbrev._USE.finditer(p.text) if (k2 := abbrev._abbr_key(m.group(1)))
+                     and k2 not in abbrev._NOT_ABBR] if len(p.text) <= 40 else [k2 for k2, _, _ in abbrev.uses(p, True)]
+            for key in found:
+                if key in defined or key in missing or key not in known or (key in allow and key not in _STAT_EXPANSIONS) \
+                        or re.search(r"(?<![\w-])" + re.escape(key) + r"(?![\w-])", foot):
+                    continue
+                missing.append(key)
+        if not missing:
+            continue
+        text = delim.join(f"{key}{sep}{_sentence(known[key])}" for key in missing)
+        if block:
+            plan.append((block[0], text, False))
+            continue
+        last = index[cells[-1].id]
+        nxt = next((q for q in paras[last + 1:last + 3] if not q.in_table), None)
+        if nxt is not None and not nxt.text.strip():
+            plan.append((nxt, text, True))
+    return plan
+
+
+def rule_table_notes(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    from .rules import _change
+    from .tracked import PARAGRAPH_BREAK
+
+    out = []
+    for p, text, empty in table_note_plan(ms, style):
+        new = text if empty else text + PARAGRAPH_BREAK
+        c = _change(p, 0, 0, new, Layer.TABLES_FIGURES, "fig_captions.table_notes_added")
+        c.format = {"bold": False, "italic": False}
+        out.append(c)
+    return out

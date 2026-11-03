@@ -34,8 +34,10 @@ def load(path, first_page=(), meta=None):
     return ms
 
 
-def run(path, code="jehp", first_page=(), meta=None, only=("heading_tags", "sections_back_matter")):
+def run(path, code="jehp", first_page=(), meta=None, only=("heading_tags", "sections_back_matter"), keep=False):
     st = style.load(code)
+    if keep:  # how the statements are read and set, with JEHP's deletion of the unasked ones off (owner, 2026-11-03)
+        st.settings["sections"]["back_matter"]["delete_sections"] = []
     cs = rules.run_all(load(path, first_page, meta), st, only=list(only))
     for c in cs.changes:
         c.status = Status.ACCEPTED
@@ -248,14 +250,12 @@ def test_title_page_statements_used_never_the_default_nil(tmp_path):
           "Covering letter", "Dear Editor,"]
     t = run(path, first_page=fp)
     i = t.index("<H1>Acknowledgement")
-    assert t[i + 2:i + 12] == [
-        "<H2>Author contributions",
-        "A.R. designed the study and wrote the draft. B.K. analysed the data and reviewed the manuscript.",
-        "<H2>Ethical approval", "The study was approved by the ethics committee of Lake University (ID 42).",
+    # JEHP (owner, 2026-11-03): only the statements the guide asks for come from the title page; the authors'
+    # contributions, ethics and AI use are not added
+    assert t[i + 2:i + 6] == [
         "<H2>Financial support and sponsorship", "Funding was provided by the research deputy of Lake University.",
-        "<H2>Conflicts of interest", "The authors declare that they have no competing interests.",
-        "<H2>Use of AI tools", "ChatGPT was used only for language editing."]
-    assert "Nil." not in t
+        "<H2>Conflicts of interest", "The authors declare that they have no competing interests."]
+    assert "Nil." not in t and not any("contributions" in x or "AI tools" in x or "Ethical approval" in x for x in t)
 
 
 def test_funding_sentence_inside_the_conflicts_statement(tmp_path):
@@ -296,10 +296,10 @@ def test_unlabelled_contributions_only_for_author_names(tmp_path):
     path = make(tmp_path, ["Introduction", BODY, "Discussion", BODY,
                            "Future Research: 1] Multi-centric study design with data collection in five centres."]
                 + REFS)
-    assert "<H2>Author contributions" not in run(path, meta=meta)
+    assert "<H2>Author contributions" not in run(path, meta=meta, keep=True)
     path = make(tmp_path, ["Introduction", BODY, "Discussion", BODY,
                            "Asha Rao: study design, data collection and drafting of the manuscript."] + REFS, "b.docx")
-    assert "<H2>Author contributions" in run(path, meta=meta)
+    assert "<H2>Author contributions" in run(path, meta=meta, keep=True)
 
 
 def test_ai_disclosure_is_not_contributions_or_conflicts(tmp_path):
@@ -308,7 +308,7 @@ def test_ai_disclosure_is_not_contributions_or_conflicts(tmp_path):
                            "There are no conflicts of interest.",
                            "Disclosure: ChatGPT was used during revision for language editing and a draft figure."]
                 + REFS)
-    t = run(path)
+    t = run(path, keep=True)
     assert "<H2>Disclosure" in t and "There are no conflicts of interest." in t
     assert t.count("<H2>Conflicts of interest") == 1 and "<H2>Author contributions" not in t
 
@@ -318,7 +318,7 @@ def test_ai_disclosure_is_not_contributions_or_conflicts(tmp_path):
 def test_funding_stated_twice_keeps_one_heading_and_queries(tmp_path):
     path = make(tmp_path, ["Introduction", BODY, "Conclusion", BODY, "Financial Support: Nil.",
                            "Funding: Nil. No financial support was received for this study."] + REFS)
-    t = run(path)
+    t = run(path, keep=True)
     assert t.count("<H2>Financial support and sponsorship") == 1 and "<H2>Funding" in t
     assert any("given twice" in q for q in section_queries(path))
 
@@ -383,3 +383,24 @@ def test_authors_own_consent_heading_takes_the_sheets(tmp_path):
         for code in ("ijo", "jehp"):
             t = run(path, code)
             assert t[t.index(statement) - 1] == "<H2>Declaration of patient consent", (head, code)
+
+
+def test_jehp_deletes_the_statements_the_guide_does_not_ask_for(tmp_path):
+    # jehp_1930_26 (the style editor; owner, 2026-11-03): Funding beside "Financial support and sponsorship", the
+    # ethics statement the Methods give, contributions and AI use go; the guide's sections stay
+    path = make(tmp_path, ["Introduction", BODY, "Methods", "Ethical considerations",
+                           "The ethics committee approved the study (IR.X.REC.1).", "Conclusion", BODY,
+                           "Acknowledgement", "We thank the students.",
+                           "Funding:", "This research received no external funding.",
+                           "Ethical consideration:", "All ethical principles were followed.",
+                           "Author's contribution:", "All authors designed the study.",
+                           "Financial support and sponsorship", "Nil.",
+                           "Conflicts of interest", "There are no conflicts of interest.",
+                           "Using AI:", "AI tools were used for language editing only."] + REFS)
+    t = run(path)
+    assert not any(x.startswith(("Funding", "Ethical consideration", "Author's contribution", "Using AI")) or
+                   x.startswith(("<H2>Funding", "<H2>Ethical consideration", "<H2>Author", "<H2>Using AI"))
+                   for x in t[t.index("<H1>Acknowledgement"):])
+    assert "This research received no external funding." not in t and "AI tools were used for language editing only." not in t
+    assert "The ethics committee approved the study (IR.X.REC.1)." in t  # the Methods' own section stays
+    assert "<H2>Financial support and sponsorship" in t and "There are no conflicts of interest." in t

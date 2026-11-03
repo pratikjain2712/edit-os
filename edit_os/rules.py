@@ -1913,6 +1913,7 @@ RULES = {
     "fig_renumber": rules_figures.rule_renumber,  # before fig_citations / fig_captions: renumbered numbers win
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,
+    "table_notes": rules_figures.rule_table_notes,  # the table's abbreviations expanded under it (JEHP)
     "table_indent": rules_tables.rule_indent,  # stub-column indentation as 5 typed spaces per level (G208, G209)
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,
