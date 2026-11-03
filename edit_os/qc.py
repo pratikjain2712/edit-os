@@ -33,6 +33,8 @@ CHECKS = {
     "statistics.spacing": "Spaces around statistical operators",
     "signoff.name": "The technical editing sign-off carries the editor's name",
     "figures.order": "Tables and figures are cited in numerical order",
+    "references.fact_changed": "Reference facts (year, volume, first page) a database record changed: check each "
+                               "is the same article before accepting",
     **preservation.CHECKS,  # compared with the original manuscript (when `check` is given it)
 }
 

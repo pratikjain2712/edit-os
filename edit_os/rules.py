@@ -1836,10 +1836,9 @@ def _hold_fact_changes(diff: list[Change], ref, res) -> None:
     m = (refengine.YEAR_VOL.search(ref.text) or refengine.APA_CITE.search(ref.text)
          or refengine.ENDNOTE_CITE.search(ref.text))
     lo, hi = (ref.offset + m.start(), ref.offset + m.end()) if m else (ref.offset, ref.offset + len(ref.text))
-    olds = [v for v, _ in facts.values()]
+    olds = {n for v, _ in facts.values() for n in re.findall(r"\d+", v)}  # whole numbers: "(2)" is no "152"
     for c in diff:
-        if c.start < hi and c.end > lo and (c.end > c.start) and any(
-                re.search(r"\d", c.old) and (c.old.strip(" ;:().") in v or v in c.old) for v in olds):
+        if c.start < hi and c.end > lo and c.end > c.start and set(re.findall(r"\d+", c.old)) & olds:
             c.reason = "ref_lookup.fact"
             c.provenance = note
 
