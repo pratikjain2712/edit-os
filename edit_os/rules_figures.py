@@ -2591,8 +2591,10 @@ def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph
         if not (k >= 0 and paras[k].id in cap_ids or any(p.id in cap_ids for p in cells)):
             continue  # not a numbered table
         block = blocks.get(key_t, [])
-        text = note_text([p for p in cells if p.id not in cap_ids], " ".join(q.text for q in block), known, allow,
-                         sep, delim)
+        # a note row inside the table ("BAI = Beck Anxiety Inventory; DERS = ...") is the table's note, not data
+        in_notes = [p for p in cells if abbreviation_pairs(p.text) and len(p.text.split()) > 3]
+        text = note_text([p for p in cells if p.id not in cap_ids and p not in in_notes],
+                         " ".join(q.text for q in in_notes + list(block)), known, allow, sep, delim)
         if not text:
             continue
         if block:

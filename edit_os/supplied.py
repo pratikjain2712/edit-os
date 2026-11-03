@@ -617,13 +617,17 @@ def _with_table_note(ms: Manuscript, style: JournalStyle, els: list, caps: list,
     if tbl is None:
         return els
     cap_texts = {paragraph_text(c).strip() for c in caps}
-    cells = []
+    cells, in_notes = [], []
     for i, p in enumerate(tbl.iter(qn("w:p"))):
         t = paragraph_text(p).strip()
-        if t and t not in cap_texts and not (i == 0 and rules_figures._CAPTION.match(t)):
-            cells.append(SimpleNamespace(text=t, id=f"imp{i}"))
+        if not t or t in cap_texts or i == 0 and rules_figures._CAPTION.match(t):
+            continue
+        if rules_figures.abbreviation_pairs(t) and len(t.split()) > 3:
+            in_notes.append(t)  # a note row inside the table ("BAI = Beck Anxiety Inventory; DERS = ...": jehp_1158)
+            continue
+        cells.append(SimpleNamespace(text=t, id=f"imp{i}"))
     k = next(i for i, e in enumerate(els) if e is tbl)
-    foot = " ".join(paragraph_text(e) for e in els[k + 1:] if e.tag == qn("w:p"))
+    foot = " ".join(in_notes + [paragraph_text(e) for e in els[k + 1:] if e.tag == qn("w:p")])
     known, allow, sep, delim = rules_figures.note_settings(ms, style)
     text = rules_figures.note_text(cells, foot, known, allow, sep, delim)
     if not text:

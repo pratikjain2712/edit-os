@@ -481,3 +481,12 @@ def test_separate_tables_file_with_the_caption_in_the_first_row(tmp_path):
     assert "SD = Standard deviation, BMI = Body mass index" in got
     qs = pipeline.load_records(str(tmp_path / "out"))[3]
     assert not [q for q in qs if q["check"] == "supplied.table_no_caption"]
+
+
+def test_table_note_row_inside_the_table_is_not_repeated(tmp_path):
+    # jehp_1158_26 Table 2: "BAI = ...; DERS = ..." in the table's last row; DERS is not expanded again
+    tables = _docx([("table", [["Table 2", "Scores", ""], ["Scale", "Mean", "SD"], ["DERS", "40", "8"],
+                               ["DERS = Difficulties in emotion regulation scale; BAI = Beck anxiety inventory", "", ""]])])
+    z = _zip(tmp_path, {"Tables.docx": tables})
+    got, _ = _accepted_run(z, journal("jehp"), tmp_path)
+    assert "SD = Standard deviation" in got and not any(x.startswith("SD = Standard deviation, DERS") for x in got)
