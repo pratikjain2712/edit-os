@@ -65,6 +65,7 @@ class Record:
     journal_full: str = ""  # CrossRef: the full container title ("Interactive Technology and Smart Education")
     full_names: list[str] = field(default_factory=list)  # display-name sources: the names as given, for `authors`
     found_via: str = ""  # a lower-priority source that found the paper this record (PubMed / CrossRef) was taken for
+    pub_types: list[str] = field(default_factory=list)  # PubMed's publication types ("Journal Article", "Editorial")
 
     def __post_init__(self):
         if self.source != "author":  # the author's own fields stay as written
@@ -231,6 +232,7 @@ def pubmed_fetch(pmids: list[str]) -> list[Record]:
             pages=pages.strip(), pmid=mc.findtext("PMID") or "", doi=doi,
             issn=[i.text for i in a.findall("Journal/ISSN") if i.text],
             other_years=[online.strip()] if online.strip() and online.strip() != year.strip() else [],
+            pub_types=[(t.text or "").strip() for t in a.findall("PublicationTypeList/PublicationType")],
         ))
     return out
 

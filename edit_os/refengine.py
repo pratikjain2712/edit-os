@@ -328,6 +328,21 @@ def score(p: Parsed, r: biblio.Record) -> tuple[float, bool, bool]:
     return t, author_agrees(p, r), bool(p.year) and p.year == r.year
 
 
+# Items PubMed lists under an article's title that are not the article: an editorial or comment on it, a correction.
+_NOTE_TYPES = {"editorial", "comment", "published erratum", "retraction of publication", "news", "expression of concern"}
+
+
+def _note_not_article(p: Parsed, r: biblio.Record) -> bool:
+    """A record with no authors for an entry that has them, that is an editorial, comment or erratum, or whose first
+    page is not the entry's: J Ren Care 2020;46:71, an editorial titled like the article on pages 85-94 (PMID
+    32367658 for 31950601; jehp_1888_26 took its page "71")."""
+    if {t.lower() for t in r.pub_types} & _NOTE_TYPES:
+        return True
+    c = citation(p.text)
+    page = _first_page(r.pages)
+    return bool(c and page and c[3] and _first_page(c[3]) != page)
+
+
 def accept(p: Parsed, r: biblio.Record, by_id: bool = False) -> bool:
     """The record is the entry's paper. Title, first author and year must all agree (the title may be
     a shorter one contained in the entry's only because author and year agree too). An entry without
@@ -335,6 +350,8 @@ def accept(p: Parsed, r: biblio.Record, by_id: bool = False) -> bool:
     gave is checked the same way, with more room on the title (translated or retitled papers)."""
     t, author, year = score(p, r)
     near = year or year_close(p, r)
+    if p.authors and not r.authors and _note_not_article(p, r):
+        return False
     if not p.authors or not r.authors:  # nobody to compare: the title, year and journal must carry it
         whole = fuzz.token_sort_ratio(fold(p.title), fold(r.title)) if p.title else 0
         if by_id:
@@ -405,7 +422,12 @@ def _best(p: Parsed, records: list[biblio.Record]) -> biblio.Record | None:
     ok = [r for r in records if accept(p, r)]
     # The best title; among equal ones, the record of the entry's year and with a volume (the article, not
     # a dataset or preprint of it dated by another year: "PsycTESTS Dataset 2011" for a 1988 paper).
-    return max(ok, key=lambda r: (score(p, r)[0], score(p, r)[2], bool(r.volume))) if ok else None
+    # Equal titles: the record with authors when the entry has them, then the entry's first page (an editorial
+    # shares the article's title).
+    c = citation(p.text)
+    first = _first_page(c[3]) if c and c[3] else ""
+    return max(ok, key=lambda r: (score(p, r)[0], score(p, r)[2], bool(r.volume), bool(r.authors) or not p.authors,
+                                  bool(first) and _first_page(r.pages) == first)) if ok else None
 
 
 def _usable(r: biblio.Record | None) -> bool:

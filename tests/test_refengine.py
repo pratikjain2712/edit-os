@@ -194,3 +194,23 @@ def test_two_part_surname_written_with_an_initial():
     assert same_written_name("Najafi Ghezeljeh T", "Najafi GT")
     assert not same_written_name("Najafi T", "Najafi Ghezeljeh T")
     assert not same_written_name("Smith JA", "Smith Jones B")
+
+
+def test_an_editorial_titled_like_the_article_is_not_the_article():
+    # jehp_1888_26: J Ren Care 2020;46:71 is an editorial (no authors) titled like the article on pages 85-94
+    from edit_os import biblio, refengine
+
+    text = ("Stomer U, Wahl A, Goransson L, Urstad K. Health literacy in kidney disease: Associations with quality "
+            "of life and adherence. Journal of renal care. 2020;46(2):85-94.")
+    p = refengine.Parsed(text=text, authors=["Stomer U", "Wahl A", "Goransson L", "Urstad K"],
+                         title="Health literacy in kidney disease: Associations with quality of life and adherence",
+                         year="2020")
+    title = "Health Literacy in Kidney Disease: Associations with Quality of Life and Adherence."
+    note = biblio.Record(source="pubmed", title=title, journal="J Ren Care", year="2020", volume="46", issue="2",
+                         pages="71", pmid="32367658", pub_types=["Editorial"])
+    art = biblio.Record(source="pubmed", title=title, authors=[("Stomer", "U"), ("Wahl", "A"), ("Goransson", "L"),
+                                                               ("Urstad", "K")],
+                        journal="J Ren Care", year="2020", volume="46", issue="2", pages="85-94", pmid="31950601",
+                        pub_types=["Journal Article"])
+    assert not refengine.accept(p, note)
+    assert refengine._best(p, [note, art]) is art
