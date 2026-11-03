@@ -231,6 +231,12 @@ def _table_blocks(sms: Manuscript) -> list[dict]:
                 if m is not None and m.group("word").lower().startswith("tab"):
                     blk.update(caption=j, side="below", number=_num(m.group("num")))
                     last = j
+        if blk["caption"] is None:  # the caption in the table's own first row ("Table 1 Demographic features": jehp_1158)
+            tr = el.find(f"{_W}tr")
+            row = re.sub(r"\s+", " ", " ".join(paragraph_text(q) for q in tr.iter(f"{_W}p"))).strip() if tr is not None else ""
+            m = rules_figures._CAPTION.match(row) if row else None
+            if m is not None and m.group("word").lower().startswith("tab"):
+                blk.update(number=_num(m.group("num")), side="row")
         for j in range(last + 1, min(len(kids), last + 5)):  # its notes
             x = kids[j]
             if x.tag != f"{_W}p" or _unsafe(x):
@@ -395,7 +401,8 @@ def plan(ms: Manuscript, style: JournalStyle, zip_path: str | None, outdir: str 
                 out.warnings.append({"para_id": end_id, "rule": "supplied",
                                      "message": f"Table {n} in {base} not inserted: it holds {why}."})
                 continue
-            captions[blk["caption"]] = _caption_text(sms, style, blk)
+            if blk["caption"] is not None:  # (a caption in the table's first row travels in it)
+                captions[blk["caption"]] = _caption_text(sms, style, blk)
             take.append((n, idx, blk))
             have.add(n)
         if not take:

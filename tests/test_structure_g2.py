@@ -469,3 +469,15 @@ def test_table_notes_for_tables_in_a_separate_file(tmp_path):
     got, _ = _accepted_run(z, journal("jehp"), tmp_path)
     note = "SD = Standard deviation, BMI = Body mass index"
     assert got.count(note) == 1 and got.index(note) > got.index("Age")
+
+
+def test_separate_tables_file_with_the_caption_in_the_first_row(tmp_path):
+    # jehp_1158_26: "Table 1 | Demographic features of the sample" in the table's first row, no caption outside it
+    tables = _docx([("table", [["Table 1", "Demographic features"], ["Variable", "SD"], ["BMI", "3.2"]]), "",
+                    ("table", [["Table 2", "Scores"], ["Group", "Mean"], ["A", "12"]])])
+    z = _zip(tmp_path, {"Tables.docx": tables})
+    got, out = _accepted_run(z, journal("jehp"), tmp_path)
+    assert "Demographic features" in got and "Scores" in got
+    assert "SD = Standard deviation, BMI = Body mass index" in got
+    qs = pipeline.load_records(str(tmp_path / "out"))[3]
+    assert not [q for q in qs if q["check"] == "supplied.table_no_caption"]
