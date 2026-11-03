@@ -165,7 +165,7 @@ def test_back_matter_headings_bold_twelve_point_statements_plain(tmp_path):
     paras = _paras(out)
     h2 = [p for p in paras if p[0].startswith("<H2>")]
     assert len(h2) >= 4 and all(_heading_ok(p, 12) for p in h2), [p[0] for p in h2]
-    nil = next(p for p in paras if p[0] == "Nil")
+    nil = next(p for p in paras if p[0] in ("Nil", "Nil."))  # "Nil." in the journal's words since 2026-11-03
     assert not any(r[1] for r in nil[3]) and all(r[2] == 12 for r in nil[3])
     assert any(p[0] == "<H2>Compliance with JEHP AI policy statement" for p in paras)  # S: "H2 | Sentence Case"
     assert any(p[0].startswith("<H2>Use of") for p in paras)

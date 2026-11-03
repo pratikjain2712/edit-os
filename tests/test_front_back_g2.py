@@ -404,3 +404,12 @@ def test_jehp_deletes_the_statements_the_guide_does_not_ask_for(tmp_path):
     assert "This research received no external funding." not in t and "AI tools were used for language editing only." not in t
     assert "The ethics committee approved the study (IR.X.REC.1)." in t  # the Methods' own section stays
     assert "<H2>Financial support and sponsorship" in t and "There are no conflicts of interest." in t
+
+
+def test_run_in_nil_conflicts_statement_takes_the_journal_words(tmp_path):
+    # jehp_1930_26 (owner, 2026-11-03: "Standard text inserted"): "Conflicts of interest: The authors declare ..."
+    path = make(tmp_path, ["Introduction", BODY, "Conclusion", BODY,
+                           "Conflicts of interest: The authors declare that they have no conflicts of interest."] + REFS)
+    t = run(path)
+    i = t.index("<H2>Conflicts of interest")
+    assert t[i + 1] == "There are no conflicts of interest."

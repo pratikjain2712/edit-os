@@ -2273,6 +2273,15 @@ def _statements(ms: Manuscript, style: JournalStyle) -> list[Change]:
             out.append(_change(p, 0, m.end(), f"{tag}{sec['heading']}{BR}", Layer.STRUCTURE, "sections_back_matter"))
             if head_bold:
                 out[-1].segment_format = [{"bold": True}, None]
+            body = content.strip()
+            default = sec.get("default", "")
+            if _on(style, "back_matter.reword_nil") and default and _nil(body) \
+                    and body.rstrip(".").lower() != default.rstrip(".").lower():
+                # run in as on a line of its own: "Conflicts of interest: The authors declare that they have no ..."
+                # -> the journal's words (jehp_1930_26; owner, 2026-11-03)
+                cs = m.end() + content.index(body)
+                out.append(_change(p, cs, cs + len(body), "Nil." if kind == "funding" else default, Layer.STRUCTURE,
+                                   "sections_back_matter"))
         else:
             s, e = m.start("label"), m.end("label")
             head_end = len(p.text.rstrip())
