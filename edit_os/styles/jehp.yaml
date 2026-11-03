@@ -13,11 +13,13 @@ headings:
   # bold style", the first level's size: <H1> (the editors split 12 / 12 between <H1> and <H2>: owner's list).
   h1: [introduction, materials and methods, methods, methodology, patients and methods,
        subjects and methods, results, discussion, conclusion, conclusions, references,
-       case report, case reports, case presentation, case history, review of literature,
-       acknowledgment, acknowledgments, acknowledgement, acknowledgements]
+       case report, case reports, case presentation, case history, review of literature]
+  # Acknowledgement: <H2> since 2026-11-03 (owner, after the style editor's "Acknowledgement in H2 heading level." in
+  # jehp_1930_26), over G146's 14 points (<H1> before)
   # The JEHP template's Methods sub-heads and back-matter statements the editors tag <H2> (base list plus
   # "Ethical consideration(s)": 14 of 17, "AI policy statement": 2).
-  h2: [conflicts of interest, conflict of interest, financial support and sponsorship,
+  h2: [acknowledgment, acknowledgments, acknowledgement, acknowledgements,
+       conflicts of interest, conflict of interest, financial support and sponsorship,
        declaration of patient consent, author contribution statement, author contributions, data availability statement,
        ethical approval, ethics approval, ethical consideration, ethical considerations, ethics considerations,
        ai policy statement]
@@ -202,7 +204,9 @@ sections:
     # The sheet and guide say nothing on nil statements: the editors' habit.
     delete_nil_statements: false  # the author's "The authors declare no conflict of interest." stays (10 of 13
                                   # articles keep the wording; deleting it hurt 13 paragraphs)
-    reword_nil: false
+    # ... in the journal's words (owner, 2026-11-03, after the style editor's "Standard text inserted and the rest of
+    # the texts are deleted in this section"): "There are no conflicts of interest.", funding "Nil."
+    reword_nil: true
     # Ethics / consent / trial statements that only say "Not applicable." go, inline or under their own heading
     # (editors: 1044, 1588, 1751, 1787); one with a reason ("Not applicable. This study did not involve human
     # participants") stays as its own section (1401). The sheet is silent.
@@ -289,7 +293,10 @@ formatting:  # measured with tools/eval_format.py against the style editors' tra
     table_align: left
   # Greek letters, ±, ≤, ≥ and the minus sign in the Symbol font (Word's inserted symbols, w:sym), never ×, ®, ©, µ
   # (owner, 2026-10-26)
-  symbol_font: {enabled: true}
+  # Off since 2026-11-03 (owner: the style editor retyped the Symbol-font η, α, ± as plain characters in
+  # jehp_1930_26); the author's Symbol-font characters become plain text (symbols_to_text)
+  symbol_font: {enabled: false}
+  symbols_to_text: true
   table_caption_bold: true     # owner, 2026-10-27: follow the guide (G199): label and caption content in bold
   figure_caption_plain: true   # G260: "Figure #:" bold, the caption after it plain (editors 6 of 6; the author's
                                # bold and an all-italic caption go)
@@ -361,6 +368,8 @@ text:
   ranges: {enabled: false}  # "between 46-55" -> "between 46 and 55": 0 of 2; copy editors leave it (silent)
 
 front_matter:  # S: "Duplicate affiliation(s) ... should not be grouped together. All the affiliations should be complete"
+  # The style editor (jehp_1930_26, owner 2026-11-03): "Capital letter not allowed in e-mail id."
+  email_lowercase: true
   title_drop_abbreviations: true  # "... therapy (CBT) on ..." -> no "(CBT)" in the title (owner, 2026-11-03)
   group_departments: false
   affiliation_country_each: true   # editors: country after each affiliation (e.g. "..., Hamadan, Iran, 1Social ...")

@@ -30,7 +30,9 @@ SYM_TEXT = "Mean −2.1 ± 0.5 (α ≤ 0.05, β ≥ 2) at 5 μg, 3 × 4 mm, µm 
 
 def test_symbol_font_for_greek_plus_minus_and_comparisons(tmp_path):
     path = _save(tmp_path, ["Introduction", SYM_TEXT])
-    for code in ("ijo", "jehp"):
+    # IJO; JEHP had it until 2026-11-03 (owner: off, the style editor types them as plain characters)
+    assert not style.load("jehp").get("formatting.symbol_font.enabled")
+    for code in ("ijo",):
         cs = rules.run_all(docmodel.load(path), style.load(code), only=["format_symbols"])
         assert sorted(c.old for c in cs.changes) == sorted("−±α≤β≥")  # not ×, µ, ©, nor the unit's μ ("μg")
         for track in (False, True):
@@ -141,3 +143,33 @@ def test_affiliation_postal_code_read_back_where_a_journal_keeps_it():
     assert frontmatter.drop_postal_codes("Sector 12, Noida") == "Sector 12, Noida"
     assert frontmatter.affiliation_text(f, 1, drop_postal=True) == \
         "Department of Ophthalmology, Sankara Nethralaya, Chennai, Tamil Nadu, India"
+
+
+def test_jehp_symbol_font_characters_typed_as_plain_text(tmp_path):
+    # owner, 2026-11-03: the style editor retyped the Symbol-font η, α, ± in jehp_1930_26
+    import re
+    import zipfile
+
+    from docx import Document
+    from docx.oxml import parse_xml
+
+    from edit_os import tracked
+    from edit_os.changes import Status
+
+    doc = Document()
+    doc.add_paragraph("Introduction")
+    p = doc.add_paragraph("The mean age was 11.35 ")
+    p.add_run()._r.append(parse_xml('<w:sym xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+                                    'w:font="Symbol" w:char="F0B1"/>'))
+    p.add_run(" 0.58 years in both groups of children.")
+    path = str(tmp_path / "s.docx")
+    doc.save(path)
+    cs = rules.run_all(docmodel.load(path), style.load("jehp"), only=["format_symbols"])
+    assert [c.reason for c in cs.changes] == ["fmt_symbol_text"]
+    for c in cs.changes:
+        c.status = Status.ACCEPTED
+    out = str(tmp_path / "o.docx")
+    tracked.render(docmodel.load(path), cs, tracked=False).save(out)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode()
+    assert "<w:sym" not in xml and "±" in xml
+    assert rules.run_all(docmodel.load(path), style.load("ijo"), only=["format_symbols"]).changes == []

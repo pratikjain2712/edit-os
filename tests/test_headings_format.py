@@ -353,5 +353,5 @@ def test_paragraphs_a_change_opens_take_the_journal_alignment(tmp_path):
     path = str(tmp_path / "j.docx")
     doc.save(path)
     _, out = _render(path, _st("jehp"))
-    ack = _para(_paras(out), "<H1>Acknowledgement")
-    assert ack[2] == "both" and _heading_ok(ack, 14)  # JEHP justified (owner, 2026-10-30)
+    ack = _para(_paras(out), "<H2>Acknowledgement")
+    assert ack[2] == "both" and _heading_ok(ack, 12)  # JEHP justified (owner, 2026-10-30); <H2>, 12 pt since 2026-11-03

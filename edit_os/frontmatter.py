@@ -2067,6 +2067,8 @@ def build(ms: Manuscript, f: Fields, meta: Meta, style: JournalStyle) -> tuple[l
         elif dedup:
             blocks.append(Block("correspondence", [(", ".join(dedup) + ".", plain)]))
         email = c.get("email") or next((a.get("email", "") for a in meta.authors if a.get("corresponding")), "")
+        if email and cfg.get("email_lowercase"):
+            email = email.lower()  # JEHP's style editor: "Capital letter not allowed in e-mail id." (owner, 2026-11-03)
         if email:
             blocks.append(Block("correspondence", [(cfg.get("email_label", "E-mail:") + " ", plain), (email, plain)]))
 

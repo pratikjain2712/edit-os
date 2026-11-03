@@ -249,7 +249,7 @@ def test_title_page_statements_used_never_the_default_nil(tmp_path):
           "A.R. designed the study and wrote the draft. B.K. analysed the data and reviewed the manuscript.",
           "Covering letter", "Dear Editor,"]
     t = run(path, first_page=fp)
-    i = t.index("<H1>Acknowledgement")
+    i = t.index("<H2>Acknowledgement")
     # JEHP (owner, 2026-11-03): only the statements the guide asks for come from the title page; the authors'
     # contributions, ethics and AI use are not added
     assert t[i + 2:i + 6] == [
@@ -266,7 +266,7 @@ def test_funding_sentence_inside_the_conflicts_statement(tmp_path):
     t = run(path)
     i = t.index("<H2>Financial support and sponsorship")
     assert t[i:i + 4] == ["<H2>Financial support and sponsorship", "The study received no commercial funding.",
-                          "<H2>Conflict of interest", "The authors declare no conflict of interest."]
+                          "<H2>Conflict of interest", "There are no conflicts of interest."]  # (owner, 2026-11-03)
 
 
 # --- 4. contributions ----------------------------------------------------------------------------------------
@@ -343,7 +343,7 @@ def test_acknowledgement_after_the_statements_moves_before_them(tmp_path):
                            "Funding: Self-funding", "Acknowledgements: We thank all the patients who took part."]
                 + REFS)
     t = run(path)
-    i = t.index("<H1>Acknowledgement")
+    i = t.index("<H2>Acknowledgement")
     assert t[i - 1] == BODY and t[i + 1] == "We thank all the patients who took part."
     assert t.index("<H2>Conflicts of interest") > i and t.count("We thank all the patients who took part.") == 1
 
@@ -400,7 +400,7 @@ def test_jehp_deletes_the_statements_the_guide_does_not_ask_for(tmp_path):
     t = run(path)
     assert not any(x.startswith(("Funding", "Ethical consideration", "Author's contribution", "Using AI")) or
                    x.startswith(("<H2>Funding", "<H2>Ethical consideration", "<H2>Author", "<H2>Using AI"))
-                   for x in t[t.index("<H1>Acknowledgement"):])
+                   for x in t[t.index("<H2>Acknowledgement"):])
     assert "This research received no external funding." not in t and "AI tools were used for language editing only." not in t
     assert "The ethics committee approved the study (IR.X.REC.1)." in t  # the Methods' own section stays
     assert "<H2>Financial support and sponsorship" in t and "There are no conflicts of interest." in t

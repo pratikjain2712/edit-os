@@ -307,8 +307,10 @@ def test_jehp_keeps_author_wording_and_conflict_heading(tmp_path):
     path = make(tmp_path, ["Discussion", BODY, "Funding", "This research received no specific grant.",
                            "Conflict of interest", "The authors declare no conflict of interest."] + REFS)
     t = run(path, "jehp")
+    # the conflicts statement in the journal's words since 2026-11-03 (owner, after the style editor: "Standard text
+    # inserted"); a funding statement that says more than "none" stays
     assert t[2:6] == ["<H2>Financial support and sponsorship", "This research received no specific grant.",
-                      "<H2>Conflict of interest", "The authors declare no conflict of interest."]
+                      "<H2>Conflict of interest", "There are no conflicts of interest."]
     # the base keeps renaming and rewording
     assert run(path, "njcp")[2:6] == STD
 

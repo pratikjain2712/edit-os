@@ -535,7 +535,7 @@ def rule_cleanup(ms: Manuscript, style: JournalStyle) -> list[Change]:
 
 _SYMBOL_FONT = re.compile(r"symbol|wingdings|webdings|dingbat|mt extra|math", re.I)
 _ABSTRACT_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*abstract\s*[:.]?\s*$", re.I)
-_ACK_HEAD = re.compile(r"^\s*(?:<H\d>)?\s*acknowledge?ments?\s*[:.]?\s*$", re.I)
+_ACK_HEAD = re.compile(r"^\s*(?:<H1>)?\s*acknowledge?ments?\s*[:.]?\s*$", re.I)  # an <H2> one takes the H2 size
 _H1_TAG = re.compile(r"^\s*<H1>")
 _EQUATION = ("{http://schemas.openxmlformats.org/officeDocument/2006/math}oMath", qn("w:object"))
 
@@ -1011,12 +1011,35 @@ def symbol_offsets(text: str) -> list[int]:
             and not (ch == "μ" and text[i + 1:i + 2].isalpha())]
 
 
+def _symbols_to_text(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """The author's Symbol-font characters (Word's inserted symbols: η, α, ±) typed as plain characters, in the
+    journal's font (`formatting.symbols_to_text`; JEHP, owner 2026-11-03: the style editor retyped them in
+    jehp_1930_26). The text reads the same; the change replaces the <w:sym> with the character."""
+    from docx.oxml.ns import qn
+
+    if not style.get("formatting.symbols_to_text"):
+        return []
+    from .rules import _change
+
+    out: list[Change] = []
+    for p in ms.paragraphs:
+        pos = 0
+        for r in text_runs(p.element):
+            n = len(run_text(r))
+            if r.find(qn("w:sym")) is not None and r.find(qn("w:t")) is None:
+                for i in range(pos, pos + n):
+                    if p.text[i].strip():
+                        out.append(_change(p, i, i + 1, p.text[i], Layer.HOUSE_STYLE, "fmt_symbol_text"))
+            pos += n
+    return out
+
+
 def rule_symbols(ms: Manuscript, style: JournalStyle) -> list[Change]:
     """One formatting change {"symbol": True} per typed character (not one already inserted as a symbol)."""
     from docx.oxml.ns import qn
 
     if symbol_settings(style) is None:
-        return []
+        return _symbols_to_text(ms, style)
     out: list[Change] = []
     for p in ms.paragraphs:
         if not p.text.strip():

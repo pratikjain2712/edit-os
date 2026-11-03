@@ -103,7 +103,10 @@ def main_heading_keys(style: JournalStyle) -> set[str]:
     levels = _levels(style)
     h1 = {k for k, v in levels.items() if v == "H1"} | {k.lower() for k in style.get("headings.h1", [])}
     rename = {k.lower(): v for k, v in (_cfg(style, "headings.rename") or {}).items()}
-    return h1 | {k for k, v in rename.items() if v.lower() in h1}
+    # the Acknowledgement heading splits off its line too, at whatever level the journal tags it (JEHP <H2> since
+    # 2026-11-03: "... [18].\nAcknowledgement")
+    ack = {k for k in levels if k.startswith("acknowledg")}
+    return h1 | ack | {k for k, v in rename.items() if v.lower() in h1}
 
 
 def _levels(style: JournalStyle) -> dict[str, str]:

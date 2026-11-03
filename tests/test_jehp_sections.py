@@ -159,7 +159,7 @@ def test_run_in_statements_split_and_bare_nil_ethics_go(tmp_path):
                             "<H2>Financial support and sponsorship", "Nil.",
                             "<H2>Conflicts of interest", "There are no conflicts of interest.",
                             "<H2>Data availability statement", "Data are available on request."]
-    assert "<H1>Acknowledgement" in out and "The authors thank the staff." in out  # G146 spelling (owner, 2026-10-26)
+    assert "<H2>Acknowledgement" in out and "The authors thank the staff." in out  # G146 spelling (owner, 2026-10-26)
     assert "<H2>Consent to participate" in out  # with a reason: kept as its own section
     assert not any("Consent for publication" in t for t in out)  # a bare "Not applicable." goes
     assert out.count("<H2>Financial support and sponsorship") == 1
@@ -191,7 +191,7 @@ def test_acknowledgements_heading_on_its_own_line_drops_the_s(tmp_path):
     path = make(tmp_path, ["Introduction", BODY, "Discussion", BODY, "ACKNOWLEDGEMENTS",
                            "We thank the teachers of the three schools for their help.", "ACKNOWLEDGMENTS:"] + REFS)
     out = run(path, only=["heading_tags", "sections_headings", "sections_back_matter"])
-    assert "<H1>Acknowledgement" in out and not any("Acknowledgements" in t or "ACKNOWLEDG" in t for t in out)
+    assert "<H2>Acknowledgement" in out and not any("Acknowledgements" in t or "ACKNOWLEDG" in t for t in out)
     assert not any(t.endswith("Acknowledgments") for t in out)
 
 

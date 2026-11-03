@@ -231,6 +231,7 @@ formatting:  # run formatting from the pre-editing guide, rendered as tracked fo
     table_align: null          # left: table cell paragraphs left aligned too (G193-194 "aligned left. No other alignment
                                # should be done"); null: cells keep the alignment they were typed with
     running_head_align: center
+  symbols_to_text: false  # with symbol_font off: the author's Symbol-font η, α, ± typed as plain characters
   symbol_font:                 # Greek letters, ±, ≤, ≥ and the minus sign as Word's Symbol-font symbols (<w:sym>),
     enabled: false             # never ×, ®, ©, µ (owner, 2026-10-26: IJO, JEHP)
 
@@ -570,6 +571,7 @@ front_matter:  # title page: running head, type, title, authors, affiliations, c
     type_source: false    # "Kindly note that the “Article type” provided in FP / XML file has been followed."
     full_name: true       # an author given by initials only: "Kindly provide the full name of author “S Meenakshi”."
     authors_check: false  # "Please ensure that the author names and affiliations are treated correctly." (always)
+  email_lowercase: false         # "Hamzehpoor.tahereh@iau.ac.ir" -> "hamzehpoor.tahereh@iau.ac.ir"
   title_drop_abbreviations: false  # "... therapy (CBT) on ..." in the title: the "(CBT)" goes
   letters_at_end: true           # letters: author group to cite line after the letter, before the references
   correspondence_label: "Address for correspondence:"
