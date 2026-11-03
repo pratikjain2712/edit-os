@@ -546,6 +546,40 @@ def _names_in_capitals(ms: Manuscript) -> set[str]:
     return marked | (caps & makers)
 
 
+_LETTER_DEF = re.compile(r"\b([A-Z][a-z]{3,})\s?\(([A-Z])\)")
+
+
+def _pair_notations(ms: Manuscript, existing: list[Change]) -> list[Change]:
+    """Words given one-letter notations ("Extraversion(E) versus Introversion(I), Sensing(S) versus Intuition(N)") and
+    written out again as a pair after that: "Extraversion–Introversion" -> "E–I" (`pair_notations`; JEHP QC on
+    jehp_1912_26: "Replace with the defined notations"). Headings, tables and the references keep the words."""
+    from .. import references
+
+    letter: dict[str, str] = {}
+    start = None
+    for i, p in enumerate(ms.paragraphs):
+        found = {m.group(1): m.group(2) for m in _LETTER_DEF.finditer(p.text)}
+        if len(found) >= 2:  # a set of notations, not a stray "(A)"
+            letter.update(found)
+            start = i if start is None else start
+    if not letter:
+        return []
+    end = references.find_heading(ms)
+    busy = [(c.para_id, c.start, c.end) for c in existing]
+    out = []
+    words = "|".join(sorted(map(re.escape, letter), key=len, reverse=True))
+    pat = re.compile(r"\b(" + words + r")\s?[–-]\s?(" + words + r")\b")
+    for i, p in enumerate(ms.paragraphs[start + 1:end], start + 1):
+        if p.in_table or _is_heading(p):
+            continue
+        for m in pat.finditer(p.text):
+            if any(pid == p.id and s0 < m.end() and m.start() < e0 for pid, s0, e0 in busy):
+                continue
+            out.append(change(p, m.start(), m.end(), f"{letter[m.group(1)]}–{letter[m.group(2)]}", "abbreviations",
+                              reason="use the defined notation"))
+    return out
+
+
 def _heading_definitions(ms: Manuscript, busy: set[str]) -> list[Change]:
     """"Connor–Davidson resilience scale (CD-RISC)" as a heading, the abbreviation defined in the text too: the
     "(ABBR)" goes from the heading, its full form stays (`drop_in_headings`; JEHP, owner 2026-11-03, after the style
@@ -703,6 +737,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))
     if cfg.get("drop_in_headings"):
         changes += _heading_definitions(ms, {c.para_id for c in changes})
+    if cfg.get("pair_notations"):
+        changes += _pair_notations(ms, changes)
     return changes, queries
 
 

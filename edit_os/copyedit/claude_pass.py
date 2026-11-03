@@ -45,7 +45,7 @@ from ..style import JournalStyle
 from .cache import cache_dir
 from .common import hidden_offsets, near_hidden, overlaps, prose_paragraphs, protected_spans
 
-PROMPT_VERSION = "b4-5"  # b4-5: content queries only when necessary (owner, 2026-10-31)
+PROMPT_VERSION = "b4-6"  # b4-6: compound modifiers, redundant words, articles, a key term named two ways (QC, 2026-11-03)
 KINDS = ["punctuation", "article", "agreement", "word_choice", "grammar", "capitalisation", "hyphenation",
          "spelling", "other"]
 CONFIDENCE = ["certain", "likely"]  # kept edits: copyedit.claude.min_confidence
@@ -117,7 +117,12 @@ Hard rules:
   is already correct.
 - Never change meaning, facts, numbers (including number words), units, statistics, drug names, gene names, people's names,
   abbreviations/acronyms, citations ([1], (1), superscripts), table/figure labels, or URLs.
-- Do not rewrite for style. Do not reorder sentences. Do not shorten. If a sentence is awkward or
+- Plain errors to fix every time (QC on JEHP articles, 2026-11-03): a compound modifier before its noun without its
+  hyphen ("person environment fit" -> "person-environment fit", "health related outcomes" -> "health-related
+  outcomes"); a word that only repeats its neighbour's meaning ("lower reduced" -> "reduced", "aged 65 years old"
+  -> "aged 65 years"); a missing article ("in study" -> "in the study", "as part of intervention" -> "as part of the
+  intervention").
+- Do not rewrite for style. Do not reorder sentences. Do not shorten (beyond a redundant word). If a sentence is awkward or
   confusing but not clearly wrong, leave it; if its meaning is truly unclear, add a QUERY instead
   of rewriting (at most one query per paragraph, only for real ambiguity).
 - Be conservative: an editor must accept or reject every suggestion, so suggest only edits a
@@ -136,7 +141,9 @@ Hard rules:
   need none. Raise one ONLY when it is necessary: the author must answer it before the article can
   be published and the editor cannot settle it from the manuscript. Necessary: numbers or
   statistics in the text that contradict each other; a sentence whose meaning cannot be worked
-  out; information the text promises but does not give ("three sessions" with two described).
+  out; information the text promises but does not give ("three sessions" with two described); the article's key
+  term named two different ways ("specific learning disorders" here, "specific learning disabilities" there:
+  "Kindly check and use one term consistently.").
   Not necessary (never query these): awkward or wordy wording, style, anything the editor can fix,
   suggestions to add or rename headings, requests for extra detail (names of hospitals, dates,
   reference numbers), your reading of the results or the author's reasoning, or guesses.
@@ -619,7 +626,7 @@ def batch_prefetch(jobs: list[tuple[Manuscript, JournalStyle]], client=None, pol
 # "Only add content related comments query if they are necessary" (owner, 2026-10-31): each query goes to an
 # independent check (Haiku by default) and is kept only when it agrees the author must answer it.
 
-QCHECK_VERSION = "qc-1"
+QCHECK_VERSION = "qc-2"
 QCHECK_SCHEMA = {
     "type": "object",
     "properties": {"verdicts": {"type": "array", "items": {
@@ -633,7 +640,8 @@ are unnecessary and annoy authors. Mark a query necessary ONLY when all of these
 - the author must answer it before the article can be published;
 - the editor cannot settle it from the manuscript itself;
 - it is about a real problem: numbers or statistics that contradict each other, a sentence whose
-  meaning cannot be worked out, or information the text promises but does not give.
+  meaning cannot be worked out, information the text promises but does not give, or the article's key term
+  named two different ways ("specific learning disorders" / "specific learning disabilities").
 Mark it NOT necessary when it is about wording, style or readability; asks for extra detail the text
 does not need (names of hospitals, dates, reference numbers); questions the author's interpretation,
 reasoning or choice of methods; suggests headings; or is a guess. When in doubt: not necessary.

@@ -209,3 +209,15 @@ def test_american_dates_and_more_italic_statistics():
     t = "F = 32.49, P = 0.01, f = 0.25 and n = 40"
     assert [t[a:b] for a, b in stat_italic_spans(t, False, extra)] == ["F", "P", "f", "n"]
     assert [x[a:b] for x in ["Medicine, n (%)"] for a, b in stat_italic_spans(x, True, extra)] == ["n"]
+
+
+def test_hyphen_consistency_before_the_same_noun():
+    # QC on jehp_1930_26 (owner, 2026-11-03): "Inconsistent hyphen usage"
+    from edit_os.rules_text import Context, find_hyphen_consistency
+
+    texts = ["We used cognitive-behavioral therapy.", "Cognitive Behavioral Therapy is common.",
+             "In the second stage; a second-stage labour.", "Patients were followed up at the follow-up visit.",
+             "The war zone nurses and the war-zone nurses."]
+    ctx = Context.from_texts(texts)
+    got = [[(t[a:b], n) for a, b, n in find_hyphen_consistency(t, {}, ctx)] for t in texts]
+    assert got == [[], [(" ", "-")], [], [], [(" ", "-")]]

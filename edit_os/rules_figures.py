@@ -1592,12 +1592,22 @@ def _footnote_delimiters(ms: Manuscript) -> list[Change]:
         elif q.text.strip():
             if after_table and caption_match(q) is None:
                 blocks.append(q)
+            elif re.match(r"\s*abbreviations?\s*(?:used)?\s*[:.\-–]", q.text, re.I):
+                blocks.append(q)  # the article's own list ("Abbreviations: GPA, grade point average; ISTJ, ...": jehp_1912)
             after_table = False
     for q in blocks:
         if q.id in seen:
             continue
         seen.add(q.id)
         t = q.text
+        if re.match(r"\s*abbreviations?\s*(?:used)?\s*[:.\-–]", t, re.I):
+            # "GPA, grade point average; ISTJ, ...": the semicolons between its pairs, however they are written
+            for pairs in abbreviation_pairs(t):
+                for k in range(1, len(pairs)):
+                    semi = t.rfind(";", pairs[k - 1].end() - 1, pairs[k].start("term"))
+                    if semi >= 0:
+                        out.append(_change(q, semi, semi + 1, ",", Layer.TABLES_FIGURES, "fig_captions.footnote_delimiter"))
+            continue
         # Between two definitions of abbreviations ("CDVA = corrected ...; SD = standard deviation"), not between
         # values ("df = 154; R² = 0.167") or running text ("the journals Autism; Child: Care, Health and ...").
         for m in re.finditer(r";(?=\s*([A-Za-zµμ%][\w%µμ\-/]{0,14})\s*[=:]\s*[A-Za-z(])", t):

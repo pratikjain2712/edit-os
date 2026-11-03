@@ -104,6 +104,7 @@ text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit ch
   compound_dash: {enabled: false, tables: false}  # "health–related" -> "health-related" where the article also
                                    # writes "health-related"; tables: in table cells and end captions too
   aged_years_old: {enabled: false} # "aged between 65 and 70 years old" -> "... 70 years"
+  hyphen_consistency: {enabled: false}  # a compound written both open and hyphenated: the article's majority form
   us_dates: {enabled: false}       # "12 September 2023" -> "September 12, 2023" (American date format)
   number_words: {enabled: false}   # "three months" -> "3 months" (time units; not at a sentence start). All 233,
                                    # 52%; IJO 61, 77%; Indian J Psychiatry 21, 95%; IDOJ 12, 100%; ABR 22, 5%
@@ -670,6 +671,7 @@ copyedit:
     query: []                  # abbreviations of the common list still asked for in this journal (JEHP: CVI, CVR)
     skip_names: true           # a word in capitals the article shows to be a name ("ZEISS®", "ZEISS" next to "Carl
                                # Zeiss") is no undefined acronym: not queried
+    pair_notations: false      # "Extraversion(E) ... Introversion(I)" defined: a later "Extraversion–Introversion" -> "E–I"
     drop_in_headings: false    # "Scale name (ABBR)" as a heading, ABBR defined in the text: the "(ABBR)" goes
     query_undefined_min_uses: 1  # "Kindly expand" only for an abbreviation used at least this often in the article
     query_undefined_plain_only: false  # true: not for words in capitals ("METHODS") or mixed case ("MeSH", "MSc")

@@ -362,6 +362,7 @@ copyedit:
     # "(CD-RISC)", "(SEQ-C)", "(CBT)" in headings go when the text defines them (owner, 2026-11-03: the style editor in
     # jehp_1930_26; the editors 56 of 112); the title's too (front_matter.title_drop_abbreviations)
     drop_in_headings: true
+    pair_notations: true  # QC on jehp_1912_26: "Replace with the defined notations" (owner, 2026-11-03)
     # every undefined abbreviation again, however often it is used (owner, 2026-11-03: QC "CFT: Define abbreviation.
     # Author comment" on one use in jehp_1930_26); names, guidelines, publishers and words in capitals still not
     query_undefined_min_uses: 1
@@ -370,6 +371,9 @@ copyedit:
 text:
   # "12 September 2023" -> "September 12, 2023" (owner, 2026-11-03: QC on jehp_1912_26 "American Date format")
   us_dates: {enabled: true}
+  # "Cognitive Behavioral Therapy" beside "cognitive-behavioral therapy": the article's majority form (owner, 2026-11-03:
+  # QC on jehp_1930_26 "Inconsistent hyphen usage")
+  hyphen_consistency: {enabled: true}
   # "Specific Learning Disorders", "Cognitive Behavioral Therapy" mid-sentence -> lower case (owner, 2026-11-03: QC
   # on jehp_1930_26 "Lowercase", "Better lowercase")
   lowercase: {enabled: true}

@@ -33,6 +33,11 @@ from .style import JournalStyle
 # --- context ---------------------------------------------------------------------------
 
 _WORDS = re.compile(r"(?<![\w\-])[A-Za-z][a-z]+(?![\w])")
+# every two neighbouring words, overlapping ("The well being": "The well" and "well being")
+_PAIR = re.compile(r"(?=(?<![\w\-–])([A-Za-z]{3,}[ -][A-Za-z]{3,}) ([A-Za-z]{3,})(?![\w\-–]))")
+# Phrasal verbs written open and their nouns hyphenated are both right ("to follow up", "a follow-up")
+_PHRASAL = {"follow", "set", "check", "back", "make", "sign", "log", "work", "drop", "build", "break", "turn", "lay",
+            "start", "warm", "cool", "take", "pick", "write", "round", "run", "look", "cut", "hand", "out", "in", "up"}
 _COMPOUND = re.compile(r"(?<![\w\-–])[A-Za-z]{2,}[-–][a-z]{2,}(?![\w\-–])")
 
 
@@ -43,18 +48,22 @@ class Context:
     also writes "vitreous")."""
     lower: Counter = field(default_factory=Counter)
     hyphenated: set = field(default_factory=set)  # compounds the author writes with a hyphen ("health-related")
+    pairs: Counter = field(default_factory=Counter)  # "cognitive behavioral" / "cognitive-behavioral", lower-cased
 
     @classmethod
     def from_texts(cls, texts) -> "Context":
         c = Counter()
         hy = set()
+        pairs: Counter = Counter()
         for t in texts:
             for m in _WORDS.finditer(t):
                 w = m.group(0)
                 if w[0].islower():
                     c[w] += 1
             hy.update(m.group(0).lower() for m in _COMPOUND.finditer(t) if "-" in m.group(0))
-        return cls(c, hy)
+            for m in _PAIR.finditer(t):  # the compound with the noun after it: "cognitive behavioral|therapy"
+                pairs[f"{m.group(1)}|{m.group(2)}".lower()] += 1
+        return cls(c, hy, pairs)
 
 
 _PROTECT = re.compile(
@@ -385,6 +394,25 @@ def find_compound_dash(text: str, cfg: dict, ctx: Context) -> list:
             if "–" in m.group(0) and m.group(0).replace("–", "-").lower() in ctx.hyphenated]
 
 
+def find_hyphen_consistency(text: str, cfg: dict, ctx: Context) -> list:
+    """A compound the article writes both open and hyphenated before the same noun takes the hyphen everywhere
+    ("Cognitive Behavioral Therapy" beside "cognitive-behavioral therapy" -> "Cognitive-Behavioral", "health related
+    talks" beside "health-related talks"). JEHP QC on jehp_1930_26: "Inconsistent hyphen usage". Only before one and the same noun: "in the
+    second stage" and "a second-stage labour" are both right. Phrasal verbs ("follow up" / "follow-up") are left."""
+    out = []
+    for m in _PAIR.finditer(text):
+        w = m.group(1)
+        first, second = re.split(r"[ -]", w, maxsplit=1)
+        if first.lower() in _PHRASAL or second.lower() in _PHRASAL:
+            continue
+        noun = m.group(2).lower()
+        hy, sp = ctx.pairs[f"{first}-{second}|{noun}".lower()], ctx.pairs[f"{first} {second}|{noun}".lower()]
+        gap = m.start(1) + len(first)
+        if " " in w and hy:  # (never the other way: before a noun the hyphen is right, "war-zone nurses")
+            out.append((gap, gap + 1, "-"))
+    return out
+
+
 _AGED_OLD = re.compile(r"\baged\b[^.;:()]{0,40}?\d\s*(?:years?|yrs?)(\s+old)\b", re.I)
 
 
@@ -413,6 +441,7 @@ FINDERS = {
     "compound_dash": find_compound_dash,
     "aged_years_old": find_aged_years_old,
     "us_dates": find_us_dates,
+    "hyphen_consistency": find_hyphen_consistency,
 }
 
 
