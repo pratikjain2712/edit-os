@@ -2525,6 +2525,33 @@ def _expansions(ms: Manuscript) -> dict[str, str]:
     return out
 
 
+def note_text(cells, foot: str, known: dict[str, str], allow: set[str], sep: str, delim: str) -> str:
+    """"SD = Standard deviation, CBT = Cognitive-behavioral therapy": the abbreviations in `cells` (paragraphs, or
+    anything with `.text`) that `foot` (the table's notes) does not expand and `known` can; "" when none."""
+    from .copyedit import abbrev
+
+    defined = {d.short for p in cells for d in abbrev.definitions(p)}
+    missing: list[str] = []
+    for p in cells:
+        if _NAME_LIST.search(p.text):
+            continue
+        found = [k2 for m in abbrev._USE.finditer(p.text) if (k2 := abbrev._abbr_key(m.group(1)))
+                 and k2 not in abbrev._NOT_ABBR] if len(p.text) <= 40 else [k2 for k2, _, _ in abbrev.uses(p, True)]
+        for key in found:
+            if key in defined or key in missing or key not in known or (key in allow and key not in _STAT_EXPANSIONS) \
+                    or re.search(r"(?<![\w-])" + re.escape(key) + r"(?![\w-])", foot):
+                continue
+            missing.append(key)
+    return delim.join(f"{key}{sep}{_sentence(known[key])}" for key in missing)
+
+
+def note_settings(ms: Manuscript, style: JournalStyle) -> tuple[dict[str, str], set[str], str, str]:
+    """(expansions known, allowed abbreviations, " = ", ", ") for the table notes."""
+    sep = style.get("figures.table_footnote_abbreviation", " = ")
+    delim = (style.get("figures.table_footnote_delimiter", ",") or ",").strip() + " "
+    return {**_STAT_EXPANSIONS, **_expansions(ms)}, set(style.get("copyedit.abbreviations.allow") or []), sep, delim
+
+
 def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, str, str]]:
     """(paragraph, note text, where) for each table missing expansions: "before" its notes, "fill" the empty line
     under it, "after_caption" a paragraph split off its caption; cached on `ms`."""
@@ -2564,22 +2591,10 @@ def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph
         if not (k >= 0 and paras[k].id in cap_ids or any(p.id in cap_ids for p in cells)):
             continue  # not a numbered table
         block = blocks.get(key_t, [])
-        foot = " ".join(q.text for q in block)
-        defined = {d.short for p in cells for d in abbrev.definitions(p)}
-        missing: list[str] = []
-        for p in cells:
-            if p.id in cap_ids or _NAME_LIST.search(p.text):
-                continue
-            found = [k2 for m in abbrev._USE.finditer(p.text) if (k2 := abbrev._abbr_key(m.group(1)))
-                     and k2 not in abbrev._NOT_ABBR] if len(p.text) <= 40 else [k2 for k2, _, _ in abbrev.uses(p, True)]
-            for key in found:
-                if key in defined or key in missing or key not in known or (key in allow and key not in _STAT_EXPANSIONS) \
-                        or re.search(r"(?<![\w-])" + re.escape(key) + r"(?![\w-])", foot):
-                    continue
-                missing.append(key)
-        if not missing:
+        text = note_text([p for p in cells if p.id not in cap_ids], " ".join(q.text for q in block), known, allow,
+                         sep, delim)
+        if not text:
             continue
-        text = delim.join(f"{key}{sep}{_sentence(known[key])}" for key in missing)
         if block:
             plan.append((block[0], text, "before"))
             continue

@@ -598,6 +598,32 @@ def _caption_into_row(tbl, cap_el, mk) -> None:
     (first.addprevious(tr) if first is not None else tbl.append(tr))
 
 
+def _with_table_note(ms: Manuscript, style: JournalStyle, els: list, caps: list, mk) -> list:
+    """An imported table's block with the note expanding its abbreviations under the table (as
+    rules_figures.rule_table_notes for the manuscript's own tables; owner, 2026-11-03)."""
+    from types import SimpleNamespace
+
+    from .docmodel import paragraph_text
+    from .header import _para
+
+    tbl = next((e for e in els if e.tag == qn("w:tbl")), None)
+    if tbl is None:
+        return els
+    cap_texts = {paragraph_text(c).strip() for c in caps}
+    cells = []
+    for i, p in enumerate(tbl.iter(qn("w:p"))):
+        t = paragraph_text(p).strip()
+        if t and t not in cap_texts and not (i == 0 and rules_figures._CAPTION.match(t)):
+            cells.append(SimpleNamespace(text=t, id=f"imp{i}"))
+    k = next(i for i, e in enumerate(els) if e is tbl)
+    foot = " ".join(paragraph_text(e) for e in els[k + 1:] if e.tag == qn("w:p"))
+    known, allow, sep, delim = rules_figures.note_settings(ms, style)
+    text = rules_figures.note_text(cells, foot, known, allow, sep, delim)
+    if not text:
+        return els
+    return els[:k + 1] + [_para(text, mk)] + els[k + 1:]
+
+
 def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, author: str, date: str,
            run_format: dict | None = None, align: str | None = None, style: JournalStyle | None = None) -> list[str]:
     """Place the imports whose status is in `statuses` (after tracked.render and the inserts, before the legend and
@@ -638,12 +664,15 @@ def render(ms: Manuscript, inserts, base_dir: str, statuses, *, tracked: bool, a
                     _set_caption(c, n.captions[i], mk)
                 els.append(c)
             _copy_styles(ms, sms, els)
+            caps_in = [e for k, e in zip([i for i in block if i < len(skids)], els) if k in n.captions]
             if n.kind == "tables" and n.caption_row:
                 tbl = next((e for e in els if e.tag == qn("w:tbl")), None)
-                caps = [e for k, e in zip([i for i in block if i < len(skids)], els) if k in n.captions]
+                caps = caps_in
                 if tbl is not None and caps:
                     els = [e for e in els if e is not caps[0]]
                     _caption_into_row(tbl, caps[0], mk)
+            if n.kind == "tables" and style is not None and style.get("figures.table_footnote_add"):
+                els = _with_table_note(ms, style, els, caps_in, mk)
             place += els
         if not place:
             continue
