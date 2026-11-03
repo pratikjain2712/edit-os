@@ -229,11 +229,13 @@ def _num(s: str) -> int | None:
 
 def _split_notes(ms: Manuscript, style: JournalStyle) -> list[str]:
     """The notes rules_figures splits out of table captions (figures.table_caption_notes), as they will read."""
+    # the table notes added off the end of a caption (rules_figures.rule_table_notes) go under the table too
+    added = [t for _, t, where in rules_figures.table_note_plan(ms, style) if where == "after_caption"]
     if style.get("figures.table_caption_notes") != "split":
-        return []
+        return added
     from .tracked import PARAGRAPH_BREAK
 
-    out = []
+    out = list(added)
     mode = style.get("figures.table_caption_end_period") or "delete"
     for cap in rules_figures.captions(ms):
         if cap.kind != rules_figures.TABLE:
@@ -364,7 +366,7 @@ def _plan_tables(ms: Manuscript, style: JournalStyle, notes: list[str], split: l
         by_el.setdefault(_top(p.element, body), []).append(p)
     note_ids = {q.id for block in rules_figures.table_notes(ms) for q in block}
     # an empty line under a table that the table-notes rule fills goes with the table
-    fills = {q.id for q, _, empty in rules_figures.table_note_plan(ms, style) if empty}
+    fills = {q.id for q, _, where in rules_figures.table_note_plan(ms, style) if where == "fill"}
     split_title = {t.element: lab for lab, t in rules_figures.split_table_captions(ms)}  # "Table 1." / its title
     kids = list(body)
     blocks, numbers = [], []

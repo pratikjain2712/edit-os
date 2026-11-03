@@ -444,3 +444,18 @@ def test_table_notes_added_and_moved_with_the_table(tmp_path):
     i = got.index("Tables")
     assert "SD = Standard deviation, CBT = Cognitive-behavioral therapy" in got[i:]
     assert got.index("SD = Standard deviation, CBT = Cognitive-behavioral therapy") > got.index("Control")
+
+
+def test_table_note_with_no_line_under_the_table(tmp_path):
+    # jehp_1930_26 Tables 1 and 2: body text right under the table; the note still ends up under it at the end
+    body = ("We used Cognitive-Behavioral Therapy (CBT) in eight sessions with the children of the schools, who "
+            "completed the scales before and after the sessions with the help of trained staff.")
+    data = _docx(["Introduction", body + " See Table 1.",
+                  "Table 1: Scores before and after CBT",
+                  ("table", [["Group", "Mean", "SD"], ["CBT", "12.1", "2.3"], ["Control", "11.9", "2.1"]]),
+                  "Discussion", body, *REFS])
+    path = tmp_path / "Manuscript.docx"
+    path.write_bytes(data)
+    got, _ = _accepted_run(str(path), journal("jehp"), tmp_path)
+    note = "SD = Standard deviation, CBT = Cognitive-behavioral therapy"
+    assert got.count(note) == 1 and got.index(note) > got.index("Tables") and got.index(note) > got.index("Control")

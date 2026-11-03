@@ -2525,12 +2525,13 @@ def _expansions(ms: Manuscript) -> dict[str, str]:
     return out
 
 
-def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, str, bool]]:
-    """(paragraph, note text, fills an empty line) for each table missing expansions; cached on `ms`."""
+def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph, str, str]]:
+    """(paragraph, note text, where) for each table missing expansions: "before" its notes, "fill" the empty line
+    under it, "after_caption" a paragraph split off its caption; cached on `ms`."""
     cached = getattr(ms, "_table_note_plan", None)
     if cached is not None and cached[0] is style:
         return cached[1]
-    plan: list[tuple[Paragraph, str, bool]] = []
+    plan: list[tuple[Paragraph, str, str]] = []
     ms._table_note_plan = (style, plan)
     if not style.get("figures.table_footnote_add"):
         return plan
@@ -2580,12 +2581,16 @@ def table_note_plan(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragraph
             continue
         text = delim.join(f"{key}{sep}{_sentence(known[key])}" for key in missing)
         if block:
-            plan.append((block[0], text, False))
+            plan.append((block[0], text, "before"))
             continue
         last = index[cells[-1].id]
         nxt = next((q for q in paras[last + 1:last + 3] if not q.in_table), None)
         if nxt is not None and not nxt.text.strip():
-            plan.append((nxt, text, True))
+            plan.append((nxt, text, "fill"))
+        elif style.get("figures.tables_to_end") and k >= 0 and paras[k].id in cap_ids and not paras[k].in_table:
+            # no line under the table: a paragraph split off the end of its caption, which the move to the end
+            # puts under the table as it does the notes split out of captions (legends._split_notes)
+            plan.append((paras[k], text, "after_caption"))
     return plan
 
 
@@ -2594,9 +2599,14 @@ def rule_table_notes(ms: Manuscript, style: JournalStyle) -> list[Change]:
     from .tracked import PARAGRAPH_BREAK
 
     out = []
-    for p, text, empty in table_note_plan(ms, style):
-        new = text if empty else text + PARAGRAPH_BREAK
-        c = _change(p, 0, 0, new, Layer.TABLES_FIGURES, "fig_captions.table_notes_added")
-        c.format = {"bold": False, "italic": False}
+    for p, text, where in table_note_plan(ms, style):
+        if where == "after_caption":
+            c = _change(p, len(p.text), len(p.text), PARAGRAPH_BREAK + text, Layer.TABLES_FIGURES,
+                        "fig_captions.table_notes_added")
+            c.segment_format = [None, {"bold": False, "italic": False}]
+        else:
+            c = _change(p, 0, 0, text if where == "fill" else text + PARAGRAPH_BREAK, Layer.TABLES_FIGURES,
+                        "fig_captions.table_notes_added")
+            c.format = {"bold": False, "italic": False}
         out.append(c)
     return out
