@@ -334,7 +334,9 @@ copyedit:
     skip: [acknowledgement, acknowledgements, counselling, counsellor, counsellors, counselled, counselling's,
            modelling, modelled, modeller, modellers]
   abbreviations:
-    defined_in_article: true
+    # Off since 2026-11-03 (owner, "query all", after QC on jehp_1912_26: "MBTI", "GPA", "ISTJ: Abbreviation definition"
+    # where only a table note expanded them): a definition must be in the text, not only in a table note or list
+    defined_in_article: false
     redefinition: change  # "full form (ABBR)" again -> "ABBR" (S: "only abbreviation should be used thereafter"),
                           # made rather than queried (owner, 2026-10-28)
     # S: "only abbreviation should be used thereafter": every full form after the definition, not only where the author
