@@ -143,11 +143,16 @@ AFF = ("Department of Nursing, School of Health, Example University, Town", "")
 
 
 def test_author_name_query_names_the_difference():
-    q = refengine.author_name_query(_parsed(["Farhadi KM", "Lane B"]),
-                                    _rec([AFF, ("Farhadi Kashani", "M"), AFF, ("Lane", "B")]))
-    assert q == ("references.author_names", {"pairs": "Farhadi KM vs Farhadi Kashani M"})
-    assert queries.TEXT[q[0]].format(**q[1]) == ("The author names differ from the published article (Farhadi KM vs "
-                                                 "Farhadi Kashani M). Kindly check.")
+    q = refengine.author_name_query(_parsed(["Farzadi M", "Lane B"]),
+                                    _rec([AFF, ("Mohammadi", "M"), AFF, ("Lane", "B")]))
+    assert q == ("references.author_names", {"pairs": "Farzadi M vs Mohammadi M"})
+    assert queries.TEXT[q[0]].format(**q[1]) == ("The author names differ from the published article (Farzadi M vs "
+                                                 "Mohammadi M). Kindly check.")
+    # a two-part surname cut to an initial is the same author (owner, 2026-11-03: "Najafi GT" / "Najafi Ghezeljeh T"):
+    # no query, and the record's whole surname is printed
+    rec = _rec([AFF, ("Farhadi Kashani", "M"), AFF, ("Lane", "B")])
+    assert refengine.author_name_query(_parsed(["Farhadi KM", "Lane B"]), rec) is None
+    assert refengine._usable_authors(rec, _parsed(["Farhadi KM", "Lane B"])) == ["Farhadi Kashani M", "Lane B"]
     q = refengine.author_name_query(_parsed(["Rostami Z", "Lane B", "Kian H"]),
                                     _rec([("Rostami", "Z"), AFF, ("Kiyan", "H"), ("Lane", "B")]))
     assert q == ("references.author_order", {"names": "Rostami Z, Kiyan H, Lane B"})

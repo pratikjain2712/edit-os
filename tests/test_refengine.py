@@ -184,3 +184,13 @@ def test_dictionary_proper_nouns(monkeypatch):
     assert "Syndrome" not in refengine.dictionary_proper_nouns(t)
     assert refengine.sentence_case(t, refengine.dictionary_proper_nouns(t)) == \
         "Cowden syndrome in Colombia and the United States: A Doppler study"
+
+
+def test_two_part_surname_written_with_an_initial():
+    # jehp_1888_26: "NAJAFI GT" in the entry, "Najafi Ghezeljeh T" in PubMed: one author, not a query
+    from edit_os.refengine import same_written_name
+
+    assert same_written_name("NAJAFI GT", "Najafi Ghezeljeh T")
+    assert same_written_name("Najafi Ghezeljeh T", "Najafi GT")
+    assert not same_written_name("Najafi T", "Najafi Ghezeljeh T")
+    assert not same_written_name("Smith JA", "Smith Jones B")

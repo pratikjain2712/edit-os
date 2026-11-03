@@ -936,9 +936,31 @@ def _name_key(name: str) -> str:
     return re.sub(r"(.)\1+", r"\1", re.sub(r"[^a-z]", "", fold_name(name)))
 
 
+def _compound_split(a: str, b: str) -> bool:
+    """`a` writes the second part of `b`'s two-part surname as an initial: "Najafi GT" for "Najafi Ghezeljeh T"
+    (jehp_1888_26), "Seyed Alavi SE" -- the surname's first word(s) kept, the rest folded into the initials."""
+    def split(n):
+        w = n.split()
+        if len(w) < 2 or not re.fullmatch(r"[A-Z]{1,4}", w[-1].replace(".", "")):
+            return None
+        return [fold_name(x) for x in w[:-1]], w[-1].replace(".", "").upper()
+    sa, sb = split(a.strip()), split(b.strip())
+    if not sa or not sb:
+        return False
+    (wa, ia), (wb, ib) = sa, sb
+    for (w1, i1), (w2, i2) in (((wa, ia), (wb, ib)), ((wb, ib), (wa, ia))):
+        extra = w2[len(w1):]
+        if len(w2) > len(w1) and w2[:len(w1)] == w1 and i1 == "".join(x[0].upper() for x in extra) + i2:
+            return True
+    return False
+
+
 def same_written_name(a: str, b: str) -> bool:
     """Two writings of one author's name ("Esmaeili H" / "Esmeili H", "Ba'ezat F" / "Baezzat F", a record's slip
-    "LIAGN Y" for "LIANG Y"): equal once folded, nearly so (ratio >= 0.85), or one transposed pair of letters."""
+    "LIAGN Y" for "LIANG Y"): equal once folded, nearly so (ratio >= 0.85), or one transposed pair of letters; or a
+    two-part surname written with its second part as an initial ("Najafi GT" / "Najafi Ghezeljeh T")."""
+    if _compound_split(a, b):
+        return True
     ka, kb = _name_key(a), _name_key(b)
     if not ka or not kb:
         return False
@@ -1075,7 +1097,11 @@ def _usable_authors(r: biblio.Record, p: Parsed | None, keep_compound: bool = Fa
             if k < len(p.authors) and compound_split(s.rstrip("*").strip(), i, p.authors[k]):
                 names[k] = p.authors[k].strip()
     if p and p.authors and (malformed_authors(r) or not r.authors):
-        return p.authors  # the record's list is broken: keep the author's names (and query them)
+        # the record's list is broken: keep the author's names (and query them), except one whose two-part surname
+        # the author cut and the record gives whole ("Najafi GT" -> "Najafi Ghezeljeh T": jehp_1888_26)
+        whole = [f"{x.rstrip('*').strip()} {i}".strip() for x, i in r.authors if i]
+        return [next((w for w in whole if _compound_split(a, w)
+                      and len(w.split()[:-1]) > len(a.split()[:-1])), a) for a in p.authors]
     if p and r.source in PUBLISHER_SOURCES and len(names) < min(len(p.authors), 6):
         return p.authors  # CrossRef author lists are often incomplete; keep the author's
     if p and r.source in PUBLISHER_SOURCES:
