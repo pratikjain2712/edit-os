@@ -380,16 +380,38 @@ _STAT_HEAD = re.compile(r"^\s*([" + _STAT_SYMBOLS + r"])(?:[²2])?(?:\s*[-\s][Vv
 _STAT_WORD = re.compile(r"(?<![\w.\-/'’])([FtZrχ])(?:²)?(?=[\s-][Vv]alues?\b)|\bCronbach[’']s\s+(α)")
 
 
-def stat_italic_spans(text: str, in_table: bool = False) -> list[tuple[int, int]]:
-    """Where a statistical symbol stands (owner, 2026-10-27 (b)): the symbol letter only."""
-    out = [m.span(1) for m in _STAT_VALUE.finditer(text)]
+def _stat_patterns(extra: str):
+    """The value and head patterns for `_STAT_SYMBOLS` plus a journal's `extra` symbols (JEHP: P, n, f)."""
+    syms = _STAT_SYMBOLS + "".join(c for c in extra if c not in _STAT_SYMBOLS)
+    if syms not in _PATTERNS:
+        cls = "[" + re.escape(syms) + "]"
+        value = re.compile(r"(?<![\w.\-/'’\u0370-\u03ff])(" + cls + r")(?:[²₀₁₂₃₄₅₆₇₈₉]|2(?=" + _SP + r"*[=(<>]))?"
+                           r"(?=" + _SP + r"*(?:\(\s*\d[\d.,\s]*\)" + _SP + r"*)?[=<>≤≥]" + _SP + r"*[-−]?" + _SP + r"*\.?\d)")
+        head = re.compile(r"^\s*(" + cls + r")(?:[²2])?(?:\s*[-\s][Vv]alues?|\s+statistics?|\s*\([^()]{1,12}\))?\s*[*†‡]?\s*$")
+        _PATTERNS[syms] = (value, head)
+    return _PATTERNS[syms]
+
+
+_PATTERNS: dict = {}
+# "Medicine, n (%)", "Total, N (%)": the count's letter before "(%)" in a table head (QC on jehp_1912_26)
+_COUNT_HEAD = re.compile(r"(?<![\w.\-/'’])([nN])(?=\s*\(%\))")
+
+
+def stat_italic_spans(text: str, in_table: bool = False, extra: str = "") -> list[tuple[int, int]]:
+    """Where a statistical symbol stands (owner, 2026-10-27 (b)): the symbol letter only. `extra`: the journal's
+    symbols besides the common ones (`stat_italic_extra`; JEHP "Pnf", owner 2026-11-03 after QC on jehp_1912_26 and
+    jehp_1930_26: "Italics P-value", "Italics n", "Italics" f)."""
+    value, head = (_STAT_VALUE, _STAT_HEAD) if not extra else _stat_patterns(extra)
+    out = [m.span(1) for m in value.finditer(text)]
     for m in _STAT_WORD.finditer(text):
         g = 1 if m.group(1) else 2
         out.append(m.span(g))
     if in_table:
-        h = _STAT_HEAD.match(text)
+        h = head.match(text)
         if h:
             out.append(h.span(1))
+        if "n" in extra:
+            out += [m.span(1) for m in _COUNT_HEAD.finditer(text)]
     return sorted(set(out))
 
 
@@ -476,7 +498,8 @@ def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
         notes = {q.id for q in footnote_paragraphs(ms)}
     out = []
     for p in _paragraphs(ms, bool(cfg.get("include_tables") or in_tables)):
-        pcfg = cfg if not p.in_table or cfg.get("include_tables") else {k: v for k, v in cfg.items() if k in in_tables}
+        pcfg = cfg if not p.in_table or cfg.get("include_tables") else {k: v for k, v in cfg.items()
+                                                                          if k in in_tables or k == "stat_italic_extra"}
         if p.id in notes:
             pcfg = {**pcfg, "abbreviation_colon": False}
         hidden = None
@@ -492,7 +515,7 @@ def rule_guide(ms: Manuscript, style: JournalStyle) -> list[Change]:
             from .rules_format import char_formats
 
             fmts = None
-            for s, e in stat_italic_spans(p.text, p.in_table):
+            for s, e in stat_italic_spans(p.text, p.in_table, pcfg.get("stat_italic_extra") or ""):
                 fmts = char_formats(p) if fmts is None else fmts
                 if len(fmts) == len(p.text) and all(f.get("italic") for f in fmts[s:e]):
                     continue

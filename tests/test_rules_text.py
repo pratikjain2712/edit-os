@@ -192,3 +192,20 @@ def test_compound_dash_in_a_caption_after_the_references(tmp_path):
     st.settings["text"]["compound_dash"]["enabled"] = True
     got = [(ms.by_id(c.para_id).text[:8], c.new) for c in rules_text.collect(ms, st) if c.reason == "text.compound_dash"]
     assert got == [("Table 1:", "-")]
+
+
+def test_american_dates_and_more_italic_statistics():
+    # owner, 2026-11-03 (QC on jehp_1912_26 / jehp_1930_26): "September 12, 2023"; P, n, f in italics for JEHP
+    from edit_os import style
+    from edit_os.rules_guide import stat_italic_spans
+    from edit_os.rules_text import Context, find_us_dates
+
+    t = "Data were collected from 12 September 2023 to 12 June 2024."
+    assert [n for _, _, n in find_us_dates(t, {}, Context())] == ["September 12, 2023", "June 12, 2024"]
+    st = style.load("jehp")
+    assert st.get("text.us_dates.enabled") and st.get("text.lowercase.enabled") and st.get("queries.manufacturer")
+    extra = st.get("guide_replace.stat_italic_extra")
+    assert extra == "Pnf"
+    t = "F = 32.49, P = 0.01, f = 0.25 and n = 40"
+    assert [t[a:b] for a, b in stat_italic_spans(t, False, extra)] == ["F", "P", "f", "n"]
+    assert [x[a:b] for x in ["Medicine, n (%)"] for a, b in stat_italic_spans(x, True, extra)] == ["n"]

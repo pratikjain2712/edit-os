@@ -142,7 +142,7 @@ def test_table_note_abbreviations(tmp_path):
                            "Values are mean ± SD. P < 0.05. df, degrees of freedom; SD, standard deviation.",
                            BODY])
     out, _ = apply(path, jehp(), tmp_path)
-    assert "Values are mean ± SD. P < 0.05. df = degrees of freedom, SD = standard deviation" in out
+    assert "Values are mean ± SD. P < 0.05. df: degrees of freedom, SD: standard deviation" in out
 
 
 def test_note_in_a_caption_goes_under_the_table(tmp_path):
@@ -151,9 +151,9 @@ def test_note_in_a_caption_goes_under_the_table(tmp_path):
                            ("table", [["Age", "Sex"], ["1", "2"]]), "", BODY])
     out, _ = apply(path, jehp(), tmp_path)
     assert "Table 1: Baseline characteristics (N=100)." in out
-    assert "IQR = interquartile range, SD = standard deviation" in out
+    assert "IQR: interquartile range, SD: standard deviation" in out
     ms = docmodel.load(str(tmp_path / "out.docx"))
-    i = [p.text for p in ms.paragraphs].index("IQR = interquartile range, SD = standard deviation")
+    i = [p.text for p in ms.paragraphs].index("IQR: interquartile range, SD: standard deviation")
     assert ms.paragraphs[i - 1].in_table  # under the table
     # Caption below its table: the note follows the caption.
     path = make(tmp_path, ["Introduction", BODY + " See Table 1.", ("table", [["Age", "Sex"], ["1", "2"]]),

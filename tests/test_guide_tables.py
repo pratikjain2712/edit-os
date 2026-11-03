@@ -230,7 +230,9 @@ def test_notes_abbreviations_first_term_equals_definition_no_end_periods(tmp_pat
                 continue
             texts = [t for t in _texts(out) if t.strip()]
             i = texts.index("Mean") + 3
-            assert texts[i:i + 3] == ["SD = standard deviation, CI = confidence interval", "*P < 0.05 versus baseline",
+            want = "SD: standard deviation, CI: confidence interval" if code == "jehp" else \
+                "SD = standard deviation, CI = confidence interval"  # JEHP the colon since 2026-11-03 (owner, QC)
+            assert texts[i:i + 3] == [want, "*P < 0.05 versus baseline",
                                       "Discussion"], (code, texts)
             first = Document(out).paragraphs[2]  # the list's runs are not superscript like the "*" they precede
             assert not any(r.font.superscript for r in first.runs)
@@ -315,7 +317,7 @@ def test_settings_for_the_three_journals():
         assert st.get("formatting.fonts.table_align") == "left"
         assert st.get("formatting.table_caption_bold") is True
         assert st.get("figures.tables_to_end") is True
-        assert st.get("figures.table_footnote_abbreviation") == " = "
+        assert st.get("figures.table_footnote_abbreviation") == (": " if code == "jehp" else " = ")
         assert st.get("figures.table_footnote_delimiter") == ","
         assert st.get("figures.table_footnote_end_period") == "delete"
         assert st.get("figures.table_footnote_order") == "abbreviations_first"

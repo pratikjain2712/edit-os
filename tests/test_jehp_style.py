@@ -166,7 +166,7 @@ def test_table_footnote_final_period_deleted(tmp_path):
     out = run(str(path), jehp(), ["fig_captions"])
     # S244 / S246: "term = definition", comma between abbreviations; S248: no period after the last one. The
     # abbreviations go first and the last footnote loses its period too (G214, G215: owner, 2026-10-27)
-    i = out.index("SD = standard deviation, SE = standard error")
+    i = out.index("SD: standard deviation, SE: standard error")
     assert out[i + 1] == "*P < 0.05" and BODY in out
 
 

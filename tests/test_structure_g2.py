@@ -442,8 +442,8 @@ def test_table_notes_added_and_moved_with_the_table(tmp_path):
     path.write_bytes(data)
     got, _ = _accepted_run(str(path), journal("jehp"), tmp_path)
     i = got.index("Tables")
-    assert "SD = Standard deviation, CBT = Cognitive-behavioral therapy" in got[i:]
-    assert got.index("SD = Standard deviation, CBT = Cognitive-behavioral therapy") > got.index("Control")
+    assert "SD: Standard deviation, CBT: Cognitive-behavioral therapy" in got[i:]
+    assert got.index("SD: Standard deviation, CBT: Cognitive-behavioral therapy") > got.index("Control")
 
 
 def test_table_note_with_no_line_under_the_table(tmp_path):
@@ -457,7 +457,7 @@ def test_table_note_with_no_line_under_the_table(tmp_path):
     path = tmp_path / "Manuscript.docx"
     path.write_bytes(data)
     got, _ = _accepted_run(str(path), journal("jehp"), tmp_path)
-    note = "SD = Standard deviation, CBT = Cognitive-behavioral therapy"
+    note = "SD: Standard deviation, CBT: Cognitive-behavioral therapy"
     assert got.count(note) == 1 and got.index(note) > got.index("Tables") and got.index(note) > got.index("Control")
 
 
@@ -467,7 +467,7 @@ def test_table_notes_for_tables_in_a_separate_file(tmp_path):
                     ("table", [["Variable", "Mean", "SD"], ["BMI", "24.1", "3.2"], ["Age", "41", "9"]])])
     z = _zip(tmp_path, {"Tables.docx": tables})
     got, _ = _accepted_run(z, journal("jehp"), tmp_path)
-    note = "SD = Standard deviation, BMI = Body mass index"
+    note = "SD: Standard deviation, BMI: Body mass index"
     assert got.count(note) == 1 and got.index(note) > got.index("Age")
 
 
@@ -478,7 +478,7 @@ def test_separate_tables_file_with_the_caption_in_the_first_row(tmp_path):
     z = _zip(tmp_path, {"Tables.docx": tables})
     got, out = _accepted_run(z, journal("jehp"), tmp_path)
     assert "Demographic features" in got and "Scores" in got
-    assert "SD = Standard deviation, BMI = Body mass index" in got
+    assert "SD: Standard deviation, BMI: Body mass index" in got
     qs = pipeline.load_records(str(tmp_path / "out"))[3]
     assert not [q for q in qs if q["check"] == "supplied.table_no_caption"]
 
@@ -489,4 +489,4 @@ def test_table_note_row_inside_the_table_is_not_repeated(tmp_path):
                                ["DERS = Difficulties in emotion regulation scale; BAI = Beck anxiety inventory", "", ""]])])
     z = _zip(tmp_path, {"Tables.docx": tables})
     got, _ = _accepted_run(z, journal("jehp"), tmp_path)
-    assert "SD = Standard deviation" in got and not any(x.startswith("SD = Standard deviation, DERS") for x in got)
+    assert "SD: Standard deviation" in got and not any(x.startswith("SD: Standard deviation, DERS") for x in got)

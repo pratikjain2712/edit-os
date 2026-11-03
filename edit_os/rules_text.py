@@ -394,6 +394,16 @@ def find_aged_years_old(text: str, cfg: dict, ctx: Context) -> list:
     return [(m.start(1), m.end(1), "") for m in _AGED_OLD.finditer(text)]
 
 
+_MONTHS = ("January|February|March|April|May|June|July|August|September|October|November|December")
+_DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(" + _MONTHS + r")\s*,?\s+((?:19|20)\d{2})\b")
+
+
+def find_us_dates(text: str, cfg: dict, ctx: Context) -> list:
+    """"12 September 2023" -> "September 12, 2023" (the American date format; JEHP QC on jehp_1912_26)."""
+    return [(m.start(), m.end(), f"{m.group(2)} {int(m.group(1))}, {m.group(3)}") for m in _DAY_MONTH.finditer(text)
+            if 1 <= int(m.group(1)) <= 31]
+
+
 FINDERS = {
     "lowercase": find_lowercase,
     "prefixes": find_prefixes,
@@ -402,6 +412,7 @@ FINDERS = {
     "ranges": find_ranges,
     "compound_dash": find_compound_dash,
     "aged_years_old": find_aged_years_old,
+    "us_dates": find_us_dates,
 }
 
 

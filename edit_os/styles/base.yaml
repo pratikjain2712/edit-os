@@ -86,6 +86,7 @@ guide_replace:  # the pre-editing guide's search-and-replace table (edit_os/rule
   leading_zero_p: false
   thousands_comma: false      # "1,260" -> "1260" (five digits and more keep the comma); per journal
   stat_italic: false          # F, t, d, r, R², β, η, α, Z, k, χ² in italics as statistics; per journal
+  stat_italic_extra: ""       # more symbols in italics with them ("Pnf": P values, counts n, effect size f)
   include_tables: false
   table_rules: []             # finders that also run in tables when include_tables is off, e.g. [range_dash]
 
@@ -103,6 +104,7 @@ text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit ch
   compound_dash: {enabled: false, tables: false}  # "health–related" -> "health-related" where the article also
                                    # writes "health-related"; tables: in table cells and end captions too
   aged_years_old: {enabled: false} # "aged between 65 and 70 years old" -> "... 70 years"
+  us_dates: {enabled: false}       # "12 September 2023" -> "September 12, 2023" (American date format)
   number_words: {enabled: false}   # "three months" -> "3 months" (time units; not at a sentence start). All 233,
                                    # 52%; IJO 61, 77%; Indian J Psychiatry 21, 95%; IDOJ 12, 100%; ABR 22, 5%
   stat_semicolons: {enabled: false}  # "(p = 0.065), at 3 months ... (p = 0.165)" -> "(p = 0.065); at 3 months":

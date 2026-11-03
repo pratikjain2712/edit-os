@@ -250,3 +250,11 @@ def test_bracket_holding_only_name_and_year_becomes_the_number(tmp_path):
     assert t[2] == "A second line cites the earlier study [5] in round brackets."  # not "(E. Wagner et al.[5])"
     assert t[3] == "A third line names the authors in its text: Castillo and Ross[6] found the same."
     assert not any("[[" in x or "]]" in x or "([" in x for x in t)
+
+
+def test_italic_p_and_n_in_table_heads(tmp_path):
+    # QC on jehp_1930_26 / jehp_1912_26 (owner, 2026-11-03): "Italics P-value", "Italics n" in the table heads
+    path = make(tmp_path, [INTRO, "Body text."], table=["P", "Medicine, n (%)", "0.01", "12 (40)"])
+    cs, out, _ = run(path, only=["guide_replace"])
+    italic = sorted(c.old for c in cs.changes if c.reason == "guide.stat_italic")
+    assert italic == ["P", "n"]

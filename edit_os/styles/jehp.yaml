@@ -81,6 +81,8 @@ guide_replace:
   # editors set them, in text and tables; ".413" -> "0.413" (editors 28 added, 16 left; never for P: 8 of 8 ".05"
   # kept, so P values keep theirs); "1,260" -> "1260", five digits and more keep the comma (editors 2 of 2).
   stat_italic: true
+  # ... and P, n and f too (owner, 2026-11-03, after QC on jehp_1930_26 / jehp_1912_26: "Italics P-value", "Italics n")
+  stat_italic_extra: Pnf
   leading_zero: true
   # P values too: "P = .01" -> "P = 0.01" (owner, 2026-11-03: the editors added the zero in 11 of 15 articles with a
   # bare ".01"; before, 8 of 8 had been kept), everywhere -- abstract, text and tables alike
@@ -122,7 +124,9 @@ figures:
   # between abbreviations" (1646, 1732, 1772, 1874). The struck S232 (live, owner 2026-10-24) reads "term 1:
   # definition": the owner follows the editors, "term = definition" ("CI: confidence interval" -> "CI = confidence
   # interval" too: owner, 2026-10-26).
-  table_footnote_abbreviation: " = "
+  # Since 2026-11-03 (owner, after both QC reviewers: "CBT: Cognitive behavioral therapy", "MBTI: Myers-Briggs-type
+  # indicator, GPA: grade point average"; the sheet's struck S232 "term 1: definition"): the colon
+  table_footnote_abbreviation: ": "
   table_footnote_delimiter: ","
   table_footnote_order: abbreviations_first  # owner, 2026-10-27: follow the guide (G214)
   # ... and asked of the author where the foot is short of it: abbreviations used in the table with no
@@ -340,7 +344,8 @@ copyedit:
     # Instructions to all journals: "If a term is not used again, an abbreviation is not needed"; QC removed "(WHO)",
     # "(NOHP)", "(NPOP)" in JEHP_73_26 ("Unused abbrv").
     unused_definition: change
-    allow: [JEHP, AI, GPA, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD, ADHD,
+    # GPA and ADHD no longer (owner, 2026-11-03: QC "Define abbreviation" on jehp_1912_26, jehp_1930_26)
+    allow: [JEHP, AI, API, PTSD, NICU, ICU, HDL, LDL, RCT, IVF, PDF, URL, GPS, SMS, IT, IQ, OCD,
             # names, reporting guidelines, databases and publishers the editors never ask to expand (266 articles,
             # owner 2026-10-30)
             BMC, IEEE, UNESCO, UNICEF, UNODC, ILO, MDPI, PLOS, EBSCO, JBI, PRISMA, COREQ, CONSORT, STROBE, SRQR,
@@ -355,10 +360,17 @@ copyedit:
     # "(CD-RISC)", "(SEQ-C)", "(CBT)" in headings go when the text defines them (owner, 2026-11-03: the style editor in
     # jehp_1930_26; the editors 56 of 112); the title's too (front_matter.title_drop_abbreviations)
     drop_in_headings: true
-    query_undefined_min_uses: 3
+    # every undefined abbreviation again, however often it is used (owner, 2026-11-03: QC "CFT: Define abbreviation.
+    # Author comment" on one use in jehp_1930_26); names, guidelines, publishers and words in capitals still not
+    query_undefined_min_uses: 1
     query_undefined_plain_only: true
 
 text:
+  # "12 September 2023" -> "September 12, 2023" (owner, 2026-11-03: QC on jehp_1912_26 "American Date format")
+  us_dates: {enabled: true}
+  # "Specific Learning Disorders", "Cognitive Behavioral Therapy" mid-sentence -> lower case (owner, 2026-11-03: QC
+  # on jehp_1930_26 "Lowercase", "Better lowercase")
+  lowercase: {enabled: true}
   # JEHP_73_26, QC comments: "Inconsistent en dash & hyphen use" ("oral health–related" beside "health-related") and
   # "aged between 65 and 70 years old": "old" redundant
   # Off (2026-10-30): on 266 articles the final text kept the en dash 53 times, took the hyphen 11 (17%); the sheet is
@@ -435,7 +447,8 @@ queries:
   # "Kindly provide complete manufacturer details such as company name, city, state and country name." (asked in 19 of
   # 302 articles, mostly for SPSS). Built, but off until the owner decides: the condition (a package named without its
   # maker's details) holds in 158 of 266 articles, the editors asked in 18 of them and added the details in 2.
-  manufacturer: false
+  # On since 2026-11-03 (owner, after QC on jehp_1912_26: "Author comment for Supplier information")
+  manufacturer: true
   drop:
     - abstract.too_long               # 150 articles, editors 0
     - front.running_head_long         # 94, 1

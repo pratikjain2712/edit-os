@@ -109,7 +109,8 @@ def test_table_note_abbreviations_take_the_journals_form(tmp_path):
         out = _render(path, cs, str(tmp_path / f"{code}_out.docx"))
         return docmodel.load(out).paragraphs[-1].text
 
-    assert note("jehp", "CI: confidence interval; OR: odds ratio") == "CI = confidence interval, OR = odds ratio"
+    # JEHP: the colon since 2026-11-03 (owner, after QC: "CBT: Cognitive behavioral therapy")
+    assert note("jehp", "CI: confidence interval; OR: odds ratio") == "CI: confidence interval, OR: odds ratio"
     # owner, 2026-10-27: follow the guide (G211) for IJO too (replaces 2026-10-26 "term: definition")
     assert note("ijo", "CI: confidence interval; OR: odds ratio") == "CI = confidence interval, OR = odds ratio"
 

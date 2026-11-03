@@ -295,9 +295,9 @@ def test_cvi_and_cvr_are_queried(tmp_path):
     _, qs = abbrev.collect(docmodel.load(path), st)
     asked = {q.text.split(":")[0] for q in qs if q.check == "abbrev.undefined"}
     assert {"CVI", "CVR", "LV"} <= asked and "III" not in asked
-    # JEHP itself no longer forces them, and asks only abbreviations used 3 times (owner, 2026-10-30)
+    # JEHP itself no longer forces CVI / CVR (owner, 2026-10-30), and asks every other undefined one (2026-11-03)
     _, qs = abbrev.collect(docmodel.load(path), jehp_style())
-    assert [q for q in qs if q.check == "abbrev.undefined"] == []
+    assert {q.text.split(":")[0] for q in qs if q.check == "abbrev.undefined"} == {"LV"}
 
 
 # --- 12. table footnotes ------------------------------------------------------------------------------------------------
