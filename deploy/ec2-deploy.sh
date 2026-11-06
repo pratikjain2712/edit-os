@@ -55,6 +55,9 @@ else
 fi
 
 docker network inspect editos >/dev/null 2>&1 || docker network create editos
+# The build cache grows with every deploy (12 GB by 2026-11-06 filled the 20 GB disk and the build failed): keep 3 GB
+docker builder prune -af --keep-storage 3gb >/dev/null 2>&1 || true
+df -h / | tail -1
 docker build -q -t editos-languagetool -f deploy/languagetool.Dockerfile deploy
 docker build -q -t editos .
 
