@@ -199,6 +199,12 @@ def parse_batch(texts: list[str], batch_size: int = 40) -> list[dict | None]:
         _cache = _Cache()
     out: list[dict | None] = [_cache.get(t) for t in texts]
     todo = [i for i, f in enumerate(out) if f is None]
+    hits = [i for i, f in enumerate(out) if f is not None]
+    if hits:  # priced as if asked again (spend.py): the cached entries in batches, from their text
+        from . import spend
+        for start in range(0, len(hits), batch_size):
+            part = hits[start:start + batch_size]
+            spend.replay("references", "", MODEL, [INSTRUCTIONS] + [texts[i] for i in part], [out[i] for i in part])
     for start in range(0, len(todo), batch_size):
         chunk = todo[start:start + batch_size]
         numbered = "\n".join(f"{k + 1}. {texts[i]}" for k, i in enumerate(chunk))

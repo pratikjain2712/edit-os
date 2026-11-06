@@ -583,9 +583,12 @@ def split(text: str) -> dict | None:
         _cache = _Cache()
     got = _cache.get(text)
     if got is None:
-        got = _call(text)
+        with spend.keyed("front_matter:" + _cache.key(text)):
+            got = _call(text)
         if got is not None:
             _cache.put(text, got)
+    else:
+        spend.replay("front_matter", "front_matter:" + _cache.key(text), MODEL, [INSTRUCTIONS, text], got)
     return got
 
 

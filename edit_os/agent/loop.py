@@ -139,6 +139,8 @@ def run(ms: Manuscript, style: JournalStyle, call=None, article: str = "", resol
             _cache_db().put(key, got)
             res.spent += price(model, got["usage"])
             spend.add_usage("editing_agent", model, got["usage"])
+        else:  # a replayed turn is priced at what it cost when it was asked (its usage is kept with it)
+            spend.replay_cost("editing_agent", price(model, got["usage"]))
         res.turns += 1
         res.usage["calls"] += 1
         for k, v in got["usage"].items():

@@ -369,6 +369,16 @@ def test_spend_in_rupees(client, tmp_path, monkeypatch):
     assert rep["usd_inr"] == 90 and rep["inr"] == 0 and rep["jobs"][0]["inr"] == 0
 
 
+def test_spend_shares_the_server_cost(client, tmp_path, monkeypatch):
+    # Owner, 2026-11-06: the server's monthly cost is part of what an article costs, and the month is forecast.
+    monkeypatch.setenv("EDITOS_SERVER_USD_MONTH", "30")
+    wait(client, upload(client, tmp_path).json()["id"])
+    rep = client.get("/api/spend", params={"month": db_month()}, headers=KEY).json()
+    assert rep["server_usd_month"] == 30 and rep["server_inr_month"] == 3000
+    assert rep["forecast"]["server_usd"] == 30 and rep["forecast"]["articles"] >= 1
+    assert rep["by_journal"]["ijo"]["inr_all_in_per_article"] == rep["server_inr_per_article"] > 0
+
+
 def test_file_named_for_another_journal_is_refused(client, tmp_path):
     # JEHP_73_26.zip ran as IJO: the server stops a file named for one journal from running with another's style
     r = upload(client, tmp_path, name="JEHP_73_26.docx", journal="ijo")

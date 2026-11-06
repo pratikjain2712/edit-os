@@ -272,9 +272,12 @@ def judge_edits(items: list[Change], cfg: dict, texts: dict[str, str] | None = N
     if _cache is None:
         _cache = _Cache()
     body = _cache.get(key)
-    if body is None:
+    if body is not None:
+        spend.replay("autopilot_check", key, model, [JUDGE_INSTRUCTIONS, payload], body)
+    else:
         try:
-            body = (call or _call)(model, payload)
+            with spend.keyed(key):
+                body = (call or _call)(model, payload)
         except Exception as e:  # network or API error: nothing is accepted
             return {c.id: ("review", f"unavailable ({type(e).__name__})") for c in items}
         _cache.put(key, body)

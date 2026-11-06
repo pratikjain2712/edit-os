@@ -255,6 +255,7 @@ def candidates(text: str, budget: Budget) -> list[Candidate]:
     key = _key(MODEL, SEARCH_TOOL, INSTRUCTIONS, json.dumps(SCHEMA, sort_keys=True), text)
     cached = store.get("candidates", key)
     if cached is not None:
+        spend.replay("reference_web_search", "web:" + key, MODEL, [INSTRUCTIONS, text], cached)
         return _clean(cached)
     n = budget.room()
     if n <= 0:
@@ -267,7 +268,8 @@ def candidates(text: str, budget: Budget) -> list[Candidate]:
     USAGE["input_tokens"] += tin
     USAGE["output_tokens"] += tout
     USAGE["cost_usd"] += cost
-    spend.add("reference_web_search", MODEL, input_tokens=tin, output_tokens=tout, cost=cost, searches=searches)
+    with spend.keyed("web:" + key):
+        spend.add("reference_web_search", MODEL, input_tokens=tin, output_tokens=tout, cost=cost, searches=searches)
     if tin:  # an answer (even an empty list) is kept; a failed request is not
         store.put("candidates", key, got)
     return _clean(got)

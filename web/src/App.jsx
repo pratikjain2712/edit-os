@@ -267,8 +267,9 @@ function Home() {
         <h3 className="section-title">Recent manuscripts</h3>
         {month && month.articles > 0 && (
           <p className="muted small">
-            This month: {month.articles} article{month.articles > 1 ? "s" : ""} · Claude ₹{month.inr.toFixed(0)}
-            {Object.entries(month.by_journal).map(([j, t]) => ` · ${j.toUpperCase()} ₹${t.inr_per_article.toFixed(2)}/article${t.inr_per_page != null ? `, ₹${t.inr_per_page.toFixed(2)}/page` : ""}`).join("")}
+            This month: {month.articles} article{month.articles > 1 ? "s" : ""} · Claude ₹{month.inr.toFixed(0)} (re-runs counted as new) · server ₹{month.server_inr_month}/month
+            {Object.entries(month.by_journal).map(([j, t]) => ` · ${j.toUpperCase()} ₹${(t.inr_all_in_per_article ?? t.inr_per_article).toFixed(2)}/article${(t.inr_all_in_per_page ?? t.inr_per_page) != null ? `, ₹${(t.inr_all_in_per_page ?? t.inr_per_page).toFixed(2)}/page` : ""} all-in`).join("")}
+            {month.forecast ? ` · month on course for ${month.forecast.articles} articles, ₹${month.forecast.inr} (Claude ₹${month.forecast.claude_inr} + server ₹${month.forecast.server_inr})` : ""}
             {` (at ₹${month.usd_inr}/$)`}
           </p>
         )}

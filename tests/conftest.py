@@ -4,7 +4,7 @@ import pickle
 import pytest
 import yaml
 
-from edit_os import ai_refs, biblio, iso4, refs_other, refweb, style
+from edit_os import ai_refs, biblio, iso4, refs_other, refweb, spend, style
 
 
 class _CachedYaml:
@@ -51,6 +51,7 @@ def no_network(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_refs, "available", lambda: False)
     monkeypatch.setattr(refs_other, "_fetch_link", lambda url: None)
     monkeypatch.setattr(iso4, "table", lambda: LTWA_SAMPLE)  # never the downloaded list
+    monkeypatch.setattr(spend, "_memo_db", spend._Memo(str(tmp_path / "spend_memo.sqlite")))
 
 
 # A few LTWA rows (the ISSN Centre's format), enough for the tests.

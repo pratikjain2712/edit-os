@@ -574,8 +574,11 @@ def suggest(chunk: list[Paragraph], style: JournalStyle, call=None) -> dict:
     key, params = _keyed_request(chunk, style)
     got = _cache_db().get(key)
     if got is None:
-        got = (call or _call)(params)
+        with spend.keyed(key):
+            got = (call or _call)(params)
         _cache_db().put(key, got)
+    else:
+        spend.replay("copy_edit", key, params["model"], [params["system"], params["messages"]], got)
     return got
 
 
@@ -617,7 +620,8 @@ def batch_prefetch(jobs: list[tuple[Manuscript, JournalStyle]], client=None, pol
         u["calls"] += 1
         for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"):
             u[k] += getattr(msg.usage, k, 0) or 0
-        spend.add_usage("copy_edit", todo[res.custom_id]["model"], msg.usage, batch=True)
+        with spend.keyed(res.custom_id):
+            spend.add_usage("copy_edit", todo[res.custom_id]["model"], msg.usage, batch=True)
         got = {"edits": [], "queries": []} if msg.stop_reason in ("refusal", "max_tokens") else \
             parse(next((b.text for b in msg.content if b.type == "text"), ""))
         _cache_db().put(res.custom_id, got)
@@ -678,8 +682,11 @@ def necessary_queries(queries: list[Query], texts: dict[str, str], cfg: dict, ca
     key = hashlib.sha256(json.dumps([QCHECK_VERSION, model, payload]).encode()).hexdigest()
     got = _cache_db().get(key)
     if got is None:
-        got = (call or _check_call)(params)
+        with spend.keyed(key):
+            got = (call or _check_call)(params)
         _cache_db().put(key, got)
+    else:
+        spend.replay("copy_edit", key, model, [QCHECK_SYSTEM, payload], got)
     keep = {v.get("id") for v in got.get("verdicts") or [] if isinstance(v, dict) and v.get("necessary") is True}
     DROPS["query_not_necessary"] += len(items) - len(keep & set(items))
     return [q for k, q in items.items() if k in keep]
