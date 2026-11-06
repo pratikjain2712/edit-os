@@ -132,6 +132,12 @@ def definitions(p: Paragraph) -> list[Definition]:
         if not cand:
             continue
         lf = best_long_form(sf_plain, cand)
+        if not lf and "X" in sf_plain.upper():
+            # an X standing for "cross" / "trans" / "ex": "Appraisal Tool for Cross-Sectional Studies (AXIS)"
+            # (jehp_1888_26); the words matched as if they began with an x, the long form taken as written
+            alias = re.sub(r"(?i)\b(cross|trans|ex)", lambda w: "x" + w.group(1)[1:], cand)
+            got = best_long_form(sf_plain, alias)
+            lf = cand[len(cand) - len(got):] if got else None
         if not lf or len(lf) <= len(sf_plain) or sf_plain.lower() in lf.lower().split():
             continue
         if len(lf.split()) > n:
@@ -586,6 +592,13 @@ def _pair_notations(ms: Manuscript, existing: list[Change]) -> list[Change]:
     return out
 
 
+def _proper_long(long: str) -> bool:
+    """A full form that is a name, kept capitalised: two or more words in capitals ("Appraisal Tool for
+    Cross-Sectional Studies", "Death Anxiety Scale")."""
+    words = [w for w in long.split() if w.lower() not in ("for", "of", "the", "and", "in", "on", "to", "a")]
+    return len(words) >= 2 and sum(w[:1].isupper() for w in words) >= 2
+
+
 def _heading_definitions(ms: Manuscript, busy: set[str]) -> list[Change]:
     """"Connor–Davidson resilience scale (CD-RISC)" as a heading, the abbreviation defined in the text too: the
     "(ABBR)" goes from the heading, its full form stays (`drop_in_headings`; JEHP, owner 2026-11-03, after the style
@@ -648,6 +661,11 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
             for m in _NAMED_IN_BRACKETS.finditer(p.text):
                 if (k := _abbr_key(m.group(1))):
                     known.add(k)
+    article_defs: dict[str, str] = {}  # every definition in the article (all scopes): its first long form
+    for p0 in ms.paragraphs:
+        for d0 in definitions(p0):
+            article_defs.setdefault(d0.short, d0.long)
+    moved_in: set[str] = set()
     names = _names_in_capitals(ms)
     kw_lists = set(_keyword_lists([p for p in ms.paragraphs if p.text.strip() and not p.in_table]).values())
     for n_scope, scope in enumerate(all_scopes):
@@ -737,6 +755,17 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                         asked.add(("abbrev.before_definition", key))
                         queries.append(Query(p.id, s, e, TEXT["abbrev.before_definition"].format(abbr=key),
                                              "abbrev.before_definition"))
+            elif cfg.get("move_definition") and key in article_defs and p.text[s:e] == key and key not in moved_in:
+                # defined in another part (the main text) but not in this one (the abstract): expanded at its first use
+                # here ("assessed using the AXIS tool" -> "... the Appraisal Tool for Cross-Sectional Studies (AXIS)
+                # tool": QC on jehp_1888_26 "Abbreviation definition here as this is first mention")
+                long = article_defs[key]
+                before = p.text[:s].rstrip()
+                if long[:1].isupper() and long[1:2].islower() and before and before[-1] not in ".?!:" \
+                        and not _proper_long(long):
+                    long = long[0].lower() + long[1:]
+                moved_in.add(key)
+                changes.append(change(p, s, e, f"{long} ({key})", "abbreviations", reason="expand abbreviation at first use"))
             elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \
                     and key not in expanded and key not in known \
                     and not (cfg.get("skip_names", True) and key in names) \

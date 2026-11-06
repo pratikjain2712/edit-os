@@ -451,6 +451,10 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         notes += legends.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date,
                                 run_format=run_fmt, align=run_align)
         notes += header.move_blocks(ms, head_info, changes, statuses, tracked=is_tracked, author=author, date=rev_date)
+        if st.get("figures.table_notes_row"):  # the notes into a merged last row, once every table is in place
+            legends.notes_into_rows(ms, header._Marks(ms, author, rev_date, is_tracked, run_fmt, run_align))
+        if st.get("figures.table_borders"):
+            legends.border_tables(ms)
         if kind == "clean":
             head_notes.extend(notes)
         header.render(ms, header.lines(st, head_info, changes, statuses, stages=man["stages"], editor=editor, when=when),

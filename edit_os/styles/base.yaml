@@ -291,6 +291,8 @@ figures:                        # figure and table citations and captions (rules
   query_uncaptioned_images: false  # true: a picture in the body with no caption beside it -> query (G244; JEHP)
   query_equation_images: false  # true: a display equation given as a picture -> the sheet's query (JEHP S292)
   table_footnote_abbreviation_queries: true  # with table_footnote_queries: abbreviations the footnote lacks
+  table_notes_row: false      # the notes right under a table go into a merged last row of it
+  table_borders: false        # a table with no borders (own or style) gets single lines all round and inside
   legend_abbreviations: false # the abbreviations a figure legend uses, expanded at its end ("DA: Death anxiety")
   table_footnote_add: false   # the abbreviations a table uses, expanded in a note under it ("SD = Standard deviation")
   table_footnote_queries: false  # true: table abbreviations the footnote does not expand, a footnote symbol given two

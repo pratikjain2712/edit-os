@@ -3,6 +3,7 @@ paragraphs, legends one line per part, abbreviations in brackets, template lefto
 material sent as other Word files of the submission."""
 
 import io
+import re
 import zipfile
 
 import pytest
@@ -490,3 +491,22 @@ def test_table_note_row_inside_the_table_is_not_repeated(tmp_path):
     z = _zip(tmp_path, {"Tables.docx": tables})
     got, _ = _accepted_run(z, journal("jehp"), tmp_path)
     assert "SD: Standard deviation" in got and not any(x.startswith("SD: Standard deviation, DERS") for x in got)
+
+
+def test_table_notes_in_a_merged_last_row_and_borders(tmp_path):
+    # QC on jehp_1888_26 (owner, 2026-11-06): the footnote in the table's last row, the table bordered
+    body = ("We used Cognitive-Behavioral Therapy (CBT) in eight sessions with the children of the schools, who "
+            "completed the scales before and after the sessions with the help of trained staff.")
+    data = _docx(["Introduction", body + " See Table 1.", "Table 1: Scores before and after CBT",
+                  ("table", [["Group", "Mean", "SD"], ["CBT", "12.1", "2.3"], ["Control", "11.9", "2.1"]]),
+                  "*P < 0.05", "Discussion", body, *REFS])
+    path = tmp_path / "Manuscript.docx"
+    path.write_bytes(data)
+    _, out = _accepted_run(str(path), journal("jehp"), tmp_path)
+    for kind in ("clean", "tracked"):
+        xml = zipfile.ZipFile(out.path(kind)).read("word/document.xml").decode()
+        tbl = xml[xml.rindex("<w:tbl>"):xml.rindex("</w:tbl>")]  # (tracked: the moved table, at the end)
+        last = tbl[tbl.rindex("<w:tr"):]
+        text = "".join(re.findall(r"<w:t[^>]*>([^<]*)", last))
+        assert 'w:gridSpan w:val="3"' in last and "0.05" in text and "SD: Standard deviation" in text, kind
+        assert 'w:insideV w:val="single"' in tbl or "TableGrid" in tbl, kind

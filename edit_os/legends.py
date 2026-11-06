@@ -974,3 +974,112 @@ def _has_tables_heading(ms: Manuscript, refs_end_id: str) -> bool:
             return True
         nxt = nxt.getnext()
     return False
+
+
+# --- table notes in the table's last row; borders -------------------------------------------------------------------
+#
+# Owner, 2026-11-06 (QC on jehp_1888_26: "the footnote is outside table and not in the last row", "missing borders"):
+# the JEHP editors' final files have a table's notes in a merged last row (153 tables) far more often than under it
+# (21), and their tables bordered (Word's Table Grid in 9 of 10).
+
+_NOTE_LINE = re.compile(r"^\s*(?:[*†‡§¶#]|[a-e]\s|(?:abbreviations?|notes?|sources?|data (?:are|were)|values (?:are|were))"
+                        r"\b|[A-Za-zµμ%][\w%µμ\-/]{0,14}\s*[:=,]\s+\S|P\s*[<=>≤≥])", re.I)
+
+
+def _is_note(el) -> bool:
+    t = paragraph_text(el).strip()
+    return bool(t) and len(t.split()) <= 120 and rules_figures._CAPTION.match(t) is None and bool(
+        _NOTE_LINE.match(t) or rules_figures.abbreviation_pairs(t))
+
+
+def notes_into_rows(ms: Manuscript, mk) -> int:
+    """Each top-level table's notes (the note paragraphs right under it) go into a merged last row; returns how many
+    tables got one."""
+    body = ms.document.element.body
+    done = 0
+    for tbl in [e for e in body if e.tag == qn("w:tbl")]:
+        if _is_deleted_tbl(tbl):
+            continue
+        notes = []
+        x = tbl.getnext()
+        while x is not None and x.tag == qn("w:p"):
+            if _is_deleted(x) or not paragraph_text(x).strip():
+                if notes and not _is_deleted(x):
+                    break  # a blank line after the notes ends them
+                x = x.getnext()
+                continue
+            if not _is_note(x):
+                break
+            notes.append(x)
+            x = x.getnext()
+        if not notes:
+            continue
+        cols = _grid_columns(tbl)
+        tr = OxmlElement("w:tr")
+        trpr = OxmlElement("w:trPr")
+        if mk.tracked:
+            trpr.append(mk.mark("w:ins"))
+        tr.append(trpr)
+        tc = OxmlElement("w:tc")
+        tcpr = OxmlElement("w:tcPr")
+        if cols > 1:
+            span = OxmlElement("w:gridSpan")
+            span.set(qn("w:val"), str(cols))
+            tcpr.append(span)
+        tc.append(tcpr)
+        for e in _detach(notes, mk):
+            tc.append(e)
+        tr.append(tc)
+        tbl.append(tr)
+        done += 1
+    return done
+
+
+_BORDERS = ("top", "left", "bottom", "right", "insideH", "insideV")
+
+
+def _style_has_borders(ms: Manuscript, style_id: str) -> bool:
+    st = ms.document.styles.element
+    for s in st.iter(qn("w:style")):
+        if s.get(qn("w:styleId")) == style_id:
+            b = s.find(f".//{qn('w:tblBorders')}")
+            return b is not None and any((x.get(qn("w:val")) or "") not in ("", "none", "nil") for x in b)
+    return False
+
+
+def border_tables(ms: Manuscript) -> int:
+    """A table with no borders of its own and none from its style gets single lines all round and inside (the editors'
+    Table Grid); returns how many."""
+    n = 0
+    for tbl in ms.document.element.body.iter(qn("w:tbl")):
+        tblpr = tbl.find(qn("w:tblPr"))
+        if tblpr is None:
+            tblpr = OxmlElement("w:tblPr")
+            tbl.insert(0, tblpr)
+        own = tblpr.find(qn("w:tblBorders"))
+        if own is not None and any((x.get(qn("w:val")) or "") not in ("", "none", "nil") for x in own):
+            continue
+        sty = tblpr.find(qn("w:tblStyle"))
+        if own is None and sty is not None and _style_has_borders(ms, sty.get(qn("w:val")) or ""):
+            continue
+        if own is not None:
+            tblpr.remove(own)
+        b = OxmlElement("w:tblBorders")
+        for side in _BORDERS:
+            e = OxmlElement(f"w:{side}")
+            e.set(qn("w:val"), "single")
+            e.set(qn("w:sz"), "4")
+            e.set(qn("w:space"), "0")
+            e.set(qn("w:color"), "auto")
+            b.append(e)
+        # (schema order: after tblStyle / tblpPr / tblOverlap / bidiVisual / tblStyleRowBandSize / ... / tblW / jc /
+        # tblCellSpacing / tblInd, before tblShd / tblLayout / tblCellMar / tblLook)
+        after = None
+        for tag in ("w:tblInd", "w:tblCellSpacing", "w:jc", "w:tblW", "w:tblStyleColBandSize", "w:tblStyleRowBandSize",
+                    "w:bidiVisual", "w:tblOverlap", "w:tblpPr", "w:tblStyle"):
+            after = tblpr.find(qn(tag))
+            if after is not None:
+                break
+        (after.addnext(b) if after is not None else tblpr.insert(0, b))
+        n += 1
+    return n

@@ -136,6 +136,10 @@ figures:
   table_footnote_add: true
   # ... and at the end of each figure legend (owner, 2026-11-06: QC on jehp_1888_26 "Applies to all captions")
   legend_abbreviations: true
+  # Notes in a merged last row of the table; borders on every table (owner, 2026-11-06: QC on jehp_1888_26; the editors
+  # 153 tables with the notes in the last row against 21 under it, 9 in 10 tables bordered)
+  table_notes_row: true
+  table_borders: true
   table_footnote_queries: true
   # Owner, 2026-10-28: drop the "Kindly provide the expansion of SD in the table footnote" query (52 in 28 articles,
   # the editors 0; no sheet line asks it). The symbol queries stay.
