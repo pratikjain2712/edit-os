@@ -561,3 +561,16 @@ def test_abbreviation_dropped_from_a_heading_the_text_defined_before(tmp_path):
     got = apply(ms, [c for c in abbrev.collect(ms, st)[0] if c.reason == "abbreviation in heading"])
     assert got[2] == "Connor–Davidson resilience scale"
     assert got[4] == "Kiddie test of grit (KTG)"  # the heading's is the only definition: kept
+
+
+def test_full_form_in_quotes_kept(tmp_path):
+    # QC on jehp_1888_26 (owner, 2026-11-06): search terms in quotes stay as written
+    ms = make(tmp_path, [
+        "Introduction",
+        "Death anxiety (DA) is common. We searched for terms related to DA (e.g., “death anxiety,” “fear of death”).",
+        "Higher death anxiety was found; DA rose with age.",
+    ])
+    st = journal("jehp")
+    changes = [c for c in abbrev.collect(ms, st)[0] if c.reason == "use abbreviation after its definition"]
+    got = apply(ms, changes)
+    assert "“death anxiety,”" in got[1] and got[2].startswith("Higher DA was found")

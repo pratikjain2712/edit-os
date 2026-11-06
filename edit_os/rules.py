@@ -1914,6 +1914,7 @@ RULES = {
     "fig_citations": rules_figures.rule_citations,
     "fig_captions": rules_figures.rule_captions,
     "table_notes": rules_figures.rule_table_notes,  # the table's abbreviations expanded under it (JEHP)
+    "legend_abbreviations": rules_figures.rule_legend_abbreviations,  # ... and a legend's at its end (JEHP)
     "table_indent": rules_tables.rule_indent,  # stub-column indentation as 5 typed spaces per level (G208, G209)
     "statistics": rule_statistics,
     "ref_lookup": rule_ref_lookup,

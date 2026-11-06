@@ -2637,3 +2637,31 @@ def rule_table_notes(ms: Manuscript, style: JournalStyle) -> list[Change]:
             c.format = {"bold": False, "italic": False}
         out.append(c)
     return out
+
+
+def rule_legend_abbreviations(ms: Manuscript, style: JournalStyle) -> list[Change]:
+    """The abbreviations a figure legend uses, expanded at its end: "... assessed with the DAS. DA: Death anxiety, DAS:
+    Death anxiety scale" (`figures.legend_abbreviations`; JEHP, owner 2026-11-06, after QC on jehp_1888_26:
+    "Abbreviation expansion list is needed at the end of the legend. Applies to all captions"). Only what the text
+    or the statistics list can expand; an abbreviation the legend itself defines is left."""
+    if not style.get("figures.legend_abbreviations"):
+        return []
+    from types import SimpleNamespace
+
+    from .rules import _change
+
+    known, allow, sep, delim = note_settings(ms, style)
+    out = []
+    for cap in captions(ms):
+        if cap.kind == TABLE:
+            continue
+        p = ms.by_id(cap.para_id)
+        m = caption_match(p)
+        body = p.text[m.start("rest"):] if m is not None and "rest" in m.groupdict() and m.group("rest") else p.text
+        text = note_text([SimpleNamespace(text=body, id=p.id)], "", known, allow, sep, delim)
+        if not text:
+            continue
+        end = len(p.text.rstrip())
+        lead = " " if p.text[:end].endswith(".") else ". "
+        out.append(_change(p, end, end, lead + text, Layer.TABLES_FIGURES, "fig_captions.legend_abbreviations"))
+    return out

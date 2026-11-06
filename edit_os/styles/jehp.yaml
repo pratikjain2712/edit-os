@@ -134,6 +134,8 @@ figures:
   # The abbreviations a table uses, expanded under it (owner, 2026-11-03: QC on JEHP_73_26, the style editor on
   # jehp_1930_26; the editors type such notes in 57 of 251 articles with tables)
   table_footnote_add: true
+  # ... and at the end of each figure legend (owner, 2026-11-06: QC on jehp_1888_26 "Applies to all captions")
+  legend_abbreviations: true
   table_footnote_queries: true
   # Owner, 2026-10-28: drop the "Kindly provide the expansion of SD in the table footnote" query (52 in 28 articles,
   # the editors 0; no sheet line asks it). The symbol queries stay.
@@ -353,7 +355,12 @@ copyedit:
             BMC, IEEE, UNESCO, UNICEF, UNODC, ILO, MDPI, PLOS, EBSCO, JBI, PRISMA, COREQ, CONSORT, STROBE, SRQR,
             PICO, PICOS, PCC, AMSTAR, ICMJE, EQUATOR, AMEE, APA, IRCT, CTRI, SID, WOS, WoS, MATLAB, SPSS, JASP,
             AMOS, NVivo, MAXQDA, CSV, STEM, LGBTQ, APGAR, IMRaD, AIIMS, NGO, SDG, IRB, IEC, Q&A, DOI, NASA, GDP, IMF,
-            OECD, ISO, UCLA, PMCID, CEO]
+            OECD, ISO, UCLA, PMCID, CEO,
+            # countries, degrees, IDs and database / company names (no longer covered by the common list, below)
+            ID, IBM, CINAHL, UK, US, USA, UAE, UN, MBBS, MD, MSc, PhD, USD, GRADE, ERIC, APA, DOI, URL, PDF]
+    # The common list of well-known abbreviations (SD, CI, HIV, WHO, ANOVA, PROSPERO ...) is not taken as known: QC wants
+    # them defined (owner, 2026-11-06, after QC on jehp_1888_26); about 2 more queries an article
+    use_common_list: false
     # The fit and validity indices (CVI, CVR, RMSEA, ...) were asked on purpose (S302); the editors never ask them
     # (266 articles), so no longer (owner, 2026-10-30).
     query: []
@@ -362,6 +369,9 @@ copyedit:
     # "(CD-RISC)", "(SEQ-C)", "(CBT)" in headings go when the text defines them (owner, 2026-11-03: the style editor in
     # jehp_1930_26; the editors 56 of 112); the title's too (front_matter.title_drop_abbreviations)
     drop_in_headings: true
+    # The expansion moved to the first use, the later definition shortened (owner, 2026-11-06, after QC on jehp_1888_26:
+    # "AXIS: Abbreviation definition here as this is first mention" / "Already defined. Use abbreviation")
+    move_definition: true
     pair_notations: true  # QC on jehp_1912_26: "Replace with the defined notations" (owner, 2026-11-03)
     # every undefined abbreviation again, however often it is used (owner, 2026-11-03: QC "CFT: Define abbreviation.
     # Author comment" on one use in jehp_1930_26); names, guidelines, publishers and words in capitals still not
@@ -371,6 +381,9 @@ copyedit:
 text:
   # "12 September 2023" -> "September 12, 2023" (owner, 2026-11-03: QC on jehp_1912_26 "American Date format")
   us_dates: {enabled: true}
+  # "socio-demographic" -> "sociodemographic", "socio-economic" -> "socioeconomic" (owner, 2026-11-06, after QC on
+  # jehp_1888_26: "Close-up word is more common"); only these prefixes, not the general rule (55% over all journals)
+  prefixes: {enabled: true, list: [socio, psycho]}
   # "Cognitive Behavioral Therapy" beside "cognitive-behavioral therapy": the article's majority form (owner, 2026-11-03:
   # QC on jehp_1930_26 "Inconsistent hyphen usage")
   hyphen_consistency: {enabled: true}

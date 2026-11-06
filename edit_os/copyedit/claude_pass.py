@@ -45,7 +45,7 @@ from ..style import JournalStyle
 from .cache import cache_dir
 from .common import hidden_offsets, near_hidden, overlaps, prose_paragraphs, protected_spans
 
-PROMPT_VERSION = "b4-6"  # b4-6: compound modifiers, redundant words, articles, a key term named two ways (QC, 2026-11-03)
+PROMPT_VERSION = "b4-7"  # b4-7: serial comma; no "the" before general nouns (QC on jehp_1888_26, 2026-11-06)
 KINDS = ["punctuation", "article", "agreement", "word_choice", "grammar", "capitalisation", "hyphenation",
          "spelling", "other"]
 CONFIDENCE = ["certain", "likely"]  # kept edits: copyedit.claude.min_confidence
@@ -121,7 +121,9 @@ Hard rules:
   hyphen ("person environment fit" -> "person-environment fit", "health related outcomes" -> "health-related
   outcomes"); a word that only repeats its neighbour's meaning ("lower reduced" -> "reduced", "aged 65 years old"
   -> "aged 65 years"); a missing article ("in study" -> "in the study", "as part of intervention" -> "as part of the
-  intervention").
+  intervention") -- but only where one specific thing is meant: never "the" before a general or plural noun used in
+  general ("Death anxiety is common", "Nurses reported", "in older adults"); the serial comma before "and" / "or"
+  closing a list of three or more ("PubMed, Scopus and Embase" -> "PubMed, Scopus, and Embase").
 - Do not rewrite for style. Do not reorder sentences. Do not shorten (beyond a redundant word). If a sentence is awkward or
   confusing but not clearly wrong, leave it; if its meaning is truly unclear, add a QUERY instead
   of rewriting (at most one query per paragraph, only for real ambiguity).

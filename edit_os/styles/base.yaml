@@ -101,6 +101,7 @@ text:  # copy-edit text rules (edit_os/rules_text.py), run with the copy-edit ch
     enabled: false                 # "intraarterial" -> "intra-arterial"; hyphen kept before capitals, numbers,
     spaced: true                   # the same vowel, -ly adverbs and (post-, pre-) nouns. All journals 441, 55%;
     same_vowel_hyphen: true        # IJO 98, 93%. Keep consistent with copyedit.claude.close_prefixes.
+    list: []                       # only these prefixes ("socio", "psycho"); empty: the full list (rules_text.PREFIXES)
   compound_dash: {enabled: false, tables: false}  # "health–related" -> "health-related" where the article also
                                    # writes "health-related"; tables: in table cells and end captions too
   aged_years_old: {enabled: false} # "aged between 65 and 70 years old" -> "... 70 years"
@@ -290,6 +291,7 @@ figures:                        # figure and table citations and captions (rules
   query_uncaptioned_images: false  # true: a picture in the body with no caption beside it -> query (G244; JEHP)
   query_equation_images: false  # true: a display equation given as a picture -> the sheet's query (JEHP S292)
   table_footnote_abbreviation_queries: true  # with table_footnote_queries: abbreviations the footnote lacks
+  legend_abbreviations: false # the abbreviations a figure legend uses, expanded at its end ("DA: Death anxiety")
   table_footnote_add: false   # the abbreviations a table uses, expanded in a note under it ("SD = Standard deviation")
   table_footnote_queries: false  # true: table abbreviations the footnote does not expand, a footnote symbol given two
                                  # meanings or none -> queries (JEHP: "Abbreviations should be first ...")
@@ -671,6 +673,7 @@ copyedit:
     query: []                  # abbreviations of the common list still asked for in this journal (JEHP: CVI, CVR)
     skip_names: true           # a word in capitals the article shows to be a name ("ZEISS®", "ZEISS" next to "Carl
                                # Zeiss") is no undefined acronym: not queried
+    use_common_list: true      # the common abbreviations (copyedit/data) are known; false: only `allow` is
     pair_notations: false      # "Extraversion(E) ... Introversion(I)" defined: a later "Extraversion–Introversion" -> "E–I"
     drop_in_headings: false    # "Scale name (ABBR)" as a heading, ABBR defined in the text: the "(ABBR)" goes
     query_undefined_min_uses: 1  # "Kindly expand" only for an abbreviation used at least this often in the article

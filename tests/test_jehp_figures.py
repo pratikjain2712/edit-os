@@ -194,3 +194,15 @@ def test_caption_on_a_later_line_or_in_a_heading_style(tmp_path):
     qs = queries.QuerySet()
     rules_figures.add_queries(ms, jehp(), qs)
     assert not any("not provided" in q.text for q in qs.queries)
+
+
+def test_legend_abbreviations_listed_at_its_end(tmp_path):
+    # QC on jehp_1888_26 (owner, 2026-11-06): "Abbreviation expansion list is needed at the end of the legend"
+    from edit_os import rules_figures
+
+    path = make(tmp_path, ["Introduction", "Death anxiety (DA) was measured with the Death Anxiety Scale (DAS) in "
+                           "all of the adults who took part in the study.",
+                           "Figure 1: Forest plot of pooled mean DA scores assessed with the DAS."] + REFS)
+    ms = docmodel.load(str(path))
+    got = [c.new for c in rules_figures.rule_legend_abbreviations(ms, style.load("jehp"))]
+    assert got == [" DA: Death anxiety, DAS: Death anxiety scale"]

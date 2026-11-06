@@ -398,6 +398,9 @@ def _unused(ms: Manuscript, key: str, ds: list[Definition], mode: str, changes: 
             queries.append(Query(p.id, d.paren_start, d.end, TEXT["abbrev.unused"].format(abbr=key), "abbrev.unused"))
 
 
+_QUOTED = re.compile(r"“[^“”]{1,200}”|\"[^\"\n]{1,200}\"|‘[^‘’]{1,200}’(?!\w)")
+
+
 def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, mode: str,
                 changes: list, queries: list, n_uses: int = 0, always: bool = False) -> int:
     """The full form written out again after the definition: use the abbreviation (not in headings
@@ -415,6 +418,9 @@ def _full_forms(scope: list[Paragraph], order: dict, key: str, d0: Definition, m
         if order[p.id] < order[d0.para_id] or _is_heading(p) or _KEYWORDS.match(p.text):
             continue
         spans = [(d.start, d.end) for d in definitions(p)] + protected_spans(p.text)
+        # quoted words stay as written: search terms ("death anxiety," "fear of death"), a title, a questionnaire item
+        # (QC on jehp_1888_26: "a list of keywords (within quotes), should be as is")
+        spans += [q.span() for q in _QUOTED.finditer(p.text)]
         for m in pat.finditer(p.text):
             if p.id == d0.para_id and m.start() < d0.end or overlaps(m.start(), m.end(), spans):
                 continue
@@ -613,7 +619,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
     if not cfg.get("enabled", True):
         return [], []
     # `query`: listed as common, still asked for in this journal (JEHP S302 "Look for undefined acronyms": CVI, CVR)
-    allow = (set(common_abbreviations()) | set(cfg.get("allow") or [])) - set(cfg.get("query") or [])
+    # `use_common_list: false` (JEHP, owner 2026-11-06 after QC on jehp_1888_26: "SD", "HIV", "PROSPERO: Define
+    # abbreviation"): only the journal's own `allow` list is taken as known
+    common = set(common_abbreviations()) if cfg.get("use_common_list", True) else set()
+    allow = (common | set(cfg.get("allow") or [])) - set(cfg.get("query") or [])
     allow_upper = {a.upper() for a in allow}
     changes: list[Change] = []
     queries: list[Query] = []
