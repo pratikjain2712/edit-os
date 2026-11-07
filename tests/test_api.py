@@ -399,3 +399,23 @@ def test_journal_from_name():
     assert journal_from_name("Neurol-India-D-25-1.docx") == "ni"
     assert journal_from_name("ms.docx") is None
     assert journal_from_name("ijoX_1.docx") is None
+
+
+
+def test_articles_priced_per_page(client, tmp_path, monkeypatch):
+    # Owner, 2026-11-07: each article is shown at its price, ₹10.24 per 300-word page, articles done before the
+    # spend log included (their words are counted from the edited source).
+    import os
+    job_id = upload(client, tmp_path).json()["id"]
+    wait(client, job_id)
+    sp = client.get(f"/api/jobs/{job_id}", headers=KEY).json()["spend"]
+    assert sp["price_inr_per_page"] == 10.24 and sp["price_inr"] == round(sp["words"] / 300 * 10.24, 2) > 0
+    words = sp["words"]
+    path = next(os.path.join(r, "spend.json") for r, _, fs in os.walk(tmp_path) if "spend.json" in fs)
+    os.remove(path)  # as for an article edited before the spend log
+    sp = client.get(f"/api/jobs/{job_id}", headers=KEY).json()["spend"]
+    assert sp["words"] == words and sp["price_inr"] == round(words / 300 * 10.24, 2)
+    rep = client.get("/api/spend", params={"month": db_month()}, headers=KEY).json()
+    assert rep["billing"]["rate_inr_per_page"] == 10.24 and rep["billing"]["price_inr"] == sp["price_inr"]
+    monkeypatch.setenv("EDITOS_PRICE_INR_PER_PAGE", "12")
+    assert client.get(f"/api/jobs/{job_id}", headers=KEY).json()["spend"]["price_inr"] == round(words / 300 * 12, 2)

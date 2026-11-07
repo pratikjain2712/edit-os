@@ -187,6 +187,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
                                  "error", "summary", "created_at", "updated_at")}
         d["links"] = {k: f"/api/jobs/{job['id']}/files/{k}" for k in DOWNLOADS} if job["status"] == db.DONE else {}
         sp = spend.load(out_dir(storage, job["id"]))  # what Claude cost for this article (edit_os/spend.py)
+        if job["status"] == db.DONE and not sp.get("words"):
+            sp = spend.ensure_words(out_dir(storage, job["id"]))  # an article from before the spend log
         d["spend"] = {k: sp[k] for k in ("usd", "words", "pages", "usd_per_page") if k in sp} if sp else None
         if d["spend"]:
             # Shown at its full price, a re-run as if new (owner, 2026-11-06); `usd` is what was billed.
@@ -197,6 +199,9 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             d["spend"]["inr_billed"] = round(sp.get("usd", 0) * r, 2)
             pages = sp.get("pages") or 0
             d["spend"]["inr_per_page"] = round(full / pages * r, 2) if pages else None
+            # What the customer pays: 300-word pages at the per-page rate (owner, 2026-11-07).
+            d["spend"]["price_inr"] = spend.price_inr(sp.get("words"))
+            d["spend"]["price_inr_per_page"] = spend.price_inr_per_page()
         if with_token:
             d["review_token"] = job["review_token"]
             d["review_url"] = review_url(settings, job)
@@ -345,6 +350,8 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             if month and not str(j.get("created_at", "")).startswith(month):
                 continue
             sp = spend.load(out_dir(storage, j["id"]))
+            if j["status"] == db.DONE and not sp.get("words"):
+                sp = spend.ensure_words(out_dir(storage, j["id"]))
             if not sp:
                 continue
             full = sp.get("usd_full", sp.get("usd", 0))
@@ -352,8 +359,11 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             rows.append({"id": j["id"], "input_name": j["input_name"], "journal": j["journal"],
                          "created_at": j["created_at"], "usd": full, "usd_billed": sp.get("usd", 0),
                          "words": sp.get("words"), "pages": sp.get("pages"),
-                         "usd_per_page": round(full / pages, 4) if pages else None, "parts": _parts(sp)})
-            t = tot.setdefault(j["journal"], {"articles": 0, "usd": 0.0, "usd_billed": 0.0, "pages": 0.0})
+                         "usd_per_page": round(full / pages, 4) if pages else None, "parts": _parts(sp),
+                         "price_inr": spend.price_inr(sp.get("words")) or 0.0})
+            t = tot.setdefault(j["journal"], {"articles": 0, "usd": 0.0, "usd_billed": 0.0, "pages": 0.0,
+                                              "price_inr": 0.0})
+            t["price_inr"] += rows[-1]["price_inr"]
             t["articles"] += 1
             t["usd"] += full
             t["usd_billed"] += sp.get("usd", 0)
@@ -371,18 +381,22 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             days = calendar.monthrange(y, m)[1]
             if (y, m) == (now.year, now.month):
                 share = max(now.day - 1 + now.hour / 24, 1.0) / days  # how much of the month has gone
+                server_to_date = server * share
                 on_course = n / share if n else 0
                 forecast = {"articles": round(on_course), "claude_usd": round(all_usd / share, 2),
                             "server_usd": round(server, 2), "usd": round(all_usd / share + server, 2)}
             else:
                 on_course = n
+                server_to_date = server
             server_per_article = server / on_course if on_course else None
         else:
             server_per_article = None  # no month: the server's share is not spread
+            server_to_date = None
         r = spend.inr_rate()
         per_page_server = (server_per_article * n / all_pages) if server_per_article is not None and all_pages else None
         for t in tot.values():
             t["usd"] = round(t["usd"], 2)
+            t["price_inr"] = round(t["price_inr"], 2)
             t["usd_billed"] = round(t["usd_billed"], 2)
             t["pages"] = round(t["pages"], 1)
             t["usd_per_article"] = round(t["usd"] / t["articles"], 3)
@@ -399,7 +413,13 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
             row["inr_per_page"] = round(row["usd_per_page"] * r, 2) if row.get("usd_per_page") is not None else None
         if forecast:
             forecast.update({k.replace("usd", "inr"): round(v * r) for k, v in list(forecast.items()) if "usd" in k})
-        return {"month": month, "usd_inr": r, "articles": n, "usd": round(all_usd, 2), "inr": round(all_usd * r, 2),
+        price = round(sum(row["price_inr"] for row in rows), 2)
+        cost = all_usd * r + (server_to_date * r if server_to_date is not None else 0)
+        billing = {"rate_inr_per_page": spend.price_inr_per_page(), "pages": round(all_pages, 1), "price_inr": price,
+                   "cost_inr": round(cost), "claude_inr": round(all_usd * r),
+                   "server_inr": round(server_to_date * r) if server_to_date is not None else None,
+                   "margin_pct": round((price - cost) / price * 100) if price else None}
+        return {"month": month, "usd_inr": r, "articles": n, "billing": billing, "usd": round(all_usd, 2), "inr": round(all_usd * r, 2),
                 "usd_billed": round(sum(t["usd_billed"] for t in tot.values()), 2),
                 "server_usd_month": server, "server_inr_month": round(server * r),
                 "server_inr_per_article": round(server_per_article * r, 2) if server_per_article is not None else None,

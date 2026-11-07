@@ -41,6 +41,20 @@ _key: contextvars.ContextVar["str | None"] = contextvars.ContextVar("edit_os_spe
 CHARS_PER_TOKEN = 4
 
 
+def price_inr_per_page() -> float:
+    """What a customer pays per 300-word page, in rupees (EDITOS_PRICE_INR_PER_PAGE; default 10.24: owner,
+    2026-11-07). Every upload is priced as a new article."""
+    try:
+        return float(os.environ.get("EDITOS_PRICE_INR_PER_PAGE") or 10.24)
+    except ValueError:
+        return 10.24
+
+
+def price_inr(words: int | None) -> float | None:
+    """The article's price: its 300-word pages at the per-page rate."""
+    return round(words / WORDS_PER_PAGE * price_inr_per_page(), 2) if words else None
+
+
 def server_usd_month() -> float:
     """What the server (AWS EC2 t3.medium, its 20 GB disk, S3 and traffic) costs a month, in dollars
     (EDITOS_SERVER_USD_MONTH; default 35). Fixed, whatever the number of articles."""
@@ -237,4 +251,30 @@ def record(outdir: str, step: str, led: Ledger, words: int | None = None, **info
     rec["usd_full_per_page"] = round(rec["usd_full"] / pages, 4) if pages else None
     with open(os.path.join(outdir, FILE), "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=2)
+    return rec
+
+
+def ensure_words(outdir: str) -> dict:
+    """OUTDIR/spend.json with the article's word count. A job edited before the spend log was kept (2026-10-29)
+    has none: its words are counted from the edited source, as `pipeline.edit` does, and saved with no Claude
+    spend recorded (`untracked`), so it is still priced."""
+    rec = load(outdir)
+    if rec.get("words"):
+        return rec
+    try:
+        import re
+        from .pipeline import paragraph_texts, source_path
+        words = sum(len(re.findall(r"\w+", t)) for t in paragraph_texts(source_path(outdir)).values())
+    except Exception:  # noqa: BLE001 - no source to count from: left unpriced
+        return rec
+    if not words:
+        return rec
+    rec = rec or {"steps": [], "usd": 0, "untracked": True}
+    rec["words"] = words
+    rec["pages"] = round(words / WORDS_PER_PAGE, 1)
+    try:
+        with open(os.path.join(outdir, FILE), "w", encoding="utf-8") as f:
+            json.dump(rec, f, indent=2)
+    except OSError:
+        pass
     return rec
