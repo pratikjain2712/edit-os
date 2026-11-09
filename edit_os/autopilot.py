@@ -120,7 +120,9 @@ def category(item) -> str:
 
 # Held for the editor in every journal, whatever its `autopilot.hold`: a reference fact (year, volume, first page)
 # the database record changes (owner, 2026-11-03: jehp_1888_26 took an editorial's page "71" for "85-94").
-ALWAYS_HOLD = ["ref_lookup.fact"]
+# An abbreviation we expanded ourselves from the known list (owner, 2026-11-09: "risky ... if we expand an incorrect
+# one then it's a problem"): the editor confirms the expansion fits the article.
+ALWAYS_HOLD = ["ref_lookup.fact", "expand known abbreviation"]
 
 
 def _held(reason: str, hold) -> bool:

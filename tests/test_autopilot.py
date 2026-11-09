@@ -147,3 +147,10 @@ def test_reference_fact_changes_always_held():
         p = autopilot.plan([ch("f1", "ref_lookup.fact"), ch("f2", "ref_lookup", layer=Layer.REFERENCES)], [], st,
                            judge=lambda items: {})
         assert "f2" in p.accept and "f1" not in p.accept and {d["id"] for d in p.left} == {"f1"}
+
+
+def test_known_abbreviation_expansions_always_held():
+    # owner, 2026-11-09: an expansion we chose from the known list could be the wrong one for the article
+    st = style.load("jehp")
+    p = autopilot.plan([ch("e1", "expand known abbreviation"), ch("e2", "abbreviations")], [], st, judge=lambda items: {})
+    assert "e1" not in p.accept and "e1" in {d["id"] for d in p.left}
