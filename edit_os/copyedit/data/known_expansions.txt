@@ -1,0 +1,33 @@
+# Abbreviations whose expansion is certain in a health-sciences article: expanded at first use instead of asking
+# the author (copyedit.abbreviations.expand_known; owner, 2026-11-09, jehp_392_26 "KMO", "CVI", "CVR").
+# Only unambiguous ones: HR (hazard ratio / heart rate), RR, SEM, PA, CA ... are not here. ABBR<tab>expansion.
+KMO	Kaiser–Meyer–Olkin
+CVI	content validity index
+CVR	content validity ratio
+CFA	confirmatory factor analysis
+EFA	exploratory factor analysis
+RMSEA	root mean square error of approximation
+SRMR	standardized root mean square residual
+CFI	comparative fit index
+TLI	Tucker–Lewis index
+GFI	goodness-of-fit index
+AGFI	adjusted goodness-of-fit index
+NFI	normed fit index
+NNFI	non-normed fit index
+IFI	incremental fit index
+AVE	average variance extracted
+HTMT	heterotrait–monotrait ratio
+ICC	intraclass correlation coefficient
+VIF	variance inflation factor
+IQR	interquartile range
+ANOVA	analysis of variance
+ANCOVA	analysis of covariance
+MANOVA	multivariate analysis of variance
+SD	standard deviation
+CI	confidence interval
+OR	odds ratio
+AUC	area under the curve
+ROC	receiver operating characteristic
+BMI	body mass index
+WHO	World Health Organization
+HIV	human immunodeficiency virus

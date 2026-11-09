@@ -74,6 +74,8 @@ def known_expansions() -> dict[str, str]:
     """ABBR -> its certain expansion (data/known_expansions.txt)."""
     path = os.path.join(os.path.dirname(__file__), "data", "known_expansions.txt")
     out = {}
+    if not os.path.exists(path):
+        return out  # (a deployment without the file asks, as before, rather than failing the article)
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.strip() and not line.startswith("#") and "\t" in line:
