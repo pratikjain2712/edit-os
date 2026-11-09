@@ -69,6 +69,19 @@ def common_abbreviations() -> frozenset[str]:
 
 # --- Schwartz-Hearst -------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
+def known_expansions() -> dict[str, str]:
+    """ABBR -> its certain expansion (data/known_expansions.txt)."""
+    path = os.path.join(os.path.dirname(__file__), "data", "known_expansions.txt")
+    out = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip() and not line.startswith("#") and "\t" in line:
+                k, v = line.rstrip("\n").split("\t", 1)
+                out[k.strip()] = v.strip()
+    return out
+
+
 def is_short_form(sf: str) -> bool:
     if not 2 <= len(sf) <= 10 or len(sf.split()) > 2 or not sf[0].isalnum():
         return False
@@ -766,6 +779,15 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                     long = long[0].lower() + long[1:]
                 moved_in.add(key)
                 changes.append(change(p, s, e, f"{long} ({key})", "abbreviations", reason="expand abbreviation at first use"))
+            elif cfg.get("expand_known") and key in known_expansions() and p.text[s:e] == key \
+                    and key not in expanded and key not in moved_in and key not in (cfg.get("query") or []):
+                # an abbreviation whose expansion is certain (Kaiser–Meyer–Olkin): expanded here, in each part (the
+                # abstract and the text), not asked about (owner, 2026-11-09, jehp_392_26)
+                long = known_expansions()[key]
+                before = p.text[:s].rstrip()
+                if not before or before[-1] in ".?!:":
+                    long = long[0].upper() + long[1:]
+                changes.append(change(p, s, e, f"{long} ({key})", "abbreviations", reason="expand known abbreviation"))
             elif key not in queried and cfg.get("query_undefined", True) and not re.search(r"[\d/-]", key) \
                     and key not in expanded and key not in known \
                     and not (cfg.get("skip_names", True) and key in names) \

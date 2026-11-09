@@ -1825,9 +1825,20 @@ def _hold_fact_changes(diff: list[Change], ref, res) -> None:
     reason "ref_lookup.fact" (always held for the editor: autopilot.ALWAYS_HOLD) and a note naming the database
     record, so the editor checks them (owner, 2026-11-03, after jehp_1888_26's "85-94" -> "71")."""
     facts = refengine.fact_changes(ref.text, res.formatted or "")
+    r = res.record
+    if getattr(res, "reordered", ""):  # the author order changed to the record's (refengine.in_record_order)
+        src0 = {"pubmed": "PubMed", "crossref": "CrossRef"}.get(getattr(r, "source", ""), getattr(r, "source", "") or "the database")
+        note = provenance.make(getattr(r, "source", "") or "unverified", f"Author order from {src0}",
+                               f"The published article lists the authors as {res.reordered}. The author's spelling of "
+                               "each name is kept; check the order before accepting.")
+        m0 = re.match(r"\s*(?:\[?\d+[\].)]\s*)?.*?[A-Z]\.?(?=\.\s)", ref.text)  # the author list (after a label)
+        cut = ref.offset + (m0.end() if m0 else len(ref.text.split(". ", 1)[0]))
+        for c in diff:
+            if c.start < cut:
+                c.reason = "ref_lookup.fact"
+                c.provenance = note
     if not facts:
         return
-    r = res.record
     src = {"pubmed": "PubMed", "crossref": "CrossRef"}.get(getattr(r, "source", ""), getattr(r, "source", "") or "the database")
     ident = f" (PMID {r.pmid})" if getattr(r, "pmid", "") else f" (DOI {r.doi})" if getattr(r, "doi", "") else ""
     said = "; ".join(f"{k} {a} -> {b}" for k, (a, b) in facts.items())

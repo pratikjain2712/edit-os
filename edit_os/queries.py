@@ -116,6 +116,14 @@ _MAKER_DETAILS = re.compile(r"\b(?:Corp|Corporation|Inc|Ltd|LLC|GmbH|Armonk|Chic
                             r"Netherlands|Germany|Australia|Belgium|StataCorp|Lumivero|QSR|VERBI|IBM\s+Corp)\b")
 
 
+def complete_entry(text: str, parsed) -> bool:
+    """The entry gives authors, a title, a journal, the year, volume and pages ("Karimi A. A survey ... Strategic
+    Studies on Youth and Sports 2021;20:275-92.")."""
+    vol, pages = volume_pages(text)
+    return bool(parsed.authors and len(parsed.title or "") > 10 and parsed.year and vol and pages
+                and re.search(r"\.\s+[A-Z][^.;]{2,}\.?\s*(?:19|20)\d{2}", text))
+
+
 def manufacturer_missing(paras):
     """(paragraph, span) of the first mention of each statistics package named without its maker's details nearby
     (company, city, country: "(IBM Corp., Armonk, NY, USA)"); one query per package."""
@@ -384,7 +392,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
                 found = False
             if has_et_al and few_authors:
                 qs.add(ref.para_id, "references.book_et_al" if found else "references.not_found_et_al", **span)
-            elif not found:
+            elif not found and not (not style.get("references.not_found_query_complete", True)
+                                    and complete_entry(ref.text, res.parsed)):
+                # an entry that already gives everything (an unindexed regional journal: jehp_392_26 "Strategic Studies
+                # on Youth and Sports 2021;20:275-92") is not asked about (owner, 2026-11-09)
                 qs.add(ref.para_id, "references.not_found", **span)
         elif res.status in refs_other.STATUSES and refs_other.classify(ref.text, res.parsed.kind) in ("book", "book_chapter") \
                 and has_et_al and few_authors:
@@ -459,7 +470,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> QuerySet:
                 qs.add(p.id, "text.brackets", *span)
     if style.get("queries.manufacturer", False):
         ref_ids = {r.para_id for r in refs}
-        for p, span in manufacturer_missing([p for p in ms.paragraphs if p.id not in ref_ids]):
+        # the main text, not the abstract: the maker's details go where the Methods name the package (jehp_392_26)
+        for p, span in manufacturer_missing([p for p in ms.paragraphs if p.id not in ref_ids and p.id not in abstract_ids]):
             qs.add(p.id, "text.manufacturer", *span)
     if style.get("queries.drafting_instructions", True):
         ref_ids = {r.para_id for r in refs}

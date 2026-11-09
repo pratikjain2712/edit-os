@@ -51,6 +51,8 @@ QUERY_TEXT = {
     "figures.footnote_symbol_twice": "The symbol “{sym}” is used for more than one footnote. Kindly check.",
     "figures.footnote_symbol_missing": "The symbol “{sym}” used in the table is not explained in the footnote. "
                                        "Kindly check.",
+    # one query per table for all its symbol problems (owner, 2026-11-09: four symbol queries on two tables, jehp_392_26)
+    "figures.footnote_symbols": "In this table, {problems}. Kindly check the footnote symbols.",
     # a figure drawn with Word shapes and text boxes (jehp_1793): it cannot be moved or typeset as it is
     "figures.drawn_shapes": "Figure {n} is drawn with shapes and text boxes in the manuscript. Kindly provide it as an "
                             "image file (TIFF/JPEG) of good resolution.",
@@ -133,10 +135,11 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
         # symbols
         marks = [(q, m) for q in block for m in _MARKER.finditer(q.text)]
         seen: dict[str, int] = {}
+        sym_qs = []
         for q, m in marks:
             seen[m.group(1)] = seen.get(m.group(1), 0) + 1
             if seen[m.group(1)] == 2:
-                out.append((q, m.start(1), m.end(1), "figures.footnote_symbol_twice", {"sym": m.group(1)}))
+                sym_qs.append((q, m.start(1), m.end(1), "figures.footnote_symbol_twice", {"sym": m.group(1)}))
         if marks:
             used = []
             for p in cells:
@@ -146,7 +149,21 @@ def footnote_queries(ms: Manuscript, style: JournalStyle) -> list[tuple[Paragrap
                         used.append((sym, p))
             for sym, p in used:
                 k = p.text.find(sym)
-                out.append((p, k, k + len(sym), "figures.footnote_symbol_missing", {"sym": sym}))
+                sym_qs.append((p, k, k + len(sym), "figures.footnote_symbol_missing", {"sym": sym}))
+        if len(sym_qs) > 1 and style.get("figures.footnote_symbols_one_query", True):
+            def said(kind):
+                syms = [f"“{x[4]['sym']}”" for x in sym_qs if x[3] == kind]
+                return " and ".join([", ".join(syms[:-1]), syms[-1]]) if len(syms) > 1 else (syms[0] if syms else "")
+            twice, missing_s = said("figures.footnote_symbol_twice"), said("figures.footnote_symbol_missing")
+            n2 = sum(x[3] == "figures.footnote_symbol_twice" for x in sym_qs)
+            nm = len(sym_qs) - n2
+            parts = ([f"the symbol{'s' if n2 > 1 else ''} {twice} {'are' if n2 > 1 else 'is'} used for more than one "
+                      "footnote"] if twice else []) + \
+                    ([f"{missing_s} {'are' if nm > 1 else 'is'} not explained in the footnote"] if missing_s else [])
+            q0 = next((x for x in sym_qs if x[3] == "figures.footnote_symbol_twice"), sym_qs[0])
+            out.append((q0[0], q0[1], q0[2], "figures.footnote_symbols", {"problems": ", and ".join(parts)}))
+        else:
+            out += sym_qs
     asks: dict[tuple, list[str]] = {}  # (first anchor, the tables) -> abbreviations
     for key, where in lacking.items():
         asks.setdefault((where[0][0].id, tuple(c.id for _, c in where)), []).append(key)

@@ -296,8 +296,10 @@ def test_cvi_and_cvr_are_queried(tmp_path):
     asked = {q.text.split(":")[0] for q in qs if q.check == "abbrev.undefined"}
     assert {"CVI", "CVR", "LV"} <= asked and "III" not in asked
     # JEHP asks every undefined one (2026-11-03), the common list no longer counting as known (2026-11-06)
-    _, qs = abbrev.collect(docmodel.load(path), jehp_style())
-    assert {q.text.split(":")[0] for q in qs if q.check == "abbrev.undefined"} == {"CVI", "CVR", "LV"}
+    # ... except the ones whose expansion is certain: expanded by us (owner, 2026-11-09, jehp_392_26)
+    ch, qs = abbrev.collect(docmodel.load(path), jehp_style())
+    assert {q.text.split(":")[0] for q in qs if q.check == "abbrev.undefined"} == {"LV"}
+    assert {c.new for c in ch} >= {"content validity index (CVI)", "content validity ratio (CVR)"}
 
 
 # --- 12. table footnotes ------------------------------------------------------------------------------------------------
@@ -311,8 +313,10 @@ def test_table_footnote_queries(tmp_path):
     qs = queries.collect(docmodel.load(path), jehp_style())
     by = {q.check: q.text for q in qs.queries}
     assert by["figures.footnote_abbreviations"] == "Kindly provide the expansion of SD and CI in the table footnote."
-    assert "“**”" in by["figures.footnote_symbol_twice"]
-    assert "“***”" in by["figures.footnote_symbol_missing"]
+    # one query for the table's symbol problems (owner, 2026-11-09, jehp_392_26)
+    assert by["figures.footnote_symbols"] == ("In this table, the symbol “**” is used for more than one footnote, and "
+                                              "“***” is not explained in the footnote. Kindly check the footnote symbols.")
+    assert "figures.footnote_symbol_twice" not in by and "figures.footnote_symbol_missing" not in by
 
 
 def test_caption_keeps_country_names(tmp_path):

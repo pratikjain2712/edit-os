@@ -52,6 +52,7 @@ class Resolution:
     score: float = 0.0
     queries: list[tuple[str, dict]] = field(default_factory=list)  # (queries.TEXT key, format values)
     styled: bool = False  # not verified, but `formatted` is the entry styled from the author's own text (refstyle)
+    reordered: str = ""  # the author's names put in the record's order (the record's names, for the editor's note)
 
 
 def fold(s: str) -> str:
@@ -1675,12 +1676,28 @@ def resolve(text: str, style: JournalStyle, fields: dict | None = None) -> Resol
             return style_unverified(Resolution(QUERY, p, record, message="Record's author names are malformed"),
                                     text, style, fields)
         q = author_name_query(p, record)  # the author's names are kept: ask about what the record says otherwise
-        if q:
+        if q and q[0] == "references.author_order" and style.get("references.author_order_change", False):
+            # the same names in another order: put in the record's order as a change the editor accepts (held),
+            # not a query (owner, 2026-11-09, jehp_392_26: "why did we not update the ref if we found the authors")
+            p, reordered = in_record_order(p, record), q[1]["names"]
+        elif q:
             queries.append(q)
     formatted = format_record(record, style, p) + errata(text, style)
     t, _, _ = score(p, record)
     status = MATCHED if fold(formatted) == fold(text) and formatted.rstrip() == text.rstrip() else FORMAT_FIXED
-    return Resolution(status, p, record, formatted, score=t, queries=queries)
+    res = Resolution(status, p, record, formatted, score=t, queries=queries)
+    res.reordered = locals().get("reordered", "")
+    return res
+
+
+def in_record_order(p: Parsed, r: biblio.Record) -> Parsed:
+    """The author's names (as the author spells them) in the order the record lists them; "et al." stays last."""
+    theirs = [f"{s} {i}".strip() for s, i in r.authors]
+    def rank(a):
+        return next((k for k, b in enumerate(theirs) if same_written_name(a, b)), len(theirs))
+    names = [a for a in p.authors if not re.fullmatch(r"\s*et\.?\s+al\.?\s*", a, re.I)]
+    rest = [a for a in p.authors if a not in names]
+    return Parsed(**{**p.__dict__, "authors": sorted(names, key=rank) + rest})
 
 
 def resolve_all(texts: list[str], style: JournalStyle) -> list[Resolution]:

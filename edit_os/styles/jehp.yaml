@@ -237,6 +237,10 @@ required_sections:
      keep_labels: [Conflict of interest]}  # kept as written in 5 of 6 articles (the sheet is silent)
 
 references:
+  # Owner, 2026-11-09 (jehp_392_26): the published order of the same authors is put in as a held change, not queried;
+  # a complete entry no database lists (a regional journal) is not queried as "not found"
+  author_order_change: true
+  not_found_query_complete: false
   # Typed labels "1.<tab>" removed and the list numbered by Word (the sheet is silent): the JEHP editors (te and ce
   # alike) in 13 of the 17 articles with typed labels (test 6 of 7: 1266, 1562, 1580, 1732, 1772, 1787, kept in 1874;
   # training 7 of 10: 1153, 1209, 1280, 1402, 1559, 1588, 1683, kept in 924, 1039, 1793). One editor typed labels
@@ -380,6 +384,8 @@ copyedit:
     # every undefined abbreviation again, however often it is used (owner, 2026-11-03: QC "CFT: Define abbreviation.
     # Author comment" on one use in jehp_1930_26); names, guidelines, publishers and words in capitals still not
     query_undefined_min_uses: 1
+    # KMO, CVI, CVR ... expanded by us, not asked (owner, 2026-11-09: jehp_392_26 "why so many AQ")
+    expand_known: true
     query_undefined_plain_only: true
 
 text:
