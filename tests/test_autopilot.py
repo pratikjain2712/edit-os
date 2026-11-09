@@ -165,12 +165,12 @@ def test_plan_queries_holds_rare_kinds_the_second_check_rejects():
           dict(key="q4", para_id="p2", start=0, end=3, text="LV: Kindly expand.", check="abbrev.undefined", status="accepted")]
     asked = []
 
-    def check(qs):  # the second check keeps the table query only
+    def check(qs):  # the second check finds nothing necessary
         asked.extend(q.text for q in qs)
-        return [q for q in qs if q.check == "figures.footnote_symbols"]
+        return []
     held = autopilot.plan_queries(qd, st, {}, check=check)
-    assert [h["key"] for h in held] == ["q1"]  # a common kind (q2) and an editor's decision (q4) are not asked
-    assert len(asked) == 2
+    # a common kind (q2), table symbols (q3: only the author can settle them) and an editor's decision (q4) are not asked
+    assert [h["key"] for h in held] == ["q1"] and len(asked) == 1
     assert autopilot.plan_queries(qd, style.load("ijo"), {}, check=check) == []  # off unless the journal turns it on
 
 

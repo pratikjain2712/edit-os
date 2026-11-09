@@ -500,8 +500,9 @@ autopilot:
   # the editor when the second check finds them unnecessary (owner, 2026-11-09, jehp_392_26)
   queries:
     enabled: true
-    check: [abbrev.undefined, abbrev.before_definition, abbrev.defined_twice, figures.footnote_symbols,
-            figures.footnote_symbol_twice, figures.footnote_symbol_missing, figures.stray_citation,
+    # (table footnote symbols are not: a symbol used twice or never explained is an author error only the author
+    # can settle -- owner, 2026-11-09, after the second check held both on jehp_392_26)
+    check: [abbrev.undefined, abbrev.before_definition, abbrev.defined_twice, figures.stray_citation,
             references.author_order, references.author_names, references.author_count, references.named_uncited]
   # Left for the editor to confirm (the rules stay on; the stylesheet / guide asks for them, the editors mostly skip):
   #   (use abbreviation: held until 2026-10-30; S: "only abbreviation should be used thereafter", final text 0 of 11)
