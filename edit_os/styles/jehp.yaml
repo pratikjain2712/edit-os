@@ -57,6 +57,10 @@ citations:
   author_year: true
 
 guide_replace:
+  # Statistics written run together are corrected, not queried (owner, 2026-11-09: jehp_1499_26 "the statistical
+  # values appear to be missing" on "(Path a:B=-0.5009, SE=0.1295,t=-3.866, p<0.001,95% CI-0.7574-0.2443)")
+  stat_format: true
+  ci_range: true
   # p_value_capital, trailing_space, leading_space: on in base (G294, G143)
   range_dash: true        # numeric ranges "46-55 years" -> "46–55": editors 19 of 21 in 6 articles (silent; the sheet's
                           # own "Tables 1–6" uses the en dash); citation ranges keep the hyphen
@@ -521,7 +525,8 @@ autopilot:
   # confirms the sheet.
   # "use abbreviation" no longer held (owner, 2026-10-30): the sheet asks for it and QC marked it missing in JEHP_73_26;
   # the editors skipping it is an editor miss (CLAUDE.md), not a reason to wait for them.
-  hold: [sections_back_matter.consent_added, figure_insert, sections_abstract.rename,
+  # guide.ci_range: the bounds' signs are read from the estimate and P value; the editor confirms
+  hold: [guide.ci_range, sections_back_matter.consent_added, figure_insert, sections_abstract.rename,
          sections_back_matter.added, guide.unary_comparison, table_caption_duplicate.differs]
 
 header:

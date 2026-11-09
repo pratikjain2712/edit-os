@@ -415,6 +415,78 @@ def stat_italic_spans(text: str, in_table: bool = False, extra: str = "") -> lis
     return sorted(set(out))
 
 
+# A statistic's symbol before its operator: "B=", "SE=", "t=", "p<", "β=", "OR=", "R2=", "χ2=", "df="
+_STAT_SYM = r"(?:[A-Za-z]{1,3}\d?|[βχηΒ][²2]?|R²|η²|χ²)"
+
+
+def find_stat_format(text: str, cfg: dict) -> list:
+    """Reported statistics run together (jehp_1499_26: "(Path a:B=-0.5009, SE=0.1295,t=-3.866, p<0.001,95% CI..."),
+    so the copy-edit step stopped asking the author for values that are there (owner, 2026-11-09):
+    a hyphen after an operator is a minus sign ("= -0.5009" -> "= −0.5009"); a comma between two statistics takes a
+    space (",t =" -> ", t =", ",95% CI" -> ", 95% CI"); a colon before one too ("a:B =" -> "a: B =").
+    Spacing around = < > is `statistics.space_around_operators` (rules.rule_statistics)."""
+    out = []
+    for m in re.finditer(r"(?<=[=<>≤≥])(" + _SP + r"*)-(?=\.?\d)", text):
+        out.append((m.end() - 1, m.end(), "−"))
+    for m in re.finditer(r"(?<=[\d%)\]]),(?=(?:\d{2}%\s*(?:CI|confidence)|" + _STAT_SYM + r"\s*[=<>≤≥]))", text):
+        out.append((m.start(), m.end(), ", "))
+    for m in re.finditer(r"(?<=[a-z\d]):(?=" + _STAT_SYM + r"\s*[=<>≤≥]\s*[-−]?\.?\d)", text):
+        out.append((m.start(), m.end(), ": "))
+    return out
+
+
+# "95% CI-0.7574-0.2443", "95% CI 0.12-0.45", "95% CI: 1.2 - 3.4" (before ")", ",", ";" or the sentence's end)
+_CI = re.compile(r"(\d{2}%\s*(?:bootstrap\s+)?CI)(\s*:?\s*)([-−]?)(\d*\.?\d+)\s*[-–]\s*([-−]?)(\d*\.?\d+)(?=\s*[),;\]]|\.\s|\.?$)")
+# the estimate the interval belongs to: the last "B = -0.50", "β = 0.2", "OR = 1.8", "effect = -0.04" before it
+_ESTIMATE = re.compile(r"(?<![A-Za-z])(?:B|b|β|OR|AOR|aOR|HR|RR|MD|effect|estimate|coefficient|difference)\s*=\s*"
+                       r"([-−]?)(\d*\.\d+|\d+)")
+
+
+def find_ci_range(text: str, cfg: dict) -> list:
+    """A confidence interval written with a hyphen between its bounds ("95% CI-0.7574-0.2443") -> "95% CI −0.7574 to
+    −0.2443". "-0.75-0.24" is ambiguous (is the upper bound −0.24 or 0.24?): the interval must hold the estimate
+    reported before it (B = −0.5009) and, when both readings do, agree with its P value (P < 0.001: 0 is outside,
+    so −0.2443). When that does not settle it, the interval is left as written."""
+    word = cfg.get("ci_range_word", " to ")
+    out = []
+    for m in _CI.finditer(text):
+        lo_sign, lo, hi_sign, hi = m.group(3), m.group(4), m.group(5), m.group(6)
+        lo_v = -float(lo) if lo_sign else float(lo)
+        cands = [-float(hi), float(hi)] if not hi_sign and re.search(r"\d\s*-\s*\d|\d-", m.group(0)[len(m.group(1)):]) \
+            and lo_sign else [-float(hi) if hi_sign else float(hi)]
+        if len(cands) > 1:
+            lead = text[max(0, m.start() - 120):m.start()]
+            est, seg = None, ""
+            for e in _ESTIMATE.finditer(lead):
+                est = -float(e.group(2)) if e.group(1) else float(e.group(2))
+                # the same statistic: from its estimate to the interval, and on to the bracket's end ("..., P = 0.02)")
+                seg = lead[e.end():] + text[m.end():m.end() + 40].split(")")[0]
+            fits = [h for h in cands if est is not None and lo_v <= est <= h]
+            if len(fits) > 1:  # both hold the estimate: the P value of the same statistic says whether 0 is inside
+                pm = list(re.finditer(r"(?<![A-Za-z])[pP]\s*([<=>≤≥])\s*(0?\.\d+)", seg))
+                if pm:
+                    op, pv = pm[-1].group(1), float(pm[-1].group(2))
+                    sig = op in "<≤" and pv <= 0.05 or op == "=" and pv < 0.05
+                    nonsig = op in ">≥" and pv >= 0.05 or op == "=" and pv >= 0.05
+                    if sig or nonsig:
+                        fits = [h for h in fits if (lo_v <= 0 <= h) == nonsig]
+            if len(fits) != 1:
+                continue
+            hi_v = fits[0]
+        else:
+            hi_v = cands[0]
+        if hi_v < lo_v:
+            continue
+
+        def show(v, raw):
+            return ("−" if v < 0 else "") + raw
+        sep = m.group(2) if m.group(2).strip() else " "
+        new = f"{m.group(1)}{sep}{show(lo_v, lo)}{word}{show(hi_v, hi)}"
+        if new != m.group(0):
+            out.append((m.start(), m.end(), new))
+    return out
+
+
 FINDERS = {
     "et_al_period": find_et_al,
     "ampersand": find_ampersand,
@@ -440,11 +512,14 @@ FINDERS = {
     "abbreviation_colon": find_abbreviation_colon,
     "leading_zero": find_leading_zero,
     "thousands_comma": find_thousands_comma,
+    "stat_format": find_stat_format,
+    "ci_range": find_ci_range,
 }
 # Spacing rules: never next to content the text view leaves out (symbol-font ±, fields, drawings).
 _SPACING = {"trailing_space", "leading_space", "double_space"}
 # Rules that read arithmetic and must not run inside formula-looking paragraphs.
-_ARITHMETIC = {"operator_spacing", "unary_minus", "unary_comparison", "multiplication", "range_dash"}
+_ARITHMETIC = {"operator_spacing", "unary_minus", "unary_comparison", "multiplication", "range_dash", "stat_format",
+               "ci_range"}
 
 
 def propose(text: str, cfg: dict) -> list[tuple[int, int, str, str]]:
