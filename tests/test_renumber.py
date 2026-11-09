@@ -306,3 +306,14 @@ def test_entry_left_out_of_the_numbered_list_continues_it(tmp_path):
     path = tmp_path / "n.docx"
     doc.save(path)
     assert [r.number for r in references.extract(docmodel.load(str(path)))] == [1, 2, 3]
+
+
+def test_run_on_citation_before_the_next_sentence_counts(tmp_path):
+    # jehp_1499_26: "literacy [34].Similarly" (no space after the full stop) was read as a power and reference 34
+    # queried as uncited
+    refs = [_ref(n) for n in range(1, 3)]
+    path = _doc(tmp_path, ["Alpha is common [1].Similarly, beta is rare [2]."], refs)
+    nums = set()
+    for o in renumber.occurrences(docmodel.load(path), style.load("jehp"), 2):
+        nums.update(o.numbers)
+    assert nums == {1, 2}

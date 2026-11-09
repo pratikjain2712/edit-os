@@ -632,7 +632,7 @@ def batch_prefetch(jobs: list[tuple[Manuscript, JournalStyle]], client=None, pol
 # "Only add content related comments query if they are necessary" (owner, 2026-10-31): each query goes to an
 # independent check (Haiku by default) and is kept only when it agrees the author must answer it.
 
-QCHECK_VERSION = "qc-2"
+QCHECK_VERSION = "qc-3"
 QCHECK_SCHEMA = {
     "type": "object",
     "properties": {"verdicts": {"type": "array", "items": {
@@ -650,7 +650,10 @@ are unnecessary and annoy authors. Mark a query necessary ONLY when all of these
   named two different ways ("specific learning disorders" / "specific learning disabilities").
 Mark it NOT necessary when it is about wording, style or readability; asks for extra detail the text
 does not need (names of hospitals, dates, reference numbers); questions the author's interpretation,
-reasoning or choice of methods; suggests headings; or is a guess. When in doubt: not necessary.
+reasoning or choice of methods; suggests headings; or is a guess. Mark it NOT necessary when it says something is missing that the paragraph
+does give, even in a messy form (jehp_1499_26: "the statistical values appear to be missing" on a sentence that
+reads "B=-0.5009, SE=0.1295, t=-3.866, p<0.001, 95% CI -0.7574 to -0.2443"): read the paragraph before agreeing.
+When in doubt: not necessary.
 Each query comes with its id and the paragraph it is on. Answer for every id."""
 
 

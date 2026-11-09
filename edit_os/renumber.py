@@ -252,8 +252,10 @@ def occurrences(ms: Manuscript, style: JournalStyle, n_refs: int) -> list[Occurr
         mine = proposals.get(p.id, [])
         for c in mine:
             # A converted round or superscript citation; its punctuation move ("(1)." -> ".") carries no number.
+            # (a bracket citation moved after the full stop is one too, even run on: "literacy [34].Similarly" ->
+            # "literacy.[34] Similarly" read as a power "x²S" asked "Reference no. 34 has not been cited", jehp_1499_26)
             if not c.old.lstrip().startswith(("(", "[")) and not any(
-                    d.end == c.start and d.old.lstrip().startswith("(") for d in mine) \
+                    d.end == c.start and d.old.lstrip().startswith(("(", "[")) for d in mine) \
                     and _formula_superscript(p.text, c.start, c.end):
                 continue
             m = re.search(r"\[([^\]]*)\]", c.new)
