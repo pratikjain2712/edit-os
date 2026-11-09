@@ -80,6 +80,7 @@ export function AutopilotSheet({ phase, report, error, onRun, onClose, onUndo, o
           <div className="counters ap-counters">
             <div className="counter"><b><Ticker value={report.accepted} /></b><span>accepted</span></div>
             <div className="counter"><b><Ticker value={report.left} /></b><span>left for you</span></div>
+            {(report.queries_held || []).length > 0 && <div className="counter"><b><Ticker value={report.queries_held.length} /></b><span>queries held</span></div>}
             <div className="counter"><b><Ticker value={report.queries} /></b><span>author queries</span></div>
           </div>
           <table className="ap-table">
@@ -96,6 +97,12 @@ export function AutopilotSheet({ phase, report, error, onRun, onClose, onUndo, o
               {report.qc.failed.length > 0 && <small>{report.qc.failed.map((c) => `${c.description} (${c.issues})`).join(" · ")}</small>}
             </div>
           </div>
+          {(report.queries_held || []).length > 0 && (
+            <details className="ap-left">
+              <summary>{report.queries_held.length} author {report.queries_held.length === 1 ? "query" : "queries"} held for you (not sent unless you keep {report.queries_held.length === 1 ? "it" : "them"} in the Queries tab)</summary>
+              <ul>{report.queries_held.map((h) => <li key={h.key}>{h.text}</li>)}</ul>
+            </details>
+          )}
           {report.left_items.length > 0 && (
             <details className="ap-left">
               <summary>Why {report.left} {report.left === 1 ? "was" : "were"} left for you</summary>

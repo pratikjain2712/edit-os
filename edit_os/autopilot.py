@@ -174,6 +174,35 @@ def plan(changes: list[Change], inserts, style: JournalStyle, judge=None, texts:
     return out
 
 
+def plan_queries(qdicts: list[dict], style: JournalStyle, texts: dict[str, str] | None = None, check=None) -> list[dict]:
+    """The undecided author queries to hold for the editor (not sent until the editor keeps them): of the kinds the
+    journal's editors rarely raise (`autopilot.queries.check`), those a second, independent check (Haiku,
+    claude_pass.necessary_queries) finds unnecessary. Everything else goes to the author as before; with no
+    Claude key nothing is held. Owner, 2026-11-09 (jehp_392_26): "our autopilot needs to handle these also" --
+    hold for the editor, never drop on its own. Returns [{"key", "check", "why"}]."""
+    cfg = settings(style).get("queries") or {}
+    kinds = set(cfg.get("check") or [])
+    if not cfg.get("enabled") or not kinds:
+        return []
+    todo = [d for d in qdicts if d.get("status", Status.SUGGESTED.value) == Status.SUGGESTED.value
+            and d.get("check") in kinds]
+    if not todo:
+        return []
+    from .copyedit import claude_pass
+    from .queries import Query
+    qs = [Query(d["para_id"], d["start"], d["end"], d["text"], d["check"]) for d in todo]
+    if check is None:
+        if not ai_refs.available():
+            return []
+        qcfg = {"query_check": {"enabled": True, "model": cfg.get("model") or "claude-haiku-5-5"}}
+        check = lambda items: claude_pass.necessary_queries(items, texts or {}, qcfg)  # noqa: E731
+    kept = {id(q) for q in check(qs)}
+    return [{"key": d["key"], "check": d["check"],
+             "why": "a kind of query this journal's editors rarely raise, and the second check found it unnecessary "
+                    "for the author"}
+            for d, q in zip(todo, qs) if id(q) not in kept]
+
+
 def _with_its_figures(inserts, out: Plan) -> None:
     """A "Figure Legends" heading added over the figures sent as files (their pictures and legends inserted at the
     same place) is one decision with them: while those inserts are left for the editor, so is the heading (else the

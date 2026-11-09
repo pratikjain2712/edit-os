@@ -154,3 +154,38 @@ def test_known_abbreviation_expansions_always_held():
     st = style.load("jehp")
     p = autopilot.plan([ch("e1", "expand known abbreviation"), ch("e2", "abbreviations")], [], st, judge=lambda items: {})
     assert "e1" not in p.accept and "e1" in {d["id"] for d in p.left}
+
+
+def test_plan_queries_holds_rare_kinds_the_second_check_rejects():
+    # owner, 2026-11-09 (jehp_392_26): autopilot handles queries too -- held for the editor, never dropped
+    st = style.load("jehp")
+    qd = [dict(key="q1", para_id="p1", start=0, end=3, text="KMO: Kindly expand the abbreviation.", check="abbrev.undefined"),
+          dict(key="q2", para_id="p1", start=0, end=3, text="Kindly provide volume and page numbers.", check="references.no_volume"),
+          dict(key="q3", para_id="p2", start=0, end=3, text="In this table, ...", check="figures.footnote_symbols"),
+          dict(key="q4", para_id="p2", start=0, end=3, text="LV: Kindly expand.", check="abbrev.undefined", status="accepted")]
+    asked = []
+
+    def check(qs):  # the second check keeps the table query only
+        asked.extend(q.text for q in qs)
+        return [q for q in qs if q.check == "figures.footnote_symbols"]
+    held = autopilot.plan_queries(qd, st, {}, check=check)
+    assert [h["key"] for h in held] == ["q1"]  # a common kind (q2) and an editor's decision (q4) are not asked
+    assert len(asked) == 2
+    assert autopilot.plan_queries(qd, style.load("ijo"), {}, check=check) == []  # off unless the journal turns it on
+
+
+def test_autopilot_holds_queries_and_undo_restores_them(client, tmp_path, monkeypatch):
+    job_id = upload(client, tmp_path).json()["id"]
+    assert wait(client, job_id)["status"] == "done"
+    qs = client.get(f"/api/jobs/{job_id}/queries", headers=KEY).json()["items"]
+    assert qs  # the sample article has author queries
+    key = qs[0]["key"]
+    monkeypatch.setattr(autopilot, "plan_queries",
+                        lambda todo, st, texts=None: [{"key": key, "check": qs[0]["check"], "why": "test"}])
+    rep = client.post(f"/api/jobs/{job_id}/autopilot", headers=KEY).json()
+    assert [h["key"] for h in rep["queries_held"]] == [key]
+    q = next(q for q in client.get(f"/api/jobs/{job_id}/queries", headers=KEY).json()["items"] if q["key"] == key)
+    assert q["status"] == "rejected" and q["held_by"] == "autopilot" and q["held_why"] == "test"
+    client.post(f"/api/jobs/{job_id}/autopilot/undo", headers=KEY)
+    q = next(q for q in client.get(f"/api/jobs/{job_id}/queries", headers=KEY).json()["items"] if q["key"] == key)
+    assert q["status"] == "suggested" and "held_by" not in q

@@ -495,6 +495,14 @@ queries:
 # Measured against the final copy-edited files (tools/eval_final.py; 17 training articles): rule precision = the
 # accepted changes the final text has, against those where it kept the author's wording.
 autopilot:
+  # Queries of kinds the JEHP editors rarely raise (302 articles: abbreviation queries in 17, table footnote symbols
+  # in 2, author order or names in 1, a stray citation or an author named without a citation in none) are held for
+  # the editor when the second check finds them unnecessary (owner, 2026-11-09, jehp_392_26)
+  queries:
+    enabled: true
+    check: [abbrev.undefined, abbrev.before_definition, abbrev.defined_twice, figures.footnote_symbols,
+            figures.footnote_symbol_twice, figures.footnote_symbol_missing, figures.stray_citation,
+            references.author_order, references.author_names, references.author_count, references.named_uncited]
   # Left for the editor to confirm (the rules stay on; the stylesheet / guide asks for them, the editors mostly skip):
   #   (use abbreviation: held until 2026-10-30; S: "only abbreviation should be used thereafter", final text 0 of 11)
   #   sections_back_matter.added  G283: "If information of SoS/CoI is not provided ... keep both as Source of support: Nil"

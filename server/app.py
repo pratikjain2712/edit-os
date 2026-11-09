@@ -510,8 +510,18 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
     def list_queries(job: dict = Depends(require_done)):
         _, _, _, _, qdicts = merged(job["id"])
         texts = paragraphs(job["id"])
+        dec = store.decisions(job["id"])
+        held = {}
+        try:  # why autopilot held a query (its last report)
+            with open(_autopilot_path(job["id"]), encoding="utf-8") as f:
+                held = {h["key"]: h["why"] for h in json.load(f).get("queries_held", [])}
+        except (OSError, ValueError):
+            pass
         out = []
         for q in qdicts:
+            d = dec.get(q["key"]) or {}
+            if q.get("status") == "rejected" and d.get("editor") == autopilot.EDITOR:
+                q = {**q, "held_by": "autopilot", "held_why": held.get(q["key"], "")}
             t = texts.get(q["para_id"], "")
             if q.get("insert_id"):  # on a front-matter paragraph Edit OS inserts
                 out.append({**q, "anchor": q.get("quote", ""), "paragraph": q.get("quote", "")})
@@ -624,21 +634,28 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         verified references, checkers; Claude's copy edits only when a second Claude check agrees),
         leave the rest pending, re-render and run QC. Decisions are recorded with editor "autopilot"."""
         with job_lock(job["id"]):
-            outdir, man, changes, inserts, _ = merged(job["id"])
+            outdir, man, changes, inserts, qdicts = merged(job["id"])
             dec = store.decisions(job["id"])
             # Undecided: no decision, or put back to pending (an undo); never the editor's own wording.
             todo = [c for c in changes.changes if c.status == Status.SUGGESTED and c.id not in dec
                     or dec.get(c.id, {}).get("status") == "suggested" and dec[c.id].get("new_text") is None]
             todo_ins = [n for n in inserts if n.status == Status.SUGGESTED and n.id not in dec
                         or dec.get(n.id, {}).get("status") == "suggested" and dec[n.id].get("new_text") is None]
+            todo_q = [q for q in qdicts if q["key"] not in dec or dec[q["key"]].get("status") == "suggested"]
+            st = style_mod.load(man["journal"])
             with spend.track() as led:  # the second check's Claude calls go on the article's bill
-                p = autopilot.plan(todo, todo_ins, style_mod.load(man["journal"]), texts=paragraphs(job["id"]))
+                p = autopilot.plan(todo, todo_ins, st, texts=paragraphs(job["id"]))
+                held_q = autopilot.plan_queries(todo_q, st, texts=paragraphs(job["id"]))
             if led.parts:
                 spend.record(out_dir(storage, job["id"]), "autopilot", led)
             kinds = {c.id: "change" for c in todo} | {n.id: "insert" for n in todo_ins}
             store.decide(job["id"], [(i, kinds[i]) for i in p.accept], "accepted", autopilot.EDITOR)
+            # held queries are not sent ("rejected" by autopilot) until the editor keeps them (Keep on the screen)
+            store.decide(job["id"], [(h["key"], "query") for h in held_q], "rejected", autopilot.EDITOR)
             summary = _render(job["id"])
             rep = autopilot.report(p, {**{c.id: c for c in todo}, **{n.id: n for n in todo_ins}}, summary, db.now())
+            texts_q = {q["key"]: q["text"] for q in qdicts}
+            rep["queries_held"] = [{**h, "text": texts_q.get(h["key"], "")} for h in held_q]
             with open(_autopilot_path(job["id"]), "w", encoding="utf-8") as f:
                 json.dump(rep, f, indent=2, ensure_ascii=False)
             storage.save(job["id"])
@@ -660,6 +677,7 @@ def create_app(settings: Settings | None = None, queue=None) -> FastAPI:
         """Put everything autopilot accepted back to pending and re-render."""
         with job_lock(job["id"]):
             items = store.decided_by(job["id"], autopilot.EDITOR, "accepted")
+            items += store.decided_by(job["id"], autopilot.EDITOR, "rejected")  # the queries it held
             store.decide(job["id"], items, "suggested", autopilot.EDITOR)
             ids = [i for i, _ in items]
             summary = _render(job["id"])

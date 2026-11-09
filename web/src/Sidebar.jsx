@@ -63,8 +63,9 @@ function Queries({ items, onDecide, onPick }) {
     <div key={q.key} className={`qcard ${q.status}`}>
       <div className="note-head"><MessageSquareText size={13} color="var(--warn)" /><b>{q.id || "—"}</b>
         <span>{ruleLabel((q.check || "").split(".")[0])}</span><span className="spacer" />
-        <span className={`pill ${q.status}`}>{q.status === "rejected" ? "dropped" : q.status === "accepted" ? "kept" : "pending"}</span></div>
+        <span className={`pill ${q.held_by ? "suggested" : q.status}`}>{q.held_by ? "held by Autopilot" : q.status === "rejected" ? "dropped" : q.status === "accepted" ? "kept" : "pending"}</span></div>
       <div>{q.text}</div>
+      {q.held_by && <div className="muted small">Not sent to the author unless you keep it: {q.held_why || "likely unnecessary"}.</div>}
       <button className="anchor linkbtn" style={{ textAlign: "left", color: "var(--text-2)", fontWeight: 400 }} onClick={() => onPick(q)}>
         {q.anchor ? <>on “<mark>{show(q.anchor).slice(0, 140)}</mark>”</> : <>“{show(q.paragraph).slice(0, 140)}…”</>}
       </button>
