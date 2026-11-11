@@ -101,3 +101,22 @@ def test_touching_tables_are_separated(tmp_path):
     assert package_fix.fix(p)["tables_separated"] == 1
     doc = zipfile.ZipFile(p).read("word/document.xml").decode()
     assert re.search(r'</w:tbl><w:p><w:pPr><w:rPr><w:ins w:id="8" w:author="Edit OS"', doc)
+
+
+
+def test_deliverables_never_signed_edit_os(tmp_path):
+    # owner, 2026-11-11: "don't add Claude in editor name, keep it Editink only or the one which we receive"
+    import zipfile
+    from edit_os import pipeline
+    from test_api import make_docx
+
+    def authors(path):
+        z = zipfile.ZipFile(path)
+        xml = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist()
+                       if n.startswith("word/") and n.endswith(".xml"))
+        return set(re.findall(r'w:author="([^"]*)"', xml))
+    src = make_docx(tmp_path / "ms.docx")
+    out = pipeline.edit(str(src), "ijo", str(tmp_path / "out"))
+    assert authors(out.path("tracked")) == {"Editink"}
+    out = pipeline.render_outputs(str(tmp_path / "out"), editor="Asha Rao")
+    assert authors(out.path("tracked")) == {"Asha Rao"}

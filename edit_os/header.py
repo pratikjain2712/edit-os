@@ -26,6 +26,7 @@ Settings: `header:` in the style files (base.yaml).
 from __future__ import annotations
 
 import copy
+import os
 import re
 from datetime import datetime
 from itertools import count
@@ -39,6 +40,13 @@ from .style import JournalStyle
 
 PLACEHOLDER = "???"
 AUTHOR = "Edit OS"
+
+
+def doc_author() -> str:
+    """The name on every tracked change and comment in the delivered files when no editor's name came with the job:
+    EDITOS_DOC_AUTHOR, default "Editink" (owner, 2026-11-11: "don't add Claude in editor name, keep it Editink only
+    or the one which we receive"). The tool's own names ("Edit OS", "Edit OS (AI)") never appear in a deliverable."""
+    return (os.environ.get("EDITOS_DOC_AUTHOR") or "Editink").strip() or "Editink"
 KINDS = {"references": "references", "Table": "tables", "Figure": "figures"}
 _SIGNOFF = re.compile(r"^\s*Technical Editing done on\b", re.I)
 

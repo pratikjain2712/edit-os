@@ -57,6 +57,36 @@ def _content_type(ct: str, part: str) -> str | None:
     return m.group(1) if m else None
 
 
+# the tool's own names on tracked changes and comments (changes.Change.author, queries.AUTHOR, header.AUTHOR, the AI
+# copy edits' "Edit OS (AI)")
+TOOL_AUTHORS = ("Edit OS", "Edit OS (AI)")
+
+
+def sign(path: str, author: str) -> int:
+    """Put AUTHOR on every tracked change, formatting change and comment the tool made in the .docx at PATH (its
+    initials on the comments); the manuscript's own revisions and comments keep their authors. Returns how many."""
+    import html as _html
+    with zipfile.ZipFile(path) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+        order = z.namelist()
+    name = _html.escape(author, quote=True)
+    initials = "".join(w[0] for w in author.split() if w[:1].isalnum()).upper()[:4] or author[:2].upper()
+    pat = re.compile(r'w:author="(?:' + "|".join(re.escape(a) for a in TOOL_AUTHORS) + r')"(\s+w:initials="[^"]*")?')
+    n = 0
+    for part in [p for p in parts if p.startswith("word/") and p.endswith(".xml")]:
+        x = parts[part].decode("utf-8")
+        new, k = pat.subn(lambda m: f'w:author="{name}"' + (f' w:initials="{initials}"' if m.group(1) else ""), x)
+        if k:
+            parts[part], n = new.encode("utf-8"), n + k
+    if n:
+        tmp = path + ".tmp"
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in order:
+                z.writestr(p, parts[p])
+        os.replace(tmp, path)
+    return n
+
+
 def fix(path: str) -> dict:
     """Rewrite PATH in place when needed; {"charts_copied": n, "drawing_ids_renumbered": n}."""
     with zipfile.ZipFile(path) as z:

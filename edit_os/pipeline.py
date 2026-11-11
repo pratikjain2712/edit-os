@@ -442,7 +442,7 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
         figures_insert.render(ms, inserts, outdir, tracked=is_tracked, statuses=statuses,
                               align=st.get("figures.insert.align", "center"), run_format=run_fmt,
                               legend_align=run_align)
-        author = editor or header.AUTHOR
+        author = editor or header.doc_author()
         notes = leftovers.render(ms, inserts, statuses, tracked=is_tracked, author=author, date=rev_date)
         # material from the submission's other files (tables at the end, a supplementary file): before the moves
         notes += supplied.render(ms, inserts, outdir, statuses, tracked=is_tracked, author=author, date=rev_date,
@@ -471,6 +471,7 @@ def render_outputs(outdir: str, include_pending: bool = True, style: JournalStyl
     render("clean", False, (Status.ACCEPTED,), False).save(paths["clean"])
     for kind in ("tracked", "clean"):  # Word's package rules: a chart used by one drawing only, unique drawing ids
         package_fix.fix(paths[kind])
+        package_fix.sign(paths[kind], editor or header.doc_author())  # never "Edit OS" / "Edit OS (AI)" in a deliverable
     queries.write_sheet(docmodel.load(src), qs, paths["queries"], man["stem"])
 
     n_pending = sum(c.status == Status.SUGGESTED for c in changes.changes) + \
