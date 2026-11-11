@@ -33,3 +33,15 @@ def test_manufacturer_query_in_the_methods_not_the_abstract(tmp_path):
     ms = docmodel.load(path)
     qs = [q for q in queries.collect(ms, jehp_style()).queries if q.check == "text.manufacturer"]
     assert len(qs) == 1 and ms.by_id(qs[0].para_id).text.startswith("Data were analyzed with SPSS")
+
+
+def test_known_abbreviation_defined_with_a_value_in_its_bracket_is_not_expanded_again(tmp_path):
+    # jehp_1845_26: "standardized root mean square residual (SRMR < 0.08)" got "(SRMRstandardized root mean square
+    # residual (SRMR) < 0.08)"
+    from edit_os.copyedit import abbrev
+    t = ("Model fit was judged with the normed chi-square (χ²/df < 5), standardized root mean square residual "
+         "(SRMR < 0.08), root mean square error of approximation (RMSEA ≤ 0.08 acceptable; 0.08–0.10 marginal).")
+    path = make(tmp_path, ["Introduction", "Text.", "Methods", t, "Results", "SRMR was 0.06 and RMSEA was 0.07."]
+                + _refs("A A. One. J T 2020;1:1-2."))
+    ch, _ = abbrev.collect(docmodel.load(path), jehp_style())
+    assert not [c for c in ch if c.reason == "expand known abbreviation"]

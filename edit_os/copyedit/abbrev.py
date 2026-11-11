@@ -84,6 +84,17 @@ def known_expansions() -> dict[str, str]:
     return out
 
 
+def _fold_long(t: str) -> str:
+    return re.sub(r"[\s\-‐–—]+", " ", t.lower()).strip()
+
+
+def _long_form_before(text: str, start: int, long: str) -> bool:
+    """The expansion is written just before this use: "standardized root mean square residual (SRMR < 0.08)" -- the
+    author's own definition, with a value in the bracket (jehp_1845_26: expanded again inside it, "(SRMRstandardized
+    root mean square residual (SRMR) < 0.08)")."""
+    return _fold_long(long) in _fold_long(text[max(0, start - len(long) - 40):start])
+
+
 def is_short_form(sf: str) -> bool:
     if not 2 <= len(sf) <= 10 or len(sf.split()) > 2 or not sf[0].isalnum():
         return False
@@ -782,7 +793,8 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                 moved_in.add(key)
                 changes.append(change(p, s, e, f"{long} ({key})", "abbreviations", reason="expand abbreviation at first use"))
             elif cfg.get("expand_known") and key in known_expansions() and p.text[s:e] == key \
-                    and key not in expanded and key not in moved_in and key not in (cfg.get("query") or []):
+                    and key not in expanded and key not in moved_in and key not in (cfg.get("query") or []) \
+                    and not _long_form_before(p.text, s, known_expansions()[key]):
                 # an abbreviation whose expansion is certain (Kaiser–Meyer–Olkin): expanded here, in each part (the
                 # abstract and the text), not asked about (owner, 2026-11-09, jehp_392_26)
                 long = known_expansions()[key]
