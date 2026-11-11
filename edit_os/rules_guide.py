@@ -260,7 +260,8 @@ def find_comparison_symbol(text: str, cfg: dict) -> list:
             for m in re.finditer(r"(?<![<>=])[<>]" + _SP + r"?=(?![=>])", text)]
 
 
-_NUM_RANGE = re.compile(r"(?<![\w\-/.\[,:])(\d+(?:\.\d+)?)( ?)-( ?)(\d+(?:\.\d+)?)(?![\w\-/\]]|\.\d)")
+# (a minus sign typed for the dash too: "Moderate (40−80%)", jehp_1728_26)
+_NUM_RANGE = re.compile(r"(?<![\w\-−/.\[,:])(\d+(?:\.\d+)?)( ?)[-−]( ?)(\d+(?:\.\d+)?)(?![\w\-−/\]]|\.\d)")
 
 
 def find_range_dash(text: str, cfg: dict) -> list:
@@ -278,7 +279,7 @@ def find_range_dash(text: str, cfg: dict) -> list:
                 continue  # "5 - 3": arithmetic
         if any(s < m.start() and m.end() < e for s, e in cites):
             continue
-        if re.match(r"-\d", text[m.end():]) or re.search(r"\d-$", text[:m.start()]):
+        if re.match(r"[-−]\d", text[m.end():]) or re.search(r"\d[-−]$", text[:m.start()]):
             continue
         out.append((m.end(1), m.start(4), "–"))
     return out

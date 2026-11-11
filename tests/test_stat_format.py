@@ -31,3 +31,10 @@ def test_jehp_formats_the_run_together_statistics(tmp_path):
         text = text[:c.start] + c.new + text[c.end:]
     assert "(Path a: B = −0.5009, SE = 0.1295, t = −3.866, P < 0.001, 95% CI −0.7574 to −0.2443)" in text
     assert any(c.reason == "guide.ci_range" for c in cs)
+
+
+def test_minus_sign_typed_for_a_range_dash():
+    # jehp_1728_26: "Moderate (40−80%)" with a minus sign (U+2212) -> en dash; a subtraction stays
+    assert _apply("Low (less than 40%), Moderate (40−80%), or High", g.find_range_dash) == \
+        "Low (less than 40%), Moderate (40–80%), or High"
+    assert _apply("x 5 − 3 = 2", g.find_range_dash) == "x 5 − 3 = 2"
