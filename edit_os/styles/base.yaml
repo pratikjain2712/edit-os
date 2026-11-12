@@ -670,6 +670,7 @@ copyedit:
   abbreviations:
     enabled: true
     query_undefined: true      # "ABBR: Kindly expand the abbreviation."
+    value_definitions: false   # "full form (ABBR < 0.08)" -> "full form (ABBR) < 0.08" (the author's definition, put right)
     expand_known: false        # an undefined one whose expansion is certain (data/known_expansions.txt: KMO, CVI, SD)
                                # expanded at first use instead of the query
     query_before_definition: true

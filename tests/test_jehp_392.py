@@ -45,3 +45,16 @@ def test_known_abbreviation_defined_with_a_value_in_its_bracket_is_not_expanded_
                 + _refs("A A. One. J T 2020;1:1-2."))
     ch, _ = abbrev.collect(docmodel.load(path), jehp_style())
     assert not [c for c in ch if c.reason == "expand known abbreviation"]
+
+
+def test_definition_with_a_value_in_its_bracket_put_right(tmp_path):
+    # owner, 2026-11-12 (jehp_1845_26): "if the abbreviation was already there it should have done it correctly"
+    from edit_os.copyedit import abbrev
+    t = ("Model fit was judged with the normed chi-square (χ²/df < 5), standardized root mean square residual "
+         "(SRMR < 0.08), root mean square error of approximation (RMSEA ≤ 0.08 acceptable; 0.08–0.10 marginal), "
+         "and a mean age (SD = 4.1).")
+    path = make(tmp_path, ["Introduction", "Text.", "Methods", t] + _refs("A A. One. J T 2020;1:1-2."))
+    ch, _ = abbrev.collect(docmodel.load(path), jehp_style())
+    got = {c.old: c.new for c in ch if c.reason == "abbreviation definition form"}
+    assert got == {"(SRMR < 0.08)": "(SRMR) < 0.08",
+                   "(RMSEA ≤ 0.08 acceptable; 0.08–0.10 marginal)": "(RMSEA; ≤ 0.08 acceptable; 0.08–0.10 marginal)"}

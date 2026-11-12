@@ -390,6 +390,7 @@ copyedit:
     query_undefined_min_uses: 1
     # KMO, CVI, CVR ... expanded by us, not asked (owner, 2026-11-09: jehp_392_26 "why so many AQ")
     expand_known: true
+    value_definitions: true  # owner, 2026-11-12 (jehp_1845_26)
     query_undefined_plain_only: true
 
 text:

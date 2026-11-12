@@ -618,6 +618,33 @@ def _pair_notations(ms: Manuscript, existing: list[Change]) -> list[Change]:
     return out
 
 
+# "full form (ABBR < 0.08)", "(ABBR ≤ 0.08 acceptable; 0.08–0.10 marginal)": a definition with the value inside its
+# bracket
+_VALUE_DEF = re.compile(r"\(([A-Z][A-Za-z0-9]{1,9})(\s*)([<>≤≥=][^()]*?)\)")
+
+
+def _value_definitions(ms: Manuscript) -> list[Change]:
+    """The author's definition written with a value in its bracket, put in the usual form (owner, 2026-11-12, jehp_1845_26:
+    "if the abbreviation was already there it should have done it correctly"):
+    "standardized root mean square residual (SRMR < 0.08)" -> "standardized root mean square residual (SRMR) < 0.08";
+    with more in the bracket than one value, "(RMSEA ≤ 0.08 acceptable; 0.08–0.10 marginal)" -> "(RMSEA; ≤ 0.08
+    acceptable; 0.08–0.10 marginal)". Only where the words just before the bracket spell the abbreviation."""
+    out = []
+    for p in ms.paragraphs:
+        if p.in_table or not p.text.strip():
+            continue
+        for m in _VALUE_DEF.finditer(p.text):
+            sf, rest = m.group(1), m.group(3).strip()
+            before = p.text[:m.start()].rstrip()
+            words = before.split()[-(len(sf) + 4):]
+            lf = best_long_form(sf, " ".join(words)) if words else None
+            if not lf or len(lf.split()) < max(2, len(sf) - 2) or not before.endswith(lf.split()[-1]):
+                continue
+            new = f"({sf}) {rest}" if not re.search(r"[;,]", rest) else f"({sf}; {rest})"
+            out.append(change(p, m.start(), m.end(), new, "abbreviations", reason="abbreviation definition form"))
+    return out
+
+
 def _proper_long(long: str) -> bool:
     """A full form that is a name, kept capitalised: two or more words in capitals ("Appraisal Tool for
     Cross-Sectional Studies", "Death Anxiety Scale")."""
@@ -809,6 +836,10 @@ def collect(ms: Manuscript, style: JournalStyle) -> tuple[list[Change], list[Que
                 # Codes with digits or hyphens (gene names, scales such as GDS-15) are rarely queried.
                 queried.add(key)  # once per manuscript
                 queries.append(Query(p.id, s, e, TEXT["abbrev.undefined"].format(abbr=key), "abbrev.undefined"))
+    if cfg.get("value_definitions"):
+        busy = [(c.para_id, c.start, c.end) for c in changes]
+        changes += [c for c in _value_definitions(ms)
+                    if not any(pid == c.para_id and s0 < c.end and c.start < e0 for pid, s0, e0 in busy)]
     if cfg.get("drop_in_headings"):
         changes += _heading_definitions(ms, {c.para_id for c in changes})
     if cfg.get("pair_notations"):
