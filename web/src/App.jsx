@@ -265,14 +265,6 @@ function Home() {
 
       <section>
         <h3 className="section-title">Recent manuscripts</h3>
-        {month && month.articles > 0 && (
-          <p className="muted small">
-            This month: {month.articles} article{month.articles > 1 ? "s" : ""} · {month.billing.pages} pages · price ₹{month.billing.price_inr.toLocaleString("en-IN")} at ₹{month.billing.rate_inr_per_page}/page
-            {` · our cost ₹${month.billing.cost_inr.toLocaleString("en-IN")} (Claude ₹${month.billing.claude_inr}${month.billing.server_inr != null ? ` + server ₹${month.billing.server_inr}` : ""})`}
-            {month.billing.margin_pct != null ? ` · margin ${month.billing.margin_pct}%` : ""}
-            {` · every upload priced as a new article (at ₹${month.usd_inr}/$)`}
-          </p>
-        )}
         {jobs.length === 0 ? <p className="muted">Nothing here yet — your first manuscript will show up here.</p> : (
           <div className="jobs-list">
             {jobs.map((j, i) => (
@@ -285,7 +277,6 @@ function Home() {
                 </span>
                 <span className="muted small hide-phone">
                   {j.summary && j.summary.changes ? `${j.summary.changes.total} suggestions · QC ${j.summary.qc.passed ? "passed" : "blocked"}` : ""}
-                  {j.spend && j.spend.price_inr != null ? ` · ₹${j.spend.price_inr.toFixed(2)} (${j.spend.pages} pages × ₹${j.spend.price_inr_per_page})` : ""}
                 </span>
                 <span className={`pill ${j.status}`}>{j.status}</span>
               </motion.button>
